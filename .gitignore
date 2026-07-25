@@ -1,0 +1,16 @@
+.env
+.env.*
+!.env.example
+
+*.log
+*.tmp
+
+raw-data/
+recordings/
+artifacts/
+outputs/
+
+.idea/
+.vscode/
+Thumbs.db
+.DS_Store
