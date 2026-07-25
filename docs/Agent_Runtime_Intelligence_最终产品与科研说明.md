@@ -1189,6 +1189,8 @@ Common Event Protocol、trace、MCP、CLI、数据库、sandbox、worktree、模
 - CAMU 与 Memory Assemblies；
 - Memory-to-Capability Compiler；
 - 遗忘、休眠与退优化；
+- 记忆、痕迹、自主可达性与生成性残差；
+- 隐性常识、多环境适应与行为轨迹；
 - 动态 focus、价值谱系和轨迹评价；
 - Agent 作为最终实验者；
 - 当前最不确定的科学问题。
