@@ -10,12 +10,15 @@ The project is not a Codex plugin or a Codex-specific optimization system. Codex
 
 [文档索引](docs/README.md)
 
+[开发框架：让 Agent 成为最终实验者](docs/开发框架.md)
+
 [记忆与能力形成：从保存过去到产生未来能力](docs/topics/记忆与能力形成.md)
 
 This document is the current single source of truth for:
 
 - the final product form;
 - the scientific hypothesis;
+- the research and development framework;
 - the definition of zero human learning intervention;
 - Agent identity, lineage, inheritance and meta-evolution;
 - experimental, falsification and publication standards.
