@@ -1,0 +1,17 @@
+# Agentic-Evo 文档索引
+
+## 纲领
+
+- [Agent Runtime Intelligence：最终产品与科研说明](Agent_Runtime_Intelligence_最终产品与科研说明.md)  
+  产品终局、科研命题、零人工学习介入、最终系统边界、实验与发表标准。
+
+## 专题
+
+- [记忆与能力形成：从保存过去到产生未来能力](topics/记忆与能力形成.md)  
+  Vough、Mimi、CAMU、Memory-to-Capability Compiler、遗忘、动态 focus 与价值共同演化、Agent 作为最终实验者。
+
+## 文档原则
+
+- 纲领文件保持最终产品与科研目标的一致定义。
+- 专题文件保留公式、关系图、推导过程、尚未解决的问题和观点修正。
+- 现有协议、模型和工具只作为实验材料，不能反向缩小最终科研目标。

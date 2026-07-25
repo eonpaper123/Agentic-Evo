@@ -8,6 +8,10 @@ The project is not a Codex plugin or a Codex-specific optimization system. Codex
 
 [Agent Runtime Intelligence：最终产品与科研说明](docs/Agent_Runtime_Intelligence_最终产品与科研说明.md)
 
+[文档索引](docs/README.md)
+
+[记忆与能力形成：从保存过去到产生未来能力](docs/topics/记忆与能力形成.md)
+
 This document is the current single source of truth for:
 
 - the final product form;
