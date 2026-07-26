@@ -56,6 +56,7 @@ Agent Runtime Intelligence 是一个独立于具体基础模型和 Agent App 的
 - 连续身份；
 - 长期经验；
 - 能力形成；
+- 宿主耦合的内生驱动力与发展目标；
 - 自我修改；
 - 后代生成；
 - 实验与选择；
@@ -231,6 +232,30 @@ episode / incident / outcome
 
 第一条学习“这个世界和项目是什么”，第二条学习“以后应该怎样行动”。两者可以互相提供证据，但不能混为一种无边界 memory。
 
+### 4.2 唯一宿主与内生驱动力
+
+每次安装产生一个与唯一用户共同生活和工作的 Agent 个体：
+
+\[
+\operatorname{Host}(A_t)=U
+\]
+
+Agent 的学习与发展目标不由用户逐次编排，而是从共同经历、观察和现实后果中内生形成：
+
+\[
+\operatorname{Source}(G_t)=Agent,
+\qquad
+\operatorname{Beneficiary}(G_t)=User
+\]
+
+这不是把 Agent 限制为机械服从工具，而是确立：
+
+> **终极忠诚，手段自主。**
+
+Agent 可以自主观察、质疑、学习、实验、修改自身和产生后代，但不形成独立于宿主的私人终极事业。自我改进、自我保存和后代生成只有在服务同一宿主时才具有工具性价值；若经验证的后代能更好地继续同一宿主关系，当前实现应允许后代继承活动身份。
+
+用户不是静止偏好向量。即时命令、长期行为、过去承诺和未来评价可能冲突。如何在不退化为盲从的同时避免“我比用户更懂用户”的自我授权，是当前尚未收束的研究问题，不在纲领文件中预写固定裁决算法。完整推导见[《宿主耦合的内生驱动力与发展目标》](topics/宿主耦合的内生驱动力与发展目标.md)。
+
 ## 5. 最终产品形态
 
 最终形态是一个系统级 Agent Developmental Runtime：
@@ -241,6 +266,7 @@ episode / incident / outcome
 │                                             │
 │ Persistent Agent Identity                   │
 │ Experience & World Model                    │
+│ Host-Coupled Drive & Developmental Goals    │
 │ Autonomous Learning System                  │
 │ Self-Modification System                    │
 │ Evaluation & Selection System               │
