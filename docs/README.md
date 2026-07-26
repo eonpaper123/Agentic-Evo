@@ -13,7 +13,7 @@
 ## 专题
 
 - [记忆与能力形成：从保存过去到产生未来能力](topics/记忆与能力形成.md)  
-  Vough、Mimi、CAMU、Memory-to-Capability Compiler、生成性残差、隐性与环境化常识、连续回忆深度、记忆自我监控、Agent—环境共同适应、遗忘、动态 focus 与价值共同演化。
+  **状态：理论框架已收束，具体机制交由 Agent 自主实验与进化。**记录 Vough、Mimi、CAMU、Memory-to-Capability Compiler、生成性残差、隐性与环境化常识、连续回忆深度、记忆自我监控、身份与谱系、跨认知状态、错误闭环、适者生存、Agent—环境共同适应、遗忘、动态 focus 与价值共同演化。
 
 ## 文档原则
 

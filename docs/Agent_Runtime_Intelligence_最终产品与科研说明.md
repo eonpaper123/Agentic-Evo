@@ -1198,6 +1198,7 @@ Common Event Protocol、trace、MCP、CLI、数据库、sandbox、worktree、模
 
 记忆专题记录：
 
+- 当前状态：理论框架已经收束，具体记忆机制进入 Agent 自主实验、迭代与进化阶段；
 - Vough Observation Ledger；
 - Mimi 主动重建与竞争性回忆；
 - CAMU 与 Memory Assemblies；
@@ -1216,3 +1217,5 @@ Common Event Protocol、trace、MCP、CLI、数据库、sandbox、worktree、模
 - 动态 focus、价值谱系和轨迹评价；
 - Agent 作为最终实验者；
 - 当前最不确定的科学问题。
+
+记忆专题的收束不表示记忆机制已经实现或自我进化已经得到证明。它表示人类预先推演已经达到停止条件：现有理论足以定义研究空间、保留现实证据、设计因果实验并允许 Agent 替换候选机制。后续只有在实验暴露理论矛盾、不可归因或不可证伪时，才重新打开记忆架构讨论。
