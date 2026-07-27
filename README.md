@@ -20,6 +20,8 @@ The project is not a Codex plugin or a Codex-specific optimization system. Codex
 
 [自主实验学习：问题出生、因果对照与分布式实验生命](docs/topics/自主实验学习.md)
 
+[自主实验学习：研究问题与证伪纲要](docs/research/自主实验学习_研究问题与证伪纲要.md)
+
 This document is the current single source of truth for:
 
 - the final product form;

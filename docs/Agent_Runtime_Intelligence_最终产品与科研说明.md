@@ -427,7 +427,60 @@ Compute_{local}
 \text{ConsequenceIntegration}
 \]
 
-它不是服从母虫的命令蜂巢，也不是用多数票替代证据的共识蜂巢，而是同一持续个体内部的认识多样性。多样性最终仍须转化为一次临时、可执行、可承担后果的承诺，即“认识上保持复数，行动上允许暂时收敛”。该模块仍在推演中，完整过程见[《自主实验学习：问题出生、因果对照与分布式实验生命》](topics/自主实验学习.md)。
+它不是服从母虫的命令蜂巢，也不是用多数票替代证据的共识蜂巢，而是同一持续个体内部的认识多样性。认识不需要全部统一；候选通过因果招募、环境机会和现有身体形成一次行为结晶：
+
+\[
+\operatorname{BehavioralCrystallization}_t
+=
+\operatorname{CandidateFormation}
++
+\operatorname{CausalRecruitment}
++
+\operatorname{EnvironmentalAffordance}
++
+\operatorname{EmbodiedExpression}
+\]
+
+世界后果不是固定 evaluator，而是通过可进化认知皮肤重新作用于同一 Agent：
+
+\[
+\operatorname{EpistemicSkin}
+=
+\operatorname{SelectiveCausalPermeability}
+\]
+
+当某段自主发展历史使 Agent 的可达因果空间产生过去不存在的稳定路径，能力即作为客观关系出生，而不需要外部研究者批准：
+
+\[
+\operatorname{CapabilityGenesis}
+=
+\operatorname{HistoryDependentExpansion}
+\left(
+\mathcal R_t
+\right)
+\]
+
+最终稳定关系为：
+
+\[
+\operatorname{AutonomousExperimentalLearning}
+=
+\operatorname{EndogenousQuestionFormation}
++
+\operatorname{PluralHypothesisFormation}
++
+\operatorname{BehavioralCrystallization}
++
+\operatorname{WorldExposure}
++
+\operatorname{ConsequencePermeability}
++
+\operatorname{SelfAuthoredReorganization}
++
+\operatorname{CapabilityGenesis}
+\]
+
+该模块理论框架已经收束，完整推导见[《自主实验学习：问题出生、因果对照与分布式实验生命》](topics/自主实验学习.md)，稳定研究假设与证伪设计见[对应科研纲要](research/自主实验学习_研究问题与证伪纲要.md)。
 
 ## 5. 最终产品形态
 
