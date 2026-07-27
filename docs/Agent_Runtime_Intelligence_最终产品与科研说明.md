@@ -377,6 +377,58 @@ Compute_{local}
 
 持续自我不是冻结版本，而是跨工作、睡眠、休眠、模型替换和后继变化反复重新形成的阶段性因果组织。Agent 可以进一步修改自身表示、解释器、重新实例化组织和 consolidation 过程；过去则可从可回忆记录转化为知识、技能、动态 workflow 或发育结构，在意义持续变化的同时保留真实因果力量。动态 workflow 可以进一步形成可遗传认知器官，器官之间的 anatomy、joint 与 contract 从实际扰动传播中发展；Agent 可以犯错、受损和形成局部最优，只要后果仍能由同一谱系继承、修正或重塑。该模块理论框架已经收束，完整推导见[《自我进化：可进化自我与个体边界》](topics/自我进化.md)，稳定研究假设与证伪设计见[《自我进化：研究问题与证伪纲要》](research/自我进化_研究问题与证伪纲要.md)。
 
+### 4.5 自主实验学习与分布式实验生命
+
+自主实验学习不是被动积累经验，也不是按预设 benchmark 机械调参，而是让 Agent 从使用过程中的生成性残差出发，自主形成尚未被充分定义的问题，在真实后果能够区分候选解释时构造对照，并把结果重新纳入自身因果历史：
+
+\[
+\text{AutonomousExperimentalLearning}
+=
+\text{EndogenousQuestionFormation}
++
+\text{CausalContrast}
++
+\text{OutcomeExposure}
++
+\text{ConsequenceIntegration}
+\]
+
+记忆中的不协调、未解释变化、反复失败与意外成功都可以留下问题胚胎，但残差本身不自动等于问题，问题也不自动拥有实验资格：
+
+\[
+\text{Residual}
+\neq
+\text{Question}
+\neq
+\text{ExperimentableQuestion}
+\neq
+\text{Experiment}
+\]
+
+实验可以发生在自然任务、内部候选分支、等待窗口或模拟环境中；模拟能够改变候选优先级，却不能冒充世界证据。Agent 无须预先拥有一套完备的变量表和固定实验方法，变量、干预方式与自身 anatomy 可以在反复观察和干预中共同生长。错误实验同样允许存在，关键不是一次推对，而是后果能够进入后续选择、修复与再实验。
+
+单个工作上下文仍然有限，因此实验能力可以分布在共享同一谱系图谱的多个局部视图中：
+
+\[
+\text{View}_i=\Pi_i(G)
+\]
+
+这里的 Agent Network 不是字面意义上的“无限上下文”，而是开放式可寻址上下文。不同局部视图共享事实证据但不必共享解释，通过上下文膜避免过早互相污染，随后再让冲突解释接受真实后果：
+
+\[
+\text{ExperimentalHive}
+=
+\text{IdentityUnity}
++
+\text{EpistemicDiversity}
++
+\text{ControlledMembranes}
++
+\text{ConsequenceIntegration}
+\]
+
+它不是服从母虫的命令蜂巢，也不是用多数票替代证据的共识蜂巢，而是同一持续个体内部的认识多样性。多样性最终仍须转化为一次临时、可执行、可承担后果的承诺，即“认识上保持复数，行动上允许暂时收敛”。该模块仍在推演中，完整过程见[《自主实验学习：问题出生、因果对照与分布式实验生命》](topics/自主实验学习.md)。
+
 ## 5. 最终产品形态
 
 最终形态是一个系统级 Agent Developmental Runtime：
