@@ -14,6 +14,10 @@ The project is not a Codex plugin or a Codex-specific optimization system. Codex
 
 [记忆与能力形成：从保存过去到产生未来能力](docs/topics/记忆与能力形成.md)
 
+[自我进化：可进化自我与个体边界](docs/topics/自我进化.md)
+
+[自我进化：研究问题与证伪纲要](docs/research/自我进化_研究问题与证伪纲要.md)
+
 This document is the current single source of truth for:
 
 - the final product form;
