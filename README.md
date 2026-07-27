@@ -22,6 +22,10 @@ The project is not a Codex plugin or a Codex-specific optimization system. Codex
 
 [自主实验学习：研究问题与证伪纲要](docs/research/自主实验学习_研究问题与证伪纲要.md)
 
+[现实选择与谱系延续：后果、因果组织与同一宿主生命](docs/topics/现实选择与谱系延续.md)
+
+[现实选择与谱系延续：研究问题与证伪纲要](docs/research/现实选择与谱系延续_研究问题与证伪纲要.md)
+
 This document is the current single source of truth for:
 
 - the final product form;

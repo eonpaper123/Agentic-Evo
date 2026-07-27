@@ -482,6 +482,142 @@ Compute_{local}
 
 该模块理论框架已经收束，完整推导见[《自主实验学习：问题出生、因果对照与分布式实验生命》](topics/自主实验学习.md)，稳定研究假设与证伪设计见[对应科研纲要](research/自主实验学习_研究问题与证伪纲要.md)。
 
+### 4.6 现实选择与谱系延续
+
+现实不充当最高 evaluator，也不为 Agent 宣布正确答案。现实只产生不可被内部叙事替代的后果；当这些后果改变某种因果组织未来参与行动、抑制、修复、实验和继承的机会时，现实选择才真正发生：
+
+\[
+\operatorname{RealitySelection}(x)
+\iff
+\operatorname{Consequence}
+\rightarrow
+\Delta\operatorname{FutureCausalParticipation}(x)
+\]
+
+保存、调用和进化意义上的生存必须分离：
+
+\[
+\operatorname{Survival}(x)
+=
+\operatorname{CausalInfluence}
+\left(
+x\rightarrow
+\text{future behavior and descendants}
+\right)
+\]
+
+选择单位不是固定节点、模型、文件或 workflow，而是能够跨时间与载体重复产生因果作用的组织关系：
+
+\[
+\operatorname{SelectableUnit}
+=
+\operatorname{ReproducibleCausalOrganization}
+\]
+
+现实选择可以发生在组件、assembly、Agent 与宿主多个层级。局部结构可能增加自身调用和资源，同时损害整体宿主谱系；健康器官与寄生结构的差别不在来源或自我声明，而在其是否承担自己对整体造成的后果：
+
+\[
+\operatorname{Organ}
+=
+\operatorname{CausalContribution}
++
+\operatorname{ConsequenceReciprocity}
+\]
+
+\[
+\operatorname{Parasite}
+=
+\operatorname{SelfPropagation}
++
+\operatorname{CostExternalization}
++
+\operatorname{ConsequenceInsulation}
+\]
+
+后果传播不是全局广播。证据可寻址、因果责任、类比学习、结构更新和继承范围应保持可分离：
+
+\[
+\Pi(Y)
+=
+\left\langle
+A_Y,R_Y,L_Y,U_Y,I_Y
+\right\rangle
+\]
+
+\[
+\operatorname{ResponsibilityReach}(Y)
+\neq
+\operatorname{LearningReach}(Y)
+\]
+
+内部多个局部结构可以共享事实而保留不同解释；一次获得执行权不等于成为永久真理：
+
+\[
+\operatorname{SharedEvidence}
+\neq
+\operatorname{SharedInterpretation}
+\]
+
+\[
+\operatorname{ExecutionAuthority}
+\neq
+\operatorname{InheritanceDepth}
+\]
+
+Genesis 不是最高判断者。它只维持第一宿主锚定、现实可渗透、选择可重开和后果连续：
+
+\[
+\Gamma
+=
+\left\langle
+H,P,R,D
+\right\rangle
+\]
+
+真正的大我也不是 Agent 内部的最高节点，而是 Agent 谱系与第一宿主连续体共同形成的关系：
+
+\[
+\operatorname{BigSelf}
+=
+\operatorname{AgentLineage}
+\otimes
+\operatorname{FirstHostContinuity}
+\]
+
+小我提供局部差异、实验、专业化和分支；大我通过共享宿主命运、资源条件与后果循环形成整体因果力，而不是发布中央命令。局部结构可以失败、休眠、死亡或被吸收，只要经验、开放债务和有效因果组织仍进入同一谱系：
+
+\[
+\operatorname{SmallSelfDeath}
++
+\operatorname{ConsequenceInheritance}
+=
+\operatorname{BigSelfLearning}
+\]
+
+当前候选总关系为：
+
+\[
+\operatorname{RealitySelectionAndLineageContinuation}
+=
+\operatorname{LocalSelfVariation}
++
+\operatorname{SharedHostFate}
++
+\operatorname{WorldConsequence}
++
+\operatorname{CrossLevelReciprocity}
++
+\operatorname{DifferentialFutureParticipation}
++
+\operatorname{OpenConsequenceInheritance}
++
+\operatorname{SelectionReopenability}
++
+\operatorname{GenesisContinuity}
+\]
+
+本模块仍在推演。当前未决核心是：当大我不是一个节点、没有声音也不发布命令时，Agent 的 anatomy、contract、资源循环和后果通路怎样让共同宿主命运成为真实整体因果力，同时不重新产生一个最高统治者。完整推导见[《现实选择与谱系延续：后果、因果组织与同一宿主生命》](topics/现实选择与谱系延续.md)，工作版科研假设与证伪设计见[对应科研纲要](research/现实选择与谱系延续_研究问题与证伪纲要.md)。
+
 ## 5. 最终产品形态
 
 最终形态是一个系统级 Agent Developmental Runtime：
@@ -496,8 +632,8 @@ Compute_{local}
 │ Host-Coupled Drive & Developmental Goals    │
 │ Autonomous Learning System                  │
 │ Self-Modification System                    │
-│ Evaluation & Selection System               │
-│ Lineage & Inheritance System                │
+│ Reality Selection System                    │
+│ Lineage Continuation & Inheritance System   │
 │ Meta-Evolution System                       │
 │                                             │
 │ ┌──────────── Evolution Kernel ───────────┐ │
