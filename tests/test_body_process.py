@@ -181,6 +181,66 @@ class BodyProcessTests(unittest.TestCase):
             {record.author_kind for record in self.runtime.evidence.records()},
         )
 
+    def test_body_process_can_prepare_and_advance_one_private_lineage(
+        self,
+    ) -> None:
+        before = self.runtime.status()
+        body = self._spawn()
+
+        candidate = body.rehearse_prepare_successor(
+            files={"entrypoint.md": "Body one"}
+        )
+        self.assertEqual(self.runtime.status().head, before.head)
+        self.assertTrue(body.is_alive())
+
+        advanced = body.rehearse_advance_head(candidate_head=candidate)
+        self.assertEqual(advanced["head"], candidate)
+        self.assertEqual(advanced["generation"], before.generation + 1)
+        self.assertEqual(self.runtime.status().head, candidate)
+        self.assertTrue(body.wait_closed(timeout_seconds=5.0))
+
+        replacement = self._spawn()
+        self.assertEqual(replacement.boot.head, candidate)
+        lineage_records = [
+            record
+            for record in self.runtime.evidence.records()
+            if record.event_kind
+            in {"body_candidate_prepared", "head_advanced"}
+        ]
+        self.assertTrue(lineage_records)
+        self.assertLessEqual(
+            {record.author_kind for record in lineage_records},
+            {"in_process_rehearsal"},
+        )
+        self.assertNotIn(
+            "agent_self_authored",
+            {record.author_kind for record in lineage_records},
+        )
+
+    def test_body_process_rejects_a_candidate_from_outside_its_channel(
+        self,
+    ) -> None:
+        body = self._spawn()
+        before, authority_epoch = self.runtime._body_lease_binding()
+        foreign_candidate = self.runtime._prepare_successor(
+            expected_parent=before.head,
+            files={"entrypoint.md": "foreign candidate"},
+            author_kind="in_process_rehearsal",
+            ingress_path="in_process_rehearsal",
+            expected_authority_epoch=authority_epoch,
+        )
+
+        with self.assertRaises(BodyBootError):
+            body.rehearse_advance_head(candidate_head=foreign_candidate)
+
+        self.assertEqual(self.runtime.status().head, before.head)
+        self.assertTrue(body.is_alive())
+        owned_candidate = body.rehearse_prepare_successor(
+            files={"entrypoint.md": "owned candidate"}
+        )
+        advanced = body.rehearse_advance_head(candidate_head=owned_candidate)
+        self.assertEqual(advanced["head"], owned_candidate)
+
     @unittest.skipUnless(sys.platform == "win32", "Windows native contract")
     def test_windows_body_worker_is_kernel_fenced(self) -> None:
         body = self._spawn()
