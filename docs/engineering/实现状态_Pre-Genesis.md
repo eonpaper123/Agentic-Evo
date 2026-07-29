@@ -127,6 +127,7 @@ Nira 不拥有 Root，不产生独立 Agent，也不是本工具的安装范围�
 - wake 返回当前 Head 承诺的 activation kind、path 与 digest；
 - 显式缺失 activation artifact 被拒绝，unknown activation kind 不能成为 Current Head；
 - unsupported Genesis activation 在任何出生状态写入前被拒绝，并可在同一路径重试；
+- candidate probation 已收敛为无谱系权限的 activation gate；当前只实现静态 compatibility，不冒充真实进程试生；
 - adapter 的科研仪器失败不会阻断 coding-agent hook。
 
 这些结果证明的是代码契约，不是长期学习、自我进化或独立科研证据已经成立。
@@ -299,3 +300,5 @@ Authority
 同权限作者来源不可区分、Windows service boundary、Body 私有 capability 与可信事务域的进一步推导，见[《最小可信边界与来源证明》](最小可信边界与来源证明.md)。
 
 Head 的最小出生信封、解释器不可消除性、exact activation / exact boot 的证明边界及下一轮 probation boot 问题，见[《最小 Body 启动契约》](最小Body启动契约.md)。
+
+候选有限试生、optional rehearsal、Current Body 推进权与禁止 evaluator 自动晋升的边界，见[《候选试生与 Head 推进》](候选试生与Head推进.md)。

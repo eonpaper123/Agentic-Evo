@@ -17,6 +17,8 @@
   推导同权限域下作者来源不可区分定理，区分身份、科研见证与自我作者证明，确定 Windows service SID、显式 named-pipe ACL、Body 私有 capability 和单 SQLite 事务域的最小路径。
 - [最小 Body 启动契约](engineering/最小Body启动契约.md)
   证明不存在无解释器的任意 Body 启动，收敛 `activation_kind + activation_artifact` 的最小出生信封，区分 exact activation reference 与受保护 exact boot，并明确当前 UTF-8 context 只是首个 surface projection。
+- [候选试生与 Head 推进](engineering/候选试生与Head推进.md)
+  分离 mandatory activation gate 与 optional rehearsal，规定无谱系权限的 candidate probation 只能证明有限可实例化，不能成为 evaluator、自动晋升器或候选质量判决。
 
 ## 专题
 
