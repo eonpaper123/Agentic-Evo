@@ -1,6 +1,6 @@
 # 跨平台 CLI、Off 控制与零安装副作用计划
 
-> 状态：Pre-Genesis 可移植层停止点；Windows foreground public pipe 已原生化，Off control 仍为 generic / unverified
+> 状态：Pre-Genesis 可移植层停止点；Windows foreground 已形成四个局部原生组件，Off control 仍为 generic / unverified
 > 对应实现：`src/agentic_evo/cli.py`、`ipc.py`、`service.py`、`install_plan.py`、`adapters/codex.py`  
 > 当前实测平台：Windows  
 > macOS / Linux 状态：协议与目标计划可生成，原生实现和实机测试均未完成
@@ -15,7 +15,7 @@
 2. coding-agent Surface 只能使用公共 allowlist；
 3. exact Current Head 可以经匿名 pipe 交给 diagnostic subprocess 重建；
 4. authority epoch、Head、Root、activation 与 ReadyEcho 可以共同围栏旧启动；
-5. 这些仍不是独立 OS principal、正式私有 lineage channel 或真实 trusted boot。
+5. 后续 Windows 切片已形成 restricted Body 与 private lineage transport rehearsal，但仍不是独立 OS principal、安装态 authenticated lineage 或真实 trusted boot。
 
 本轮继续回答：
 
@@ -456,7 +456,9 @@ native_security_verified = false
 portable_protocol_complete = true
 implemented_native_components =
   [win32_job_object_process_tree_fencing,
-   win32_public_named_pipe_dacl_peer_authentication]
+   win32_public_named_pipe_dacl_peer_authentication,
+   win32_restricted_low_integrity_body_process_rehearsal,
+   win32_explicit_inherited_private_lineage_transport_rehearsal]
 ```
 
 计划不包含：
@@ -555,7 +557,7 @@ RenderPlan(P)\neq NativeVerified(P)
 }
 \]
 
-本节的 plan rendering 与可移植协议测试不能证明 macOS 或 Linux 原生边界，也不能证明 Windows SCM、service SID、protected state、HostPresence 或 private lineage。后续 Windows 原生测试已经证明 foreground Job Object primitive 与 public named-pipe DACL / remote rejection / peer account binding；这些局部证据不能反推安装态或其他原生边界。
+本节的 plan rendering 与可移植协议测试不能证明 macOS 或 Linux 原生边界，也不能证明 Windows SCM、service SID、protected state 或 HostPresence。后续 Windows 原生测试已经证明 foreground Job、public peer、restricted Low-Integrity Body 与 explicit inherited private lineage transport rehearsal；这些局部证据不能反推 distinct-principal authentication、安装态或其他平台原生边界。
 
 ---
 
@@ -637,8 +639,11 @@ AdvanceHead
 29. Windows foreground public pipe 的显式 DACL 只给 SYSTEM 与绑定用户 SID 最小 client access，要求 `GENERIC_READ | GENERIC_WRITE` 的宽权限客户端被拒绝；
 30. `PIPE_REJECT_REMOTE_CLIENTS`、server-side named-pipe impersonation / TokenUser SID 与 client PID 在独立子进程往返中成立；SID 不等于 HostPresence，PID 只用于诊断；
 31. public Surface 与 generic、未认证 Off endpoint 仍是两条不同 transport，public account binding 不会把 Off provenance 升级。
+32. Windows child 的实际 restricted token、Low Integrity、suspended handoff、Job-before-Resume 与 explicit inherited private handles 已验证；
+33. Body 发起的严格序号谱系往返、same-lease candidate、authoritative result binding、replay/forgery rejection 与 `OutcomeUnknown` 已验证；
+34. Boot、command、response、stop 写入都受 deadline 约束，partial writes 被完整补写。
 
-截至当前停止点，全仓共 100 项测试通过，并以 `ResourceWarning` 作为错误运行。
+截至当前停止点，全仓共 118 项测试通过，并以 `ResourceWarning` 作为错误运行。
 
 ---
 
@@ -651,10 +656,10 @@ AdvanceHead
 3. 普通本地进程不能删除、替换或劫持 endpoint；
 4. state/key 只对 Witness principal 可读；
 5. service crash 时整个进程树原子终止；
-6. Body subprocess 拥有自己的 lineage capability；
+6. Body transport capability 已经由 distinct OS principal 在安装态防止同账户进程复制或冒充；
 7. Body 已执行 activation 的真实语义；
 8. macOS / Linux 原生行为；
-9. Windows SCM / service SID / protected state，以及 Job Object 和 public pipe 在安装后 service context 中的完整行为；当前只验证 foreground diagnostic Body 的 kill-on-close 与 public peer account binding；
+9. Windows SCM / service SID / protected state，以及现有四个局部组件在安装后 service context 中的完整行为；
 10. Codex Hook 已安装、已信任或已在真实 session 自然触发；
 11. `PermissionRequest` 或其他计划事件已由本项目做安装后集成验证；
 12. 当前 Windows public pipe 的 SID 是 HostPresence，或 client PID 是授权身份；
@@ -691,9 +696,9 @@ cross-platform native implementation verified
 ```
 
 ```text
-Public peer SID + diagnostic PID
+Public peer SID + restricted Body transport rehearsal
 ≠
-HostPresence + private lineage authority
+HostPresence + installed private lineage authority
 ```
 
 ```text
@@ -720,8 +725,8 @@ Agentic-Evo is a CLI product
 
 继续在 Python 层增加 token、另一把用户密钥、通用 control RPC、模拟 principal、可执行但虚假的 service 脚本，不会增强上述命题。
 
-Windows foreground Job Object 与 public named pipe 已完成当前局部原生切片；`native_security_verified=false`、`ready_to_install=false`，也没有 SCM、protected state 或安装事实。
+Windows foreground Job、public named pipe、restricted suspended Body 与 private lineage transport rehearsal 已完成当前局部切片；`native_security_verified=false`、`ready_to_install=false`，也没有 SCM、protected state 或安装事实。
 
 下一项是：
 
-> 建立 restricted Body token + private inherited lineage handle，使 Current Body 来源不能由 public Surface 冒充；随后再进入 SCM principal、protected state、HostPresence 与可逆安装。正式 Genesis 与用户级 Codex Hook 写入仍需单独授权。
+> 建立 SCM Witness principal + service-owned protected state，在临时可逆安装中复验 public peer、restricted Body capability、崩溃恢复和同账户攻击；之后再单独攻克 HostPresence。正式 Genesis 与用户级 Codex Hook 写入仍需单独授权。

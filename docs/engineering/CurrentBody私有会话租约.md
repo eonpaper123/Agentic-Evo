@@ -297,9 +297,15 @@ author_kind = in_process_rehearsal
 12. 伪造 rehearsal 标签或其他来源候选不能被当前 lease 洗白；
 13. stale parent 在 lifecycle lock 内被拒绝且不产生 evidence；
 14. Surface 声明 `agent_self_authored` 不改变派生来源；
-15. 当前 Pre-Genesis evidence 不把逻辑演练冒充为 `agent_self_authored`。
+15. 当前 Pre-Genesis evidence 不把逻辑演练冒充为 `agent_self_authored`；
+16. restricted Body 发出的请求必须绑定当前 boot session 与严格递增序号；
+17. foreign candidate 与旧 Body lease 的 candidate 不能被当前 Body 推进；
+18. result 必须来自本次 witnessed request，并精确投影 authoritative Witness response；
+19. timeout 或异步通道故障若无法排除请求已跨过线性化点，会返回 `OutcomeUnknown`；
+20. Body crash 会释放 volatile lease，prepared candidate 不跨 lease 继承；
+21. Boot、command、response 与 stop 的父端写入均受 deadline 约束。
 
-这些结果与单一可信事务域共同证明“正常实现路径上的谱系操作编排”，不是不可绕过的安全来源。包含后续 Windows Job 与 public-pipe 回归在内，当前全仓 100 项测试在 `ResourceWarning` 作为错误时通过。
+这些结果与单一可信事务域共同证明“逻辑 lease + 真实跨进程 transport rehearsal”的正常因果路径，不是安装态不可绕过的安全来源。包含后续 Windows 原生回归在内，当前全仓 118 项测试在 `ResourceWarning` 作为错误时通过。
 
 ---
 
@@ -340,16 +346,15 @@ Authority=Off
 
 ### 10.5 本 lease 层与后续 subprocess rehearsal 的边界
 
-本 lease 层形成时，还没有 Witness-spawned exact-Head Body process、父进程创建的匿名 pipe，以及用于启动握手的 Boot challenge / `ReadyEcho`。后续 subprocess rehearsal 已经补上这三项，用于验证 exact-Head 诊断子进程及其启动关系。
+本 lease 层形成时，还没有 Witness-spawned exact-Head Body process、父进程创建的匿名 pipe，以及用于启动握手的 Boot challenge / `ReadyEcho`。后续 subprocess rehearsal 先补上这三项；再后续的 Windows 切片已经补上 restricted Low-Integrity suspended child、explicit inherited handle pair 与 Body 发起的 `prepare / advance` 谱系往返。
 
-但这只建立了 `subprocess_rehearsal`，不等于独立安全主体、可信私有 lineage 通道或可复用的 RPC 防重放协议。尤其 Boot challenge 只是本次启动握手的私有 challenge，不是 lineage RPC 的 nonce / replay protection。
+当前 `agentic-evo-private-lineage-v1` 已有 boot-session binding、严格整数序号、same-lease candidate 与 authoritative result binding；replay、伪造 result、claimed authorship、深层 JSON 和 deadline failure 已有测试。它建立的是 `private_lineage_transport_rehearsal`，不等于独立安全主体或安装态不可复制的 Body capability。
 
-Windows foreground public pipe 后续已加入显式 DACL、remote rejection、最小 client access、impersonated TokenUser SID 与 client PID。这个结果只认证 public peer 的账户：SID 不等于 HostPresence，PID 只用于诊断，public connection 不等于 private lineage；Off control 仍是 generic / unverified。因此截至当前仍然没有：
+Windows foreground public pipe 后续已加入显式 DACL、remote rejection、最小 client access、impersonated TokenUser SID 与 client PID。这个结果只认证 public peer 的账户：SID 不等于 HostPresence，PID 只用于诊断；private transport 的父子拓扑也不等于 distinct principal。Off control 仍是 generic / unverified。因此截至当前仍然没有：
 
 - 独立 Witness service principal；
-- 绑定独立 Body principal 的 authenticated private lineage endpoint；
+- 绑定独立 Body principal、对同账户 foreground 进程不可复制的 authenticated private lineage endpoint；
 - peer credential / code-signing enforcement；
-- 可复用的 private lineage RPC nonce / replay protection；
 - probation principal；
 - 机器级唯一安装和正式 Root；
 - `agent_self_authored` 的可信派生。
@@ -362,7 +367,7 @@ Windows foreground public pipe 后续已加入显式 DACL、remote rejection、�
 
 ```text
 Windows
-→ [foreground 下一项] restricted Body token + private inherited lineage handle
+→ [foreground 已演练] restricted Low-Integrity Body + private inherited lineage transport
 → [installed final] restricted service SID + service-owned trusted state
 
 macOS
@@ -401,7 +406,7 @@ PrivateSource
 
 因此可以在这一层停下。
 
-后续 foreground service 已经完成了 fixed-home singleton、公共 allowlist、exact-Head package 与 diagnostic subprocess ReadyEcho；详见[《机器 Witness 服务与 exact-Head 子进程演练》](机器Witness服务与exact-Head子进程演练.md)。该子进程的 lease 仍由父进程持有，所以只叫 `subprocess_rehearsal`。
+后续 foreground service 已经完成 fixed-home singleton、公共 allowlist、exact-Head package 与 subprocess ReadyEcho；Windows 后续切片又让 restricted Body 真实发起谱系请求，但 lease 的权威语义仍由父进程 Witness 持有。因此它升级为 `private_lineage_transport_rehearsal`，不升级为 `agent_self_authored`。详见[《机器 Witness 服务与 exact-Head 子进程演练》](机器Witness服务与exact-Head子进程演练.md)和[《受限 Body 与私有谱系能力演练》](受限Body与私有谱系能力演练.md)。
 
 CLI、Off-only control 与三平台 dry-run 工件现已完成；下一项仍不是继续扩张进程内 lease，而是把同一协议放进真正的 OS 边界：
 
@@ -413,13 +418,13 @@ CLI、Off-only control 与三平台 dry-run 工件现已完成；下一项仍不
 + [已演练] 临时目录 Off / crash / restart / tracked-service cleanup
 + [Windows 已实现] diagnostic Body Job Object kill-on-close
 + [Windows 已实现] foreground public pipe DACL / remote rejection / peer-SID verification / diagnostic PID
-→ restricted Body token + private inherited lineage handle
-+ native machine-level Witness service
-+ service-owned trusted state / key
++ [Windows 已演练] restricted Low-Integrity suspended Body / explicit inherited private lineage transport
+→ native machine-level Witness service principal
++ service-owned protected state / key
 + probation 无谱系 dispatcher
 + 平台临时安装 / 权限攻击 / uninstall 演练
 ```
 
-CLI/control/install-plan 的公式、因果顺序、三平台合同与证明上限见[《跨平台 CLI、Off 控制与零安装副作用计划》](跨平台CLI与Off控制演练.md)；Windows Job 围栏与 foreground public-pipe 两项原生证据见[《Windows 原生 Witness 边界》](Windows原生Witness边界.md)。
+CLI/control/install-plan 的公式、因果顺序、三平台合同与证明上限见[《跨平台 CLI、Off 控制与零安装副作用计划》](跨平台CLI与Off控制演练.md)；Windows 四项 foreground 局部证据见[《Windows 原生 Witness 边界》](Windows原生Witness边界.md)，其中受限 Body 和私有谱系因果链详见[《受限 Body 与私有谱系能力演练》](受限Body与私有谱系能力演练.md)。
 
 在该边界真实形成前，不安装正式服务，不启动正式 Genesis，也不产生 `agent_self_authored` 科研主张。

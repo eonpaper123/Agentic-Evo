@@ -22,13 +22,15 @@
 - [单一可信事务域](engineering/单一可信事务域.md)
   把身份锚、Root、Head、Authority、session、evidence 与本地 checkpoint 收入一个 SQLite 原子提交，给出 Genesis、CAS、崩溃、session 承诺和本地 HMAC 的公式、关系图、验证结果与证明上限。
 - [Current Body 私有会话租约](engineering/CurrentBody私有会话租约.md)
-  给出 exact-Head 短期 lease、authority epoch、候选归属、一次性推进、失败重试与来源降级的公式、状态机和测试；明确当前只是进程内协议演练与合作式互斥，不是 OS Body principal 身份证明。
+  给出 exact-Head 短期 lease、authority epoch、候选归属、一次性推进、失败重试与来源降级的公式、状态机和测试；后续受限 Body 已复用该语义形成真实跨进程 transport rehearsal，但仍不是安装态 OS Body principal 身份证明。
 - [机器 Witness 服务与 exact-Head 子进程演练](engineering/机器Witness服务与exact-Head子进程演练.md)
-  记录固定 dev-home 的 cooperative-singleton 前台服务、公共 Surface allowlist、exact-Head 全 package、匿名子进程 Boot/ReadyEcho、authority-epoch fencing、崩溃语义、三平台映射与严格证明上限；当前只成立 `subprocess_rehearsal`，不成立独立 principal、真实 lineage capability 或 `agent_self_authored`。
+  记录固定 dev-home 的 cooperative-singleton 前台服务、公共 Surface allowlist、exact-Head 全 package、匿名子进程 Boot/ReadyEcho、authority-epoch fencing、崩溃语义、三平台映射与严格证明上限；后续已增加受限 Body 与私有谱系 transport rehearsal，但 provenance 仍不升级为 `agent_self_authored`。
 - [跨平台 CLI、Off 控制与零安装副作用计划](engineering/跨平台CLI与Off控制演练.md)
   记录 `serve/status/hook/off/plan-install`、Codex adapter 实现只经公共 Surface、未认证控制只允许 Off、原子幂等、输入/输出投影与 Timer 边界、Off/crash/restart/tracked-service cleanup 实验，以及 Windows/macOS/Linux 原生目标合同；计划不安装任何服务或 Hook，三平台均保持 `not_run`。
 - [Windows 原生 Witness 边界](engineering/Windows原生Witness边界.md)
-  记录两项真实 Windows foreground 原生证据：Job Object 通过既有 process handle 在 exact-Head Boot 前围栏 fixed diagnostic Body；public named pipe 使用显式 DACL、`PIPE_REJECT_REMOTE_CLIENTS`、最小 client access，并核验 peer SID、记录 PID。全仓 100 项测试在 `ResourceWarning` 作为错误时通过；同账户 SID 不是 HostPresence，public 认证不是 private lineage，Off 仍是 unverified rehearsal，SCM 安装态与完整 native security 均未成立。下一项是 restricted Body token 与 private inherited lineage capability。
+  汇总四项 Windows foreground 局部原生证据：Job Object、认证 public named pipe、restricted Low-Integrity suspended Body，以及 explicit inherited private lineage transport；全仓 118 项测试通过。它们仍不等于 SCM、protected state、HostPresence、安装态 native security 或正式 Genesis。
+- [受限 Body 与私有谱系能力演练](engineering/受限Body与私有谱系能力演练.md)
+  保存 restricted child token、suspended handoff、显式 capability handles、Body 发起谱系请求、authoritative result binding、`Committed / Rejected / Unknown`、阻塞写 deadline、短写处理与三平台 adapter 映射的公式、关系图、攻击证据和严格声明边界。
 
 ## 专题
 
@@ -69,7 +71,7 @@
 ## 实验
 
 - [实验 001：机器级连续生命循环](../experiments/001_机器级连续生命循环.md)
-  从 Genesis 开始验证同一用户绑定 Agent 的机器级唯一身份、跨对话和跨项目连续、跨 coding-agent 接入、独立证据、合法 Head 推进、睡眠/等待恢复与真实 Off；当前纵切面已形成 Pre-Genesis 代码与两项 Windows foreground 原生证据，正式实验尚未启动。
+  从 Genesis 开始验证同一用户绑定 Agent 的机器级唯一身份、跨对话和跨项目连续、跨 coding-agent 接入、独立证据、合法 Head 推进、睡眠/等待恢复与真实 Off；当前纵切面已形成 Pre-Genesis 代码与四项 Windows foreground 局部原生证据，正式实验尚未启动。
 
 ## 文档原则
 

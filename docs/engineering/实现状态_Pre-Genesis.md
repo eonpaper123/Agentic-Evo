@@ -1,7 +1,7 @@
 # Agentic-Evo 实现状态：Pre-Genesis
 
 更新时间：2026-07-30
-状态：Pre-Genesis Python 可移植层已到停止点；Windows foreground Job Object 与原生 public named pipe 已形成局部原生证据，尚无 SCM principal、protected state、HostPresence、私有 lineage、原生安装或正式 Genesis
+状态：Pre-Genesis Python 可移植层已到停止点；Windows foreground 已形成 Job、认证 public pipe、restricted Body 与 private lineage transport 四项局部证据，尚无 SCM principal、protected state、distinct Body principal、HostPresence、原生安装或正式 Genesis
 适用范围：当前仓库中的真实实现、已验证性质、未成立性质和 Genesis 前阻断项
 
 ---
@@ -17,7 +17,8 @@ Trusted State（身份锚 + Head + session + evidence + checkpoint）
 + Content-addressed Body
 + Machine Runtime
 + WitnessCore（Current Body lease 逻辑演练）
-+ Foreground Witness service / Windows native public pipe / exact-Head subprocess rehearsal
++ Foreground Witness service / Windows native public pipe
++ restricted exact-Head Body / private lineage transport rehearsal
 + CLI / Off-only control / zero-install-effect native plan
 + Codex Adapter
 ```
@@ -38,6 +39,8 @@ Genesis
 → public Surface allowlist
 → exact Head package 经匿名 pipe 交给 diagnostic subprocess
 → ReadyEcho 后重新校验 Head / authority epoch
+→ Windows restricted Low-Integrity Body 在 suspended 状态完成 Job 与显式私有 handle 交接
+→ Body 发起严格序号的 prepare / advance，结果绑定 authoritative Witness response
 → Codex Hook 只经 public Surface
 → 独立 unauthenticated Off-only control rehearsal
 → Off / crash / restart / tracked-service cleanup
@@ -105,8 +108,8 @@ Nira 不拥有 Root，不产生独立 Agent，也不是本工具的安装范围�
 | 身体空间 | 内容寻址 blob、v2 manifest、Root、父代、generation、author、`activation_kind + activation_artifact` | 身体内容与谱系承诺可重建；显式缺失入口不再回退；新会话可取得 exact Head 承诺的 activation path 与 digest |
 | 证据与本地见证 | SQLite 内连续 evidence hash chain；每次可信变化一个 checkpoint；checkpoint 承诺 `Who / Why / Root / Head / Authority / sessions_hash / evidence tail` | evidence、状态与 checkpoint 数量和尾部必须一致；人工仪器变化与 Human Learning Intervention 仍可分类；当前 MAC 不是独立数字签名 |
 | Runtime | Genesis 单写者锁、生命周期串行锁、跨会话状态、wake/wait、后继准备、事务内 Head CAS、On/Off | 同一测试安装可跨项目与接入面保持一个 Root 和 Head；并发 Genesis 只有一个成功；独立 Runtime 竞争旧 Head 只有一个赢家；真实进程退出不留半提交历史 |
-| Current Body lease 演练 | volatile `CurrentBodySession`、exact Root / Head、authority epoch、单调 deadline、lease-local candidate set、跨平台 OS 文件锁 | 正常谱系路径不能由 Surface 直接调用；Off→On、旧 Head、过期、其他 lease 候选和伪造 rehearsal 标签不能复用推进权；当前仍不认证 OS Body principal |
-| 前台 Witness / 子进程演练 | 固定 dev-home、cooperative-singleton service lock、Windows 原生 public named pipe / POSIX AF_UNIX、public allowlist、exact-Head package、匿名 stdin/stdout、Boot challenge / ReadyEcho、sanitized environment | Windows public pipe 使用显式 DACL、拒绝 remote clients、最小 client access，以 impersonated TokenUser SID 校验 peer，并把 client PID 作为诊断事实；公共 Surface 没有 lineage API；子进程能重建 exact Head；只证明单实例串行 foreground 路径与 `subprocess_rehearsal` |
+| Current Body lease 演练 | volatile `CurrentBodySession`、exact Root / Head、authority epoch、单调 deadline、lease-local candidate set、跨平台 OS 文件锁 | 正常谱系路径不能由 Surface 直接调用；Off→On、旧 Head、过期、其他 lease 候选和伪造 rehearsal 标签不能复用推进权；后续 private transport 复用该语义，但当前仍不认证 distinct OS Body principal |
+| 前台 Witness / 子进程演练 | 固定 dev-home、cooperative-singleton service lock、Windows 原生 public named pipe / POSIX AF_UNIX、public allowlist、exact-Head package、Windows explicit inherited anonymous pipes / POSIX stdio fallback、Boot / ReadyEcho、sanitized environment | Windows public pipe 校验 peer SID；Windows child 是 restricted Low-Integrity suspended process并在 Resume 前加入 Job；Body 真实发起严格序号谱系请求，结果绑定 authoritative Witness response；只证明 foreground `subprocess_rehearsal + private_lineage_transport_rehearsal` |
 | CLI / Off 控制演练 | `serve / status / hook / off / plan-install`；独立 generic、未认证的 Off endpoint；事务内原子幂等；Body 退出后回包；receive Timer 与 response Timer 分离 | Off 控制协议仍只提供 Off，不提供 On 或谱系操作；Off 与 crash/restart 因果可区分；public pipe 的 SID 认证不扩展到 Off，也不证明 HostPresence 或真实 transport partial-frame / response-frame 取消 |
 | Codex adapter | `SessionStart / SessionEnd / prompt / tool / compact / subagent / stop / permission` 映射；实现路径只经 `SurfaceClient`；原文哈希化；失败隔离 | Codex 可作为端口而不成为身份；当前 adapter 没有 trusted-state 或 Off 操作，观测失败不阻断 coding-agent 主任务；同 OS 用户下的实际读取/调用能力尚未隔离 |
 | 有界公共投影 | string parameter 1024 UTF-8 bytes、Body path 512 bytes；wake body files 最多 16 项/8 KiB、activation context 24 KiB；status active sessions 最多 32 项/24 KiB；按 canonical JSON bytes 预算并返回 total/truncated | 合法大 Head、增长中的 session 集合和 escape-heavy 文本不再必然撑破 64 KiB 响应；内部事实没有被截断，只有公共投影有界 |
@@ -165,6 +168,10 @@ Nira 不拥有 Root，不产生独立 Agent，也不是本工具的安装范围�
 - Windows diagnostic Body 在接收 Boot 前加入匿名、不可继承、`KILL_ON_JOB_CLOSE` 的 Job Object；真实父/孙进程测试证明最后 handle 关闭会终止进程树，assignment 失败则不发送 Boot 并释放 lease；
 - Windows foreground public Surface 使用显式 DACL，只给 SYSTEM 与绑定用户 SID 最小 `SYNCHRONIZE + read/write data + read/write attributes` 访问；`PIPE_REJECT_REMOTE_CLIENTS` 拒绝远端客户端，要求 `GENERIC_READ | GENERIC_WRITE` 的宽权限客户端被拒绝；
 - public pipe 服务端通过 named-pipe impersonation 读取 `TokenUser` SID，并独立取得 client PID；SID 不匹配即拒绝，PID 只进入诊断事实而不承担授权；
+- Windows child 的实际 token 被重新查询为 restricted、Integrity RID 为 4096、权限至多保留 `SeChangeNotifyPrivilege`；
+- child 以 `CREATE_SUSPENDED` 启动，显式 handle list 只承接私有双管道，Job assignment、父端副本关闭和 child handle seal 均发生在 Boot 前；
+- Body 发起的 `prepare / advance` 绑定 boot session、严格整数序号、same-lease candidate 与 authoritative Witness response；伪造、重放、claimed authorship 与深层 JSON 被拒绝；
+- Boot、command、response 与 stop 的父端写入都有 deadline；写超时先终止 Body，无法排除提交时返回 `BodyLineageOutcomeUnknown`，partial writes 被完整补写；
 - Off 后延迟到达的 session end 被拒绝，不再增长 revision、evidence 或 checkpoint；
 - adapter 的科研仪器失败不会阻断 coding-agent hook；
 - Codex adapter 服务缺席时 fail-open，且不再 fallback 到直接打开 SQLite；
@@ -178,7 +185,7 @@ Nira 不拥有 Root，不产生独立 Agent，也不是本工具的安装范围�
 - public string parameter 与 Body logical path 有明确 byte bound；含 1201 个文件的合法 Head 可以 wake，body-files、activation-context 与 active-sessions 按 canonical JSON bytes 返回有界投影及 count/truncated；
 - `plan-install` 跨 cwd、环境和伪 home 逐字节确定，不创建 Agent 文件或状态、不安装服务或 Hook、不启动受管 Agent 进程，也不执行 Genesis；
 - Windows、macOS、Linux 目标均保持 `native_test_status=not_run`；
-- 当前全仓 100 项测试在 `ResourceWarning` 作为错误时通过。
+- 当前全仓 118 项测试在 `ResourceWarning` 作为错误时通过。
 
 这些结果证明的是代码契约，不是长期学习、自我进化或独立科研证据已经成立。
 
@@ -214,7 +221,7 @@ Runtime 现在会交叉检查 SQLite state、session、当前 Body、evidence �
 
 ### 5.3 逻辑 Off 与子进程 EOF 不等于机器级真实终止
 
-当前 Windows diagnostic Body 已由 Job Object 围栏，最后 handle 关闭会由内核终止其进程树；foreground public pipe 也已形成显式 DACL、remote rejection、peer-SID verification 与 diagnostic PID 证据。但还没有受 SCM / launchd / systemd 监督的 daemon、独立 Body principal、sleep/GPU worker，macOS / Linux 也没有对应 supervisor。它证明的是当前受跟踪 Body tree 的 Windows kill-on-close 与 public account binding，不是所有后台活体活动都已被发现或已在宿主 Off 瞬间终止。
+当前 Windows Body 已由 Job Object 围栏，并以 restricted Low-Integrity token suspended-spawn；foreground public pipe 与 private lineage transport 也已有实机证据。但还没有受 SCM / launchd / systemd 监督的 daemon、distinct Body principal、sleep/GPU worker，macOS / Linux 也没有对应 supervisor。它证明的是 foreground 受跟踪 Body tree 与 transport，不是所有后台活体活动都已被发现或已在宿主 Off 瞬间终止。
 
 ### 5.4 adapter 函数不等于已覆盖所有 coding agent
 
@@ -240,18 +247,18 @@ Root、Head、Authority、session、revision、evidence 与 checkpoint 现已进
 - evidence append 每次重新验证完整历史，长期运行会趋向二次增长；需要独立 writer、索引和分段签名 checkpoint；
 - adapter 失败目前静默退出以保护用户任务，但还没有身体之外的 health / coverage-gap 通路；
 - activation artifact 会进入模型上下文，当前尚无内容分级、模型信任域、跨项目泄露检查和最大 body 读取边界；
-- 当前 `surface-context-utf8-v1` 只形成 exact activation reference，不是受保护 Body principal 的真实 boot；
-- 当前 diagnostic worker 能重建 exact Head package 并返回 ReadyEcho，但不执行 activation 语义；logical lease 仍由 service 父进程持有，worker 没有 lineage dispatcher；
-- 当前 foreground service、worker、SQLite 和 key 仍处于同一普通用户权限域；Windows public AF_PIPE 已有显式 DACL、remote rejection 与 peer account SID，但 control endpoint、private lineage、匿名 child pipe 和受保护 state 仍没有 service SID / distinct Body principal；POSIX 路径也尚无专用 UID 或 peer-credential 实机证据；
+- 当前 `surface-context-utf8-v1` 已经在 restricted child 中形成 exact boot 和 private transport rehearsal，但不执行 Body activation 语义，也不是受 protected service principal 约束的最终 Body；
+- worker 已有最小 lineage dispatcher并能发起请求；logical lease、Root/Head/epoch 派生与事务裁决仍由 service 父进程持有，provenance 继续是 `subprocess_rehearsal`；
+- 当前 foreground service、worker、SQLite 和 key 仍处于同一普通用户权限域；private child handles 已显式继承，但 control endpoint、state 与 key 尚无 service SID / distinct Body principal 保护；POSIX 路径也尚无专用 UID 或 peer-credential 实机证据；
 - public pipe 的 SID 只证明客户端 token 属于绑定账户，不证明第一宿主真人此刻在场；client PID 只用于诊断，不能作为稳定身份、授权或防 PID reuse 的依据；
 - receive/response Timer 只通过 fake connection 验证了编排；真实 AF_PIPE / AF_UNIX 上跨线程 `close()` 能否可靠中断阻塞 `recv` 仍需平台测试或原生取消 I/O；
 - 12 秒 response Timer 约束客户端等待，不会强杀卡在业务处理中的 Python worker；原生 service 仍需可取消工作、进程级隔离或 supervisor fencing；
-- Windows Job Object 已接入 fixed diagnostic Body 并通过真实后代终止测试；但当前 launcher 不是 suspended spawn，SCM service crash / restart、未知外部 worker 和安装后完整攻击矩阵仍未验证，因而不能把该局部证据扩大为整机活体唯一性；
+- Windows launcher 已完成 restricted suspended spawn、Job-before-Resume 与 explicit handle inheritance；但 SCM service crash / restart、未知外部 worker、protected state 和安装后完整攻击矩阵仍未验证，因而不能把该局部证据扩大为整机活体唯一性；
 - 敏感信息过滤主要检查 evidence payload key，尚不能替代完整的值分类与 artifact policy。
 
 ### 5.8 Off 控制与三平台计划不等于原生宿主权
 
-当前 Off endpoint 仍使用 generic、未认证 transport，没有自己的 DACL、peer credential、remote-client rejection 或 HostPresence，因此只记录 `control_unverified`。它故意不提供 On：任何能访问该 endpoint 的未认证进程可以造成拒绝服务，不应获得在用户关闭后重新唤醒 Agent 的权力。Windows public pipe 的 SID 只证明账户绑定，不能被借用为真人在场；PID 也只用于诊断。`plan-install` 已如实列出 Windows Job Object 与 foreground public native named pipe 两项 partial native component，但 `native_security_verified=false`、`ready_to_install=false`，所有 installation effects 为 false，三平台安装态 native test 仍为 `not_run`。
+当前 Off endpoint 仍使用 generic、未认证 transport，没有自己的 DACL、peer credential、remote-client rejection 或 HostPresence，因此只记录 `control_unverified`。它故意不提供 On：任何能访问该 endpoint 的未认证进程可以造成拒绝服务，不应获得在用户关闭后重新唤醒 Agent 的权力。Windows public pipe 的 SID 只证明账户绑定，不能被借用为真人在场；PID 也只用于诊断。`plan-install` 已如实列出 Job、public pipe、restricted Body process rehearsal 与 explicit inherited private lineage transport rehearsal 四项 partial native component，但 `native_security_verified=false`、`ready_to_install=false`，所有 installation effects 为 false，三平台安装态 native test 仍为 `not_run`。
 
 这些问题不要求人类规定 Agent 应怎样记忆或学习；它们属于研究世界能否可信存在的工程条件。
 
@@ -304,7 +311,7 @@ Body candidate 可在事务前完整落盘；未被已提交 Head 引用的 cand
 
 ### G3：形成真实机器生命周期
 
-G3 的 Python 可移植层已经完成：Current Body lease 的逻辑状态机、一次性推进、authority epoch 与候选归属；fixed-home foreground service、公共 allowlist、exact-Head package 与 diagnostic subprocess ReadyEcho；最小 CLI、Codex public-Surface adapter、Off-only control；以及 Off/crash/restart/tracked-service cleanup 和三平台零安装副作用 plan。它没有持久化 lease 表或 bearer token，也没有把 `subprocess_rehearsal`、`control_unverified` 或 rendered plan 冒充为真实 Body / Host / native 来源。
+G3 的 Python 可移植层已经完成；Windows foreground 又完成 Job、认证 public pipe、restricted suspended Body 与 private lineage transport rehearsal。它没有持久化 lease 表或 bearer token，也没有把 `subprocess_rehearsal`、`private_lineage_transport_rehearsal`、`control_unverified` 或 rendered plan 冒充为真实 Body / Host / installed native 来源。
 
 需要一个机器级、项目无关的安装与运行边界：
 
@@ -358,8 +365,9 @@ Authority
 [已完成] 形成 deterministic、zero-install-effect、not-run 的三平台 install plan
 [已完成] Windows Job Object 在 Boot 前围栏 diagnostic Body，并由真实孙进程验证 kill-on-close
 [已完成] Windows foreground public pipe 使用显式 DACL、remote rejection、最小 client access、peer-SID verification 与 diagnostic PID
-→ 以 restricted Body token + private inherited lineage handle 兑现真实 Current Body 来源
-→ 用原生 OS service / principal / protected state 形成机器生命周期边界
+[已完成] Windows restricted Low-Integrity suspended Body + explicit inherited private lineage transport rehearsal
+→ 用 SCM service principal / protected state 形成机器生命周期边界
+→ 在临时安装中攻击并复验 public / Body capability / crash / uninstall
 → 隔离 Authority、Witness、Current Body 与 probation principal
 → 冻结 I₀ 与 Protocol₀
 → 用户明确启动正式 Genesis
@@ -376,6 +384,8 @@ Head 的最小出生信封、解释器不可消除性、exact activation / exact
 身份、Head、session、evidence 与本地 checkpoint 的原子提交、崩溃语义和本地 HMAC 上限，见[《单一可信事务域》](单一可信事务域.md)。
 
 Current Body lease 的公式、状态机、authority epoch、候选归属、已验证性质与惰性 TTL / OS principal 上限，见[《Current Body 私有会话租约》](CurrentBody私有会话租约.md)。
+
+restricted Body token、suspended handoff、private lineage transport、authoritative result binding、deadline 与失败三态，见[《受限 Body 与私有谱系能力演练》](受限Body与私有谱系能力演练.md)。
 
 固定 dev-home 服务、公共 IPC、exact-Head package、匿名子进程 Boot/ReadyEcho、崩溃与 epoch fencing 的公式、关系图、验证结果和证明上限，见[《机器 Witness 服务与 exact-Head 子进程演练》](机器Witness服务与exact-Head子进程演练.md)。
 

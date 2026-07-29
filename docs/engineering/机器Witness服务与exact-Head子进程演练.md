@@ -1,8 +1,8 @@
 # 机器 Witness 服务与 exact-Head 子进程演练
 
 更新时间：2026-07-30  
-状态：可移植进程协议停止点已形成；Windows foreground public pipe 已形成 account-bound 原生证据，独立 OS principal 与真实私有 lineage channel 尚未形成
-用途：记录 singleton Witness 前台服务、Windows 原生 public Surface IPC、exact-Head 子进程启动、已验证事实与证明上限
+状态：可移植进程协议停止点已形成；Windows foreground 后续已增加 restricted suspended Body 与 private lineage transport rehearsal，独立 OS principal 和安装态 authenticated lineage 尚未形成
+用途：记录 singleton Witness 前台服务、Windows 原生 public Surface IPC、exact-Head 子进程启动、后续私有谱系扩展、已验证事实与证明上限
 
 ---
 
@@ -13,11 +13,12 @@
 1. 一个固定 runtime home 是否只由一个 Witness 进程服务，并且公共 Surface 入口永远没有谱系推进 API；
 2. Witness 是否能把 **exact Current Head 的完整承诺材料** 交给自己启动的子进程，并在该进程返回 `ReadyEcho` 后再次验证 Head、Authority epoch 与 lease。
 
-当前代码已经回答这两个问题，但只把结果命名为：
+当前代码已经回答这两个问题；后续切片又让 restricted Body 真实发起 `prepare / advance` 请求。结果仍严格命名为：
 
 ```text
 foreground_service_rehearsal
 + subprocess_rehearsal
++ private_lineage_transport_rehearsal
 ```
 
 它没有把同一 OS 用户下的 Python 进程冒充成独立安全主体，也没有产生 `agent_self_authored`。
@@ -33,9 +34,11 @@ flowchart TD
     W["Foreground Witness Service<br/>固定 dev-home · singleton lock"]
     T["SQLite Trusted State<br/>Root · Head · Authority · Evidence"]
     L["WitnessCore logical lease<br/>Root · Head · authority epoch · deadline"]
-    H["匿名 stdin/stdout pipe<br/>boot challenge"]
-    P["Diagnostic Body subprocess<br/>subprocess_rehearsal"]
+    H["私有匿名双管道<br/>Windows explicit inherited handles<br/>POSIX stdio fallback"]
+    P["Restricted Body on Windows<br/>ordinary subprocess fallback on POSIX"]
     PKG["Exact Head package<br/>manifest + all committed blobs"]
+    LR["Body lineage_request<br/>strict sequence"]
+    RS["Authoritative Witness response"]
 
     S --> PUB --> W
     W --> T
@@ -43,6 +46,8 @@ flowchart TD
     T --> PKG --> W
     W --> H --> P
     P -->|"ReadyEcho"| H
+    P --> LR --> W
+    W --> RS --> P
 ```
 
 公共入口与子进程入口不是同一条连接：
@@ -50,15 +55,15 @@ flowchart TD
 ```text
 Public Surface connection
 ≠
-anonymous child boot pipe
+private child boot / lineage pipe pair
 ```
 
-Windows public connection 现已校验绑定账户 SID；但 public 与 child boot 两条通路仍位于同一个普通用户权限域，所以：
+Windows public connection 现已校验绑定账户 SID；child 通路现已真实承载 Body 发起的谱系请求。但 public、Witness 与 child 仍位于同一个 foreground 用户权限域，所以：
 
 ```text
 public account-bound connection topology
 ≠
-private Body OS principal / lineage authority
+installed distinct Body principal / authenticated lineage authority
 ```
 
 ---
@@ -206,7 +211,7 @@ explicit protected DACL
 
 要求 `GENERIC_READ | GENERIC_WRITE` 的宽权限客户端会被 DACL 拒绝；正常 Surface client 只请求 `SYNCHRONIZE + read/write data + read/write attributes`，不取得 `FILE_CREATE_PIPE_INSTANCE`。SID 不匹配时连接被拒绝。PID 只用于诊断，不作为身份或授权；SID 只证明账户绑定，不证明第一宿主真人在场。
 
-这些机制限制 public Surface 的账户与远端边界，但仍不等于 HostPresence、private lineage、独立 service principal、protected state 或抗本机同权限恶意 DoS 能力。Off control endpoint 也仍是另一条 generic、未认证 transport。
+这些机制限制 public Surface 的账户与远端边界，但仍不等于 HostPresence、独立 service principal、protected state 或抗本机同权限恶意 DoS 能力。后续 private lineage transport rehearsal 是另一条父子私有通路，也不能反向升级 public peer 或 foreground principal。Off control endpoint 仍是 generic、未认证 transport。
 
 ---
 
@@ -437,8 +442,12 @@ commit Authority=Off
 - boot 不产生 evidence，也不产生 `agent_self_authored`；
 - Windows public pipe 的显式 DACL 拒绝宽权限 generic client，拒绝 remote clients，并在独立子进程 roundtrip 中取得匹配的 TokenUser SID 与 client PID；
 - public Surface 仍没有 lineage operation；SID 不升级为 HostPresence，PID 不升级为 authority，Off endpoint 不继承 public pipe 的认证事实。
+- Windows Body 以 restricted Low-Integrity token suspended-spawn，在 Resume 前加入 Job 并只继承显式私有 handle pair；
+- Body 发起的谱系请求绑定 boot session、严格序号、same-lease candidate 与 authoritative Witness response；
+- replay、伪造 result、claimed authorship、深层 JSON、timeout 与异步故障均 fail closed 或进入 `OutcomeUnknown`；
+- Boot、command、response 与 stop 四个父端写点都有 deadline，partial writes 不会被误判为完整 frame。
 
-这些是协议和进程生命周期事实，不是长期学习或自我进化证据。截至当前，全仓 100 项测试在 `ResourceWarning` 作为错误时通过。
+这些是协议和进程生命周期事实，不是长期学习或自我进化证据。截至当前，全仓 118 项测试在 `ResourceWarning` 作为错误时通过。
 
 ---
 
@@ -456,17 +465,18 @@ ExecutedActivationSemantics
 
 当前 `surface-context-utf8-v1` 的 diagnostic worker 只重建 exact Head 并保持连接。它没有执行 Body 的记忆、技能、目标、学习算法或模型路由。
 
-### 9.2 子进程没有 lineage authority
+### 9.2 子进程已经穿过 lineage transport，但没有最终 authority
 
-logical lease 仍由 service 父进程中的 `WitnessCore` 持有。worker 当前只有 boot/stop pipe，没有 `prepare_successor / advance_head` dispatcher：
+logical lease 与 trusted transaction 的最终裁决仍由 service 父进程中的 `WitnessCore` 持有。worker 现在拥有私有 transport endpoint，可以发起 `prepare_successor / advance_head`；它不能自报 Root、Head、epoch、author 或 transaction 结果：
 
 \[
 \boxed{
 ParentHoldsLease
 \land
-ChildReceivedHead
+ChildOriginatedRequest
+\land AuthoritativeWitnessResponse
 \not\Rightarrow
-ChildOwnsLineageCapability
+InstalledBodyPrincipalAuthentication
 }
 \]
 
@@ -482,9 +492,9 @@ subprocess_rehearsal
 agent_self_authored
 ```
 
-### 9.3 account-bound public pipe 与匿名 child pipe 都不是独立 Body principal
+### 9.3 account-bound public pipe 与 private child transport 都不是独立 Body principal
 
-Windows public pipe 证明客户端 token 属于绑定账户，匿名 child pipe 证明父子创建与连接拓扑；二者都不证明 worker 拥有与普通用户分离的 Body principal，也不证明普通用户无法替换服务代码、调试进程或直接访问状态目录。public peer SID 不能授权 lineage，diagnostic PID 也不能充当 capability。
+Windows public pipe 证明客户端 token 属于绑定账户；explicit inherited child pipe 证明父子创建、restricted token、handle inheritance 与真实谱系往返。后者是 transport capability，但仍不证明 worker 拥有与普通用户分离的安装态 Body principal，也不证明普通用户无法替换服务代码、调试进程或直接访问状态目录。public peer SID 不能授权 lineage，diagnostic PID 也不能充当 capability。
 
 ### 9.4 process-tree 原子 fencing 目前只在 Windows diagnostic Body 成立
 
@@ -511,7 +521,7 @@ public Surface allowlist
 
 | 平台 | 尚需兑现的真实边界 |
 |---|---|
-| Windows | foreground public named-pipe DACL / remote rejection / peer account binding 与 Job Object primitive 已实现；仍需 SCM service、restricted service SID、ProgramData ACL、restricted Body token、private inherited lineage handle 与安装态攻击测试 |
+| Windows | Job、public peer、restricted suspended Body 与 private lineage transport rehearsal 已实现；仍需 SCM service principal、ProgramData ACL、安装态 capability 保护与攻击测试 |
 | macOS | LaunchDaemon、独立 Witness/Body UID、daemon-owned state、XPC audit token + Body UID + code-signing requirement、process supervision |
 | Linux | systemd system service、专用/DynamicUser、StateDirectory、pathname AF_UNIX、SO_PEERCRED、独立 Body UID/cgroup |
 
@@ -530,13 +540,14 @@ public Surface allowlist
 3. exact Head 全 package 的匿名子进程交付与重建；
 4. challenge / ReadyEcho / Root / Head / generation / activation / epoch fencing；
 5. worker crash、service crash、Off→On 与大 Body 的协议演练；
-6. `subprocess_rehearsal` 与真实 Body provenance 的严格区分。
+6. restricted Body 的 explicit inherited private transport 与严格谱系往返；
+7. `subprocess_rehearsal` / `private_lineage_transport_rehearsal` 与真实 Body provenance 的严格区分。
 
 本轮不能继续用 Python 类或更多 token 假装解决：
 
 1. 独立 OS Witness principal；
 2. service-owned state/key；
-3. 真实 Body lineage connection；
+3. 安装态不可复制的 Body lineage capability；
 4. Body 与普通用户不可互相冒充；
 5. macOS / Linux 的 OS 级进程树终止，以及 Windows 安装后 service-context 的完整围栏；
 6. `agent_self_authored`。
@@ -545,4 +556,4 @@ public Surface allowlist
 
 > 冻结并审计 Python 可移植层，然后直接进入平台原生 service/principal、protected state、peer credential 与 process-tree fencing；不再扩张模拟安全层。
 
-该冻结、Windows Job Object 与 foreground native public named-pipe 切片现已完成，见[《Windows 原生 Witness 边界》](Windows原生Witness边界.md)。当前下一项是 restricted Body token + private inherited lineage handle；它先证明 public Surface 不能冒充 Current Body，不提前宣称 SCM、protected state、HostPresence、安装或正式 Genesis。
+该冻结、Windows Job Object、foreground native public named pipe、restricted Body 与 private lineage transport 切片现已完成，见[《Windows 原生 Witness 边界》](Windows原生Witness边界.md)和[《受限 Body 与私有谱系能力演练》](受限Body与私有谱系能力演练.md)。当前下一项是 SCM Witness principal + service-owned protected state，再以临时安装和攻击测试复验现有 transport；不提前宣称 HostPresence、安装完成或正式 Genesis。

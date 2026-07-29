@@ -6,7 +6,7 @@ The project is not a Codex plugin or a Codex-specific optimization system. The u
 
 ## Current status
 
-**Pre-Genesis.** The portable `Trusted State + Body + Runtime + Witness process rehearsal + Codex Adapter` slice exists and is tested, but it is not installed globally and no formal Root has been created. Identity, Head, sessions, evidence, and local checkpoints commit in one SQLite transaction. On Windows, the foreground rehearsal now has two native facts: the diagnostic Body is assigned before Boot through its existing process handle to an anonymous `KILL_ON_JOB_CLOSE` Job Object, and the lineage-free public Surface uses a named pipe with an explicit DACL, `PIPE_REJECT_REMOTE_CLIENTS`, a minimal client access mask, peer-SID verification, and diagnostic PID observation. A real parent/descendant test proves kernel process-tree termination, and the full repository passes 100 tests with `ResourceWarning` treated as an error. These facts do not make the same-account SID a `HostPresence` proof, do not turn public authentication into private lineage authority, and do not authenticate the separate Off endpoint, which remains an unverified rehearsal. The system is not SCM-installed; `native_security_verified=false` and `ready_to_install=false`. The next native item is a restricted Body token plus a private inherited lineage capability.
+**Pre-Genesis.** The portable `Trusted State + Body + Runtime + Witness process rehearsal + Codex Adapter` slice exists and is tested, but it is not installed globally and no formal Root has been created. Identity, Head, sessions, evidence, and local checkpoints commit in one SQLite transaction. On Windows, the foreground rehearsal now proves four partial native components: Job Object process-tree fencing; an account-bound public named pipe with explicit DACL and peer-SID verification; a suspended restricted Low-Integrity Body whose actual child token is re-queried; and an explicit inherited anonymous-pipe pair carrying a strictly sequenced Body-initiated lineage rehearsal. Boot, command, response, and stop writes are deadline-bounded, and accepted results must equal the authoritative Witness response. The full repository passes 118 tests with `ResourceWarning` treated as an error. These facts still do not create a distinct installed Body principal, make the same-account SID a `HostPresence` proof, authenticate the separate Off endpoint, or establish `agent_self_authored`. The system is not SCM-installed; `native_security_verified=false` and `ready_to_install=false`. The next native item is an SCM-managed Witness principal with service-owned protected state and an attack-tested reversible install chain.
 
 See [实现状态：Pre-Genesis](docs/engineering/实现状态_Pre-Genesis.md).
 
@@ -37,6 +37,8 @@ See [实现状态：Pre-Genesis](docs/engineering/实现状态_Pre-Genesis.md).
 [跨平台 CLI、Off 控制与零安装副作用计划](docs/engineering/跨平台CLI与Off控制演练.md)
 
 [Windows 原生 Witness 边界](docs/engineering/Windows原生Witness边界.md)
+
+[受限 Body 与私有谱系能力演练](docs/engineering/受限Body与私有谱系能力演练.md)
 
 [跨模块科研假设矩阵](docs/research/跨模块科研假设矩阵.md)
 

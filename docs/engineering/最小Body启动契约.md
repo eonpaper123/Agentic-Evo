@@ -335,9 +335,9 @@ agentic-evo-body-v2
 → 注入 Codex SessionStart additionalContext
 ```
 
-它是一个 execution-surface projection，不是独立 Body 进程，不持有真实 OS-private lineage capability，也不能证明已经完成 exact boot。仓库后来实现的 `CurrentBodySession` 是 lease 协议的进程内演练；foreground Witness 又增加了 exact-Head 全 package、匿名子进程 pipe 与 ReadyEcho。后者证明 diagnostic subprocess 收到并重建了 exact Head，但 logical lease 仍在父进程，worker 没有 lineage dispatcher，仍不改变“真实 Body principal 尚未成立”的结论。
+它本身只是 execution-surface projection，不是独立 Body 进程。仓库后来实现的 `CurrentBodySession` 是 lease 协议的进程内演练；foreground Witness 又增加 exact-Head package 与 ReadyEcho；Windows 后续切片已加入 restricted suspended child、explicit inherited private handles 与 Body 发起的 lineage dispatcher。由此已经成立 exact boot / private transport rehearsal，但 logical lease 和事务裁决仍在父进程，foreground 同用户仍可改代码或未受保护 state，所以“安装态 distinct Body principal 尚未成立”的结论不变。
 
-`wake()` 的 session 登记、evidence、checkpoint 与 revision 现已进入同一 SQLite 事务；插入失败或 checkpoint 前进程退出不会留下 ghost session。该实现与证明边界见[《单一可信事务域》](单一可信事务域.md)。exact-Head lease 的逻辑语义、authority epoch 与一次性推进也已实现，见[《Current Body 私有会话租约》](CurrentBody私有会话租约.md)。子进程 package 重建、Boot/ReadyEcho、环境收紧和崩溃 fencing 见[《机器 Witness 服务与 exact-Head 子进程演练》](机器Witness服务与exact-Head子进程演练.md)。尚未解决的是 OS 级私有来源：当前代码能证明正常路径的编排、进程拓扑与 exact material handoff，还不能证明请求只能由 Current Body principal 发出。
+`wake()` 的 session 登记、evidence、checkpoint 与 revision 现已进入同一 SQLite 事务；插入失败或 checkpoint 前进程退出不会留下 ghost session。该实现与证明边界见[《单一可信事务域》](单一可信事务域.md)。exact-Head lease 见[《Current Body 私有会话租约》](CurrentBody私有会话租约.md)，Boot/ReadyEcho 见[《机器 Witness 服务与 exact-Head 子进程演练》](机器Witness服务与exact-Head子进程演练.md)，restricted child、private lineage、result binding 与 deadline 见[《受限 Body 与私有谱系能力演练》](受限Body与私有谱系能力演练.md)。尚未解决的是安装态 OS 私有来源：当前代码能证明请求真实穿过 Current Body 进程，还不能证明同账户 foreground 进程无法复制或重构该能力。
 
 因此当前成立：
 
@@ -345,10 +345,10 @@ agentic-evo-body-v2
 ExactActivationRef
 \]
 
-当前尚不成立：
+当前只在 foreground rehearsal 中成立：
 
 \[
-BootBound
+BootBound^{rehearsal}
 \]
 
 ---
@@ -431,13 +431,13 @@ f(
 6. manifest 验证与实际读取之间发生 blob 替换时，读取后的 digest 复核失败；
 7. unsupported Genesis kind 不产生 Body、Kernel 或不可重试的出生 marker。
 
-### 10.2 真实 boot 仍需覆盖
+### 10.2 foreground 已覆盖、安装态仍需复验
 
-1. materialize 后、lease 激活前发生 Head advance 或 Off，旧进程不能成为 `LIVE`；
+1. materialize 后、lease 激活前发生 Head advance 或 Off，旧进程不能成为 `LIVE`；foreground 已覆盖，安装态需复验；
 2. 用户在验证与启动之间替换文件、symlink 或 reparse point，执行字节不变或启动失败；
 3. 修改 `PATH`、系统 Python 或 shell 配置不能改变强契约入口；
-4. 两个并发 worker 至多一个取得有效 private lineage channel；
-5. crash、Witness restart、旧 nonce、旧 Head 和旧 handle 都不能推进谱系；
+4. 两个并发 worker 至多一个取得有效 private lineage channel；逻辑 lease 与 foreground crash 已覆盖，distinct principal 安装态需复验；
+5. crash、旧 boot session、旧 Head、旧 lease candidate 和旧 handle 都不能推进谱系；foreground 已覆盖，SCM restart 仍待验证；
 6. Body principal 不能读取或写入 Witness DB、Root key 与 checkpoint key；
 7. 同一 Head 更换 driver 版本必须留下 instrument evidence；
 8. 伪造 `Ready` 只能证明 channel liveness，不能升级为“Body 已理解自己的语义”。
@@ -453,8 +453,8 @@ f(
 3. artifact digest 已由 Head 的 file map 承诺，不在 manifest 重复；
 4. Witness 只验证身份、材料、权限域和 lease，不理解身体语义；
 5. 当前 UTF-8 context 只是首个 surface adapter，不是永久身体形式；
-6. 当前 Runtime 证明 exact activation reference；diagnostic subprocess 又证明 exact Head package 可被独立进程重建，但 ReadyEcho 不等于语义执行；
-7. 在受保护 Witness、Body principal 和私有 lineage channel 建立前，不执行任意 Body 代码，也不主张 exact trusted boot。
+6. 当前 Runtime 证明 exact activation reference；restricted subprocess 又证明 exact Head package 可重建、私有谱系请求可往返，但 ReadyEcho 不等于语义执行；
+7. 在受保护 Witness、distinct Body principal 和安装态 capability 建立前，不执行任意 Body 代码，也不主张 exact trusted boot。
 
 下一项问题已经自然出现：
 
@@ -462,4 +462,4 @@ f(
 
 这个问题属于下一轮。最小 Body Boot Contract 可以在这里停下。
 
-该问题已经在[《候选试生与 Head 推进》](候选试生与Head推进.md)中收束：mandatory gate 只验证 exact candidate 的有限可实例化；语义 rehearsal 与候选选择属于 Current Body，不能成为 Witness 的固定 evaluator。Current Body lease 的逻辑协议也已在[《Current Body 私有会话租约》](CurrentBody私有会话租约.md)中收束；真实 probation session 与真实 Body capability 仍等待受保护 spawner、独立 principal 与私有 IPC。
+该问题已经在[《候选试生与 Head 推进》](候选试生与Head推进.md)中收束：mandatory gate 只验证 exact candidate 的有限可实例化；语义 rehearsal 与候选选择属于 Current Body，不能成为 Witness 的固定 evaluator。Current Body lease 和 foreground private transport 也已分别收束；真实 probation session 与安装态不可复制的 Body capability 仍等待 SCM/launchd/systemd spawner、独立 principal 与 protected state。
