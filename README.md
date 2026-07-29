@@ -28,6 +28,10 @@ The project is not a Codex plugin or a Codex-specific optimization system. Codex
 
 [《实践论》《矛盾论》对 Agentic-Evo 的理论启发](docs/research/实践与矛盾_对Agentic-Evo的理论启发.md)
 
+[能力累积与迁移：身体、器官与未来因果空间](docs/topics/能力累积与迁移.md)
+
+[能力累积与迁移：研究问题与证伪纲要](docs/research/能力累积与迁移_研究问题与证伪纲要.md)
+
 This document is the current single source of truth for:
 
 - the final product form;
