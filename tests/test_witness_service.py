@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -421,6 +422,42 @@ class WitnessServiceTests(unittest.TestCase):
 
         self.assertEqual(observed_during_shutdown, [False])
         self.assertTrue(connection.closed)
+
+    def test_control_partial_frame_cannot_block_the_off_listener_forever(
+        self,
+    ) -> None:
+        class PrefixOnlyConnection:
+            def __init__(self) -> None:
+                self.closed = threading.Event()
+                self.sent: list[bytes] = []
+
+            def poll(self, _: float) -> bool:
+                return True
+
+            def recv_bytes(self, _: int) -> bytes:
+                self.closed.wait(timeout=0.25)
+                if not self.closed.is_set():
+                    raise TimeoutError("partial frame remained blocked")
+                raise OSError("connection closed by receive deadline")
+
+            def send_bytes(self, value: bytes) -> None:
+                self.sent.append(value)
+
+            def close(self) -> None:
+                self.closed.set()
+
+        connection = PrefixOnlyConnection()
+        service = WitnessService.__new__(WitnessService)
+        started = time.monotonic()
+
+        with patch("agentic_evo.service.PUBLIC_IO_TIMEOUT_SECONDS", 0.01):
+            service._serve_control_connection(connection)
+
+        self.assertLess(time.monotonic() - started, 0.2)
+        self.assertTrue(connection.closed.is_set())
+        response = json.loads(connection.sent[-1].decode("utf-8"))
+        self.assertFalse(response["ok"])
+        self.assertEqual(response["error"]["code"], "invalid_frame")
 
     def test_malformed_and_oversize_frames_fail_closed(self) -> None:
         process = self._spawn()
