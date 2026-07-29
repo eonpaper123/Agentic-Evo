@@ -30,9 +30,10 @@ class WitnessServiceTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
         self.home = Path(self.tempdir.name) / "runtime"
+        self.host_binding = "test-host-binding"
         self.runtime = DevelopmentalRuntime.genesis(
             self.home,
-            host_binding="test-host-binding",
+            host_binding=self.host_binding,
             purpose_anchor="Improve the future of the one bound host.",
             initial_body={"entrypoint.md": "Body zero"},
             instrument_version="instrument-test-v1",
@@ -232,6 +233,23 @@ class WitnessServiceTests(unittest.TestCase):
         self.assertEqual(replacement_client.status()["head"], before_status.head)
         self.assertEqual(self.runtime.status(), before_status)
         self.assertEqual(self.runtime.evidence.records(), before_records)
+
+    def test_external_off_on_cycle_replaces_the_subprocess_binding(self) -> None:
+        process = self._spawn()
+        client = self._wait_until_ready(process)
+        old_body = client.status()["body_rehearsal"]
+
+        self.runtime.turn_off()
+        self.runtime.turn_on(host_binding=self.host_binding)
+        new_body = client.status()["body_rehearsal"]
+
+        self.assertEqual(new_body["state"], "ready")
+        self.assertEqual(new_body["head"], old_body["head"])
+        self.assertNotEqual(
+            new_body["boot_session"],
+            old_body["boot_session"],
+        )
+        self.assertNotEqual(new_body["pid"], old_body["pid"])
 
     def test_endpoint_is_deterministic_platform_specific_and_bounded(
         self,
