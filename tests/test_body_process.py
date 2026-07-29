@@ -301,6 +301,100 @@ class BodyProcessTests(unittest.TestCase):
         time.sleep(0.3)
         self.assertEqual(self.runtime.status().head, candidate)
 
+    def test_boot_write_stall_is_bounded_by_the_ready_deadline(self) -> None:
+        supervisor = BodyProcessSupervisor(
+            self.runtime,
+            self.witness,
+            ready_timeout_seconds=0.05,
+        )
+        entered = threading.Event()
+        release = threading.Event()
+        finished = threading.Event()
+        outcome: Queue[object] = Queue(maxsize=1)
+
+        def stalled_write(*args, **kwargs) -> None:
+            entered.set()
+            release.wait(2.0)
+
+        def spawn() -> None:
+            try:
+                outcome.put(supervisor.spawn_current())
+            except BaseException as exc:
+                outcome.put(exc)
+            finally:
+                finished.set()
+
+        worker = threading.Thread(target=spawn, daemon=True)
+        try:
+            with patch(
+                "agentic_evo.body_process.write_private_frame",
+                side_effect=stalled_write,
+            ):
+                worker.start()
+                self.assertTrue(entered.wait(0.5))
+                self.assertTrue(
+                    finished.wait(0.3),
+                    "boot write ignored the configured ready deadline",
+                )
+        finally:
+            release.set()
+            worker.join(timeout=1.0)
+
+        result = outcome.get_nowait()
+        if isinstance(result, SpawnedBodyProcess):
+            self.bodies.append(result)
+        self.assertIsInstance(result, BodyBootError)
+
+    def test_lineage_write_stall_is_unknown_and_releases_the_guard(self) -> None:
+        from agentic_evo.body_process import BodyLineageOutcomeUnknown
+
+        body = self._spawn()
+        body._request_timeout_seconds = 0.05
+        entered = threading.Event()
+        release = threading.Event()
+        finished = threading.Event()
+        outcome: Queue[BaseException | None] = Queue(maxsize=1)
+
+        def stalled_write(*args, **kwargs) -> None:
+            entered.set()
+            release.wait(2.0)
+
+        def prepare() -> None:
+            try:
+                body.rehearse_prepare_successor(
+                    files={"entrypoint.md": "possibly unwritten"}
+                )
+            except BaseException as exc:
+                outcome.put(exc)
+            else:
+                outcome.put(None)
+            finally:
+                finished.set()
+
+        worker = threading.Thread(target=prepare, daemon=True)
+        try:
+            with patch(
+                "agentic_evo.body_process.write_private_frame",
+                side_effect=stalled_write,
+            ):
+                worker.start()
+                self.assertTrue(entered.wait(0.5))
+                self.assertTrue(
+                    finished.wait(0.3),
+                    "lineage write ignored the configured request deadline",
+                )
+        finally:
+            release.set()
+            worker.join(timeout=1.0)
+
+        self.assertIsInstance(
+            outcome.get_nowait(),
+            BodyLineageOutcomeUnknown,
+        )
+        self.assertTrue(body.wait_closed(timeout_seconds=2.0))
+        self.assertTrue(body._rehearsal_guard.acquire(timeout=0.1))
+        body._rehearsal_guard.release()
+
     def test_forged_rehearsal_result_cannot_skip_the_lineage_request(
         self,
     ) -> None:
