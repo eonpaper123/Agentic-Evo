@@ -69,7 +69,10 @@ def _wait_for_process_exit(pid: int, *, timeout_ms: int) -> bool:
 
     handle = kernel32.OpenProcess(synchronize, False, pid)
     if not handle:
-        return True
+        error = ctypes.get_last_error()
+        if error == 87:  # ERROR_INVALID_PARAMETER: PID no longer exists.
+            return True
+        raise ctypes.WinError(error)
     try:
         return kernel32.WaitForSingleObject(handle, timeout_ms) == 0
     finally:

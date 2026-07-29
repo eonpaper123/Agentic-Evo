@@ -297,7 +297,7 @@ Restart(Off(S)).Authority=Off
 6. 新服务不会重生 Body；
 7. 测试显式终止其跟踪的 service 进程后，`TemporaryDirectory` cleanup 成功。
 
-最后一项只证明测试所跟踪的服务句柄与目录没有继续占用；它没有枚举或证明所有孙进程已经退出。没有 Job Object 或对应的原生 process-tree fencing 前，后代进程完整终止仍属于未证明命题。
+在本文件停止点，最后一项只证明测试所跟踪的服务句柄与目录没有继续占用，没有枚举或证明所有孙进程退出。后续 Windows 原生切片已经用 Job Object 加真实父/孙进程测试补上当前 diagnostic Body tree 的 kill-on-close 证据；它仍不证明 SCM、独立 principal 或未知外部进程已被围栏，见[《Windows 原生 Witness 边界》](Windows原生Witness边界.md)。
 
 ---
 
@@ -453,7 +453,9 @@ start_process = false
 ```text
 ready_to_install = false
 native_security_verified = false
-portable_protocol_only = true
+portable_protocol_complete = true
+implemented_native_components =
+  [win32_job_object_process_tree_fencing]
 ```
 
 计划不包含：
@@ -632,7 +634,7 @@ AdvanceHead
 27. public client 的 12 秒 response Timer 与 2 秒 request-frame receive Timer 分离，冷缓存下的大 Head wake 不再被错误截断；
 28. request receive Timer 不包住后续 dispatch，合法慢 dispatch 不会在 2 秒时被服务端主动关断。
 
-截至本停止点，全仓共 90 项测试通过，并以 `ResourceWarning` 作为错误运行。
+截至本文件停止点，全仓共 90 项测试通过；后续 Windows Job Object 原生切片使全仓达到 93 项，并继续以 `ResourceWarning` 作为错误运行。
 
 ---
 
@@ -648,7 +650,7 @@ AdvanceHead
 6. Body subprocess 拥有自己的 lineage capability；
 7. Body 已执行 activation 的真实语义；
 8. macOS / Linux 原生行为；
-9. Windows SCM / SID / DACL / Job Object 行为；
+9. Windows SCM / SID / DACL，以及 Job Object 在安装后 service context 中的完整行为；当前只验证 foreground diagnostic Body 的 kill-on-close；
 10. Codex Hook 已安装、已信任或已在真实 session 自然触发；
 11. `PermissionRequest` 或其他计划事件已由本项目做安装后集成验证；
 12. 当前 Windows AF_PIPE 的显式 DACL 与 remote-client rejection；

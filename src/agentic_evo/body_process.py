@@ -435,6 +435,8 @@ class BodyProcessSupervisor:
             )
             if sys.platform == "win32":
                 process_fence = KillOnCloseJob()
+            # ponytail: the fixed diagnostic worker blocks before Head input;
+            # use CREATE_SUSPENDED before any Body-controlled launcher exists.
             process = subprocess.Popen(
                 command,
                 stdin=subprocess.PIPE,

@@ -412,6 +412,7 @@ CLI、Off-only control 与三平台 dry-run 工件现已完成；下一项仍不
 + [已演练] cross-platform CLI / Off-only control
 + [已完成] zero-install-effect service / hook plan
 + [已演练] 临时目录 Off / crash / restart / tracked-service cleanup
++ [Windows 已实现] diagnostic Body Job Object kill-on-close
 → native machine-level Witness service
 + service-owned trusted state / key
 + Current Body 独立 principal
@@ -420,6 +421,6 @@ CLI、Off-only control 与三平台 dry-run 工件现已完成；下一项仍不
 + 平台临时安装 / 权限攻击 / uninstall 演练
 ```
 
-CLI/control/install-plan 的公式、因果顺序、三平台合同与证明上限见[《跨平台 CLI、Off 控制与零安装副作用计划》](跨平台CLI与Off控制演练.md)。
+CLI/control/install-plan 的公式、因果顺序、三平台合同与证明上限见[《跨平台 CLI、Off 控制与零安装副作用计划》](跨平台CLI与Off控制演练.md)；第一项 Windows 原生围栏证据见[《Windows 原生 Witness 边界》](Windows原生Witness边界.md)。
 
 在该边界真实形成前，不安装正式服务，不启动正式 Genesis，也不产生 `agent_self_authored` 科研主张。

@@ -27,6 +27,8 @@
   记录固定 dev-home 的 cooperative-singleton 前台服务、公共 Surface allowlist、exact-Head 全 package、匿名子进程 Boot/ReadyEcho、authority-epoch fencing、崩溃语义、三平台映射与严格证明上限；当前只成立 `subprocess_rehearsal`，不成立独立 principal、真实 lineage capability 或 `agent_self_authored`。
 - [跨平台 CLI、Off 控制与零安装副作用计划](engineering/跨平台CLI与Off控制演练.md)
   记录 `serve/status/hook/off/plan-install`、Codex adapter 实现只经公共 Surface、未认证控制只允许 Off、原子幂等、输入/输出投影与 Timer 边界、Off/crash/restart/tracked-service cleanup 实验，以及 Windows/macOS/Linux 原生目标合同；计划不安装任何服务或 Hook，三平台均保持 `not_run`。
+- [Windows 原生 Witness 边界](engineering/Windows原生Witness边界.md)
+  记录第一项真实 Windows 原生证据：Job Object 在 exact-Head Boot 前围栏 fixed diagnostic Body，最后 handle 关闭由内核终止父进程与后代；同时明确 SCM、service SID、ACL、peer-authenticated IPC、HostPresence、安装与 Genesis 仍未成立。
 
 ## 专题
 

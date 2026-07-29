@@ -1,7 +1,7 @@
 # Agentic-Evo 实现状态：Pre-Genesis
 
 更新时间：2026-07-30
-状态：Pre-Genesis Python 可移植层已到停止点；可信事务、Body lease、前台 Witness、exact-Head 子进程、CLI、Off 控制与三平台零安装副作用计划已形成代码，尚未原生安装，尚未 Genesis
+状态：Pre-Genesis Python 可移植层已到停止点；Windows Job Object 已形成第一项原生证据，尚无 SCM principal、protected state、认证 IPC、原生安装或正式 Genesis
 适用范围：当前仓库中的真实实现、已验证性质、未成立性质和 Genesis 前阻断项
 
 ---
@@ -162,6 +162,7 @@ Nira 不拥有 Root，不产生独立 Agent，也不是本工具的安装范围�
 - 有效 6 MiB activation 不会因为内部 JSON/base64 的固定帧常数成为不可启动 Head；
 - worker argv 与继承环境不含 Root、Head、challenge、boot session 或调用进程的任意 secret；
 - public status 不公开 boot session 或 challenge，boot 演练不产生 evidence；
+- Windows diagnostic Body 在接收 Boot 前加入匿名、不可继承、`KILL_ON_JOB_CLOSE` 的 Job Object；真实父/孙进程测试证明最后 handle 关闭会终止进程树，assignment 失败则不发送 Boot 并释放 lease；
 - Off 后延迟到达的 session end 被拒绝，不再增长 revision、evidence 或 checkpoint；
 - adapter 的科研仪器失败不会阻断 coding-agent hook；
 - Codex adapter 服务缺席时 fail-open，且不再 fallback 到直接打开 SQLite；
@@ -175,7 +176,7 @@ Nira 不拥有 Root，不产生独立 Agent，也不是本工具的安装范围�
 - public string parameter 与 Body logical path 有明确 byte bound；含 1201 个文件的合法 Head 可以 wake，body-files、activation-context 与 active-sessions 按 canonical JSON bytes 返回有界投影及 count/truncated；
 - `plan-install` 跨 cwd、环境和伪 home 逐字节确定，不创建 Agent 文件或状态、不安装服务或 Hook、不启动受管 Agent 进程，也不执行 Genesis；
 - Windows、macOS、Linux 目标均保持 `native_test_status=not_run`；
-- 当前全仓 90 项测试在 `ResourceWarning` 作为错误时通过。
+- 当前全仓 93 项测试在 `ResourceWarning` 作为错误时通过。
 
 这些结果证明的是代码契约，不是长期学习、自我进化或独立科研证据已经成立。
 
@@ -211,7 +212,7 @@ Runtime 现在会交叉检查 SQLite state、session、当前 Body、evidence �
 
 ### 5.3 逻辑 Off 与子进程 EOF 不等于机器级真实终止
 
-当前已有 foreground service 与 diagnostic subprocess，但没有受 SCM / launchd / systemd 监督的 daemon、独立 Body principal、sleep/GPU worker 或 OS process-tree 原子终止。测试证明 Runtime gate、logical lease、子进程 EOF 和下一次检查时的 epoch fencing；没有证明所有后台活体活动能在 Off 瞬间由宿主强制终止。
+当前 Windows diagnostic Body 已由 Job Object 围栏，最后 handle 关闭会由内核终止其进程树；但还没有受 SCM / launchd / systemd 监督的 daemon、独立 Body principal、sleep/GPU worker，macOS / Linux 也没有对应 supervisor。它证明的是当前受跟踪 Body tree 的 Windows kill-on-close，不是所有后台活体活动都已被发现或已在宿主 Off 瞬间终止。
 
 ### 5.4 adapter 函数不等于已覆盖所有 coding agent
 
@@ -243,12 +244,12 @@ Root、Head、Authority、session、revision、evidence 与 checkpoint 现已进
 - Windows AF_PIPE 当前没有显式 DACL 或已验证的 remote-client rejection；“使用 named-pipe 地址”本身不能证明只允许本机或第一宿主调用；
 - receive/response Timer 只通过 fake connection 验证了编排；真实 AF_PIPE / AF_UNIX 上跨线程 `close()` 能否可靠中断阻塞 `recv` 仍需平台测试或原生取消 I/O；
 - 12 秒 response Timer 约束客户端等待，不会强杀卡在业务处理中的 Python worker；原生 service 仍需可取消工作、进程级隔离或 supervisor fencing；
-- Windows 尚无 Job Object，service crash 后旧 worker 到 pipe EOF 退出之间可能与重启 worker 短暂重叠；旧 worker 没有可用 Head writer，但物理单进程不变量尚未证明；
+- Windows Job Object 已接入 fixed diagnostic Body 并通过真实后代终止测试；但当前 launcher 不是 suspended spawn，SCM service crash / restart、未知外部 worker 和安装后完整攻击矩阵仍未验证，因而不能把该局部证据扩大为整机活体唯一性；
 - 敏感信息过滤主要检查 evidence payload key，尚不能替代完整的值分类与 artifact policy。
 
 ### 5.8 Off 控制与三平台计划不等于原生宿主权
 
-当前 Off endpoint 没有 DACL、peer credential、remote-client rejection 或 HostPresence，因此只记录 `control_unverified`。它故意不提供 On：任何能访问该 endpoint 的未认证进程可以造成拒绝服务，不应获得在用户关闭后重新唤醒 Agent 的权力。SID/UID 未来只能证明进程账户，正式 On 还需要普通 Surface 无法模拟的用户在场或显式授权通路。`plan-install` 也只列出 Windows/macOS/Linux 必须兑现的 service principal、protected state、host SID/UID、private lineage 与 process fencing；所有 installation effects 为 false，所有 native test 为 `not_run`。
+当前 Off endpoint 没有 DACL、peer credential、remote-client rejection 或 HostPresence，因此只记录 `control_unverified`。它故意不提供 On：任何能访问该 endpoint 的未认证进程可以造成拒绝服务，不应获得在用户关闭后重新唤醒 Agent 的权力。SID/UID 未来只能证明进程账户，正式 On 还需要普通 Surface 无法模拟的用户在场或显式授权通路。`plan-install` 已如实列出 Windows Job Object 这一 partial native component，但仍只规划 Windows/macOS/Linux 的完整 service principal、protected state、host SID/UID、private lineage 与 process fencing；所有 installation effects 为 false，三平台安装态 native test 仍为 `not_run`。
 
 这些问题不要求人类规定 Agent 应怎样记忆或学习；它们属于研究世界能否可信存在的工程条件。
 
@@ -353,6 +354,8 @@ Authority
 [已完成] 增加最小 CLI、Codex public-Surface adapter 与 Off-only control rehearsal
 [已完成] 在临时目录完成 Off / crash / restart / tracked-service cleanup 演练
 [已完成] 形成 deterministic、zero-install-effect、not-run 的三平台 install plan
+[已完成] Windows Job Object 在 Boot 前围栏 diagnostic Body，并由真实孙进程验证 kill-on-close
+→ 建立 Windows 显式 DACL、拒绝远程连接并认证 peer SID/PID 的 foreground public pipe
 → 用原生 OS service / principal / 私有 lineage IPC 兑现真实 Current Body 来源
 → 隔离 Authority、Witness、Current Body 与 probation principal
 → 冻结 I₀ 与 Protocol₀

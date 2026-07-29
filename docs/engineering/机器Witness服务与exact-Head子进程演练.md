@@ -471,11 +471,11 @@ agent_self_authored
 
 服务程序、worker、SQLite、key 和项目代码仍属于同一个 OS 用户。匿名 pipe 证明的是连接拓扑与父子创建关系，不证明普通用户无法替换服务代码、调试进程或直接访问状态目录。
 
-### 9.4 service crash 后没有 OS process-tree 原子 fencing
+### 9.4 本文件停止点尚无 OS process-tree 原子 fencing
 
-父进程被强杀后，worker 会因 stdin EOF 退出；但 Windows 当前没有 Job Object，macOS/Linux 也没有本轮对应的 supervisor principal。旧 worker 从父进程死亡到读到 EOF 之间，可能与新 worker短暂重叠。
+本文件形成时，父进程被强杀后，worker 只会因 stdin EOF 退出；当时 Windows 还没有 Job Object，macOS/Linux 也没有对应 supervisor principal。旧 worker 从父进程死亡到读到 EOF 之间，可能与新 worker 短暂重叠。
 
-旧 worker没有可用的父端 lease 或 Head writer，所以不能推进谱系；但“任一物理时刻绝不出现两个进程”尚未成立。
+后续 Windows 原生切片已把 fixed diagnostic Body 加入 `KILL_ON_JOB_CLOSE` Job Object，并以真实孙进程验证内核终止；见[《Windows 原生 Witness 边界》](Windows原生Witness边界.md)。这仍没有形成 SCM service、独立 Body principal 或跨平台等价证明。
 
 ---
 
@@ -496,7 +496,7 @@ public Surface allowlist
 
 | 平台 | 尚需兑现的真实边界 |
 |---|---|
-| Windows | SCM service、restricted service SID、ProgramData ACL、显式 named-pipe DACL、受限 worker token、Job Object |
+| Windows | SCM service、restricted service SID、ProgramData ACL、显式 named-pipe DACL、受限 worker token；Job Object primitive 已实现，安装后 service-context 攻击测试仍未完成 |
 | macOS | LaunchDaemon、独立 Witness/Body UID、daemon-owned state、XPC audit token + Body UID + code-signing requirement、process supervision |
 | Linux | systemd system service、专用/DynamicUser、StateDirectory、pathname AF_UNIX、SO_PEERCRED、独立 Body UID/cgroup |
 
@@ -523,9 +523,11 @@ public Surface allowlist
 2. service-owned state/key；
 3. 真实 Body lineage connection；
 4. Body 与普通用户不可互相冒充；
-5. OS 级进程树原子终止；
+5. macOS / Linux 的 OS 级进程树终止，以及 Windows 安装后 service-context 的完整围栏；
 6. `agent_self_authored`。
 
 该下一项现已完成，见[《跨平台 CLI、Off 控制与零安装副作用计划》](跨平台CLI与Off控制演练.md)。新的下一项是：
 
 > 冻结并审计 Python 可移植层，然后直接进入平台原生 service/principal、protected state、peer credential 与 process-tree fencing；不再扩张模拟安全层。
+
+该冻结与 Windows Job Object 第一切片现已完成，见[《Windows 原生 Witness 边界》](Windows原生Witness边界.md)。当前下一项是 Windows foreground native public named-pipe boundary；它先证明显式 DACL、remote rejection 与 peer SID/PID，不提前安装 SCM service。

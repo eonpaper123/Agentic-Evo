@@ -6,7 +6,7 @@ The project is not a Codex plugin or a Codex-specific optimization system. The u
 
 ## Current status
 
-**Pre-Genesis.** The first machine-level `Trusted State + Body + Runtime + Witness service/process rehearsal + Codex Adapter` vertical slice now exists and is tested, but it is not installed globally and no real Root has been created. Identity, Head, sessions, evidence, and local checkpoints commit in one SQLite transaction. A fixed-home cooperative-singleton foreground service exposes a lineage-free public Surface and a separate unauthenticated Off-only rehearsal endpoint, while a sanitized diagnostic subprocess reconstructs the complete exact-Head package through anonymous pipes. Public wake/status responses now use explicit bounded projections, so a large valid Head or growing session set does not require copying the whole internal state into a 64 KiB frame. The CLI covers `serve / status / hook / off / plan-install`; the implemented Codex adapter calls only the public Surface, and the deterministic three-platform plan performs no installation writes, separates Witness and Body principals on every target, and explicitly remains `ready_to_install=false`. Independent OS principals, service-owned state, authenticated host presence, remote-client rejection, a real private lineage channel, native installation and formal Genesis remain blockers.
+**Pre-Genesis.** The portable `Trusted State + Body + Runtime + Witness process rehearsal + Codex Adapter` slice exists and is tested, but it is not installed globally and no formal Root has been created. Identity, Head, sessions, evidence, and local checkpoints commit in one SQLite transaction. A fixed-home foreground Witness exposes a lineage-free public Surface and a separate unauthenticated Off-only rehearsal endpoint, while a sanitized diagnostic subprocess reconstructs the exact-Head package through anonymous pipes. On Windows, that Body process is now assigned before Boot to an anonymous `KILL_ON_JOB_CLOSE` Job Object, and a real parent/descendant test proves kernel process-tree termination. The CLI covers `serve / status / hook / off / plan-install`; the deterministic three-platform plan performs no installation writes and remains `ready_to_install=false`. SCM/service principals, service-owned state, authenticated host presence, peer-authenticated public/private IPC, native installation and formal Genesis remain blockers.
 
 See [实现状态：Pre-Genesis](docs/engineering/实现状态_Pre-Genesis.md).
 
@@ -35,6 +35,8 @@ See [实现状态：Pre-Genesis](docs/engineering/实现状态_Pre-Genesis.md).
 [机器 Witness 服务与 exact-Head 子进程演练](docs/engineering/机器Witness服务与exact-Head子进程演练.md)
 
 [跨平台 CLI、Off 控制与零安装副作用计划](docs/engineering/跨平台CLI与Off控制演练.md)
+
+[Windows 原生 Witness 边界](docs/engineering/Windows原生Witness边界.md)
 
 [跨模块科研假设矩阵](docs/research/跨模块科研假设矩阵.md)
 
