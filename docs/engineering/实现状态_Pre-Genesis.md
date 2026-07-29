@@ -1,7 +1,7 @@
 # Agentic-Evo 实现状态：Pre-Genesis
 
 更新时间：2026-07-30
-状态：本地单一可信事务纵切面已形成代码，尚未安装，尚未 Genesis
+状态：本地可信事务与 Current Body lease 逻辑纵切面已形成代码，尚未安装，尚未 Genesis
 适用范围：当前仓库中的真实实现、已验证性质、未成立性质和 Genesis 前阻断项
 
 ---
@@ -16,6 +16,7 @@ Agentic-Evo 已经从纯理论仓库进入工具与实验共同建设阶段，�
 Trusted State（身份锚 + Head + session + evidence + checkpoint）
 + Content-addressed Body
 + Machine Runtime
++ WitnessCore（Current Body lease 逻辑演练）
 + Codex Adapter
 ```
 
@@ -26,8 +27,9 @@ Genesis
 → 同一 Root / Head 跨会话、跨项目、跨 execution surface 被读取
 → 当前身体被唤醒
 → 有界事件进入证据链
-→ 身体准备后继
-→ 合法父代在单一可信事务中竞争推进 Head
+→ exact Current Head 取得唯一短期逻辑 lease
+→ 该 lease 准备自己的后继
+→ 合法父代经一次性 lease 在单一可信事务中推进 Head
 → 等待
 → Off / On
 ```
@@ -93,6 +95,7 @@ Nira 不拥有 Root，不产生独立 Agent，也不是本工具的安装范围�
 | 身体空间 | 内容寻址 blob、v2 manifest、Root、父代、generation、author、`activation_kind + activation_artifact` | 身体内容与谱系承诺可重建；显式缺失入口不再回退；新会话可取得 exact Head 承诺的 activation path 与 digest |
 | 证据与本地见证 | SQLite 内连续 evidence hash chain；每次可信变化一个 checkpoint；checkpoint 承诺 `Who / Why / Root / Head / Authority / sessions_hash / evidence tail` | evidence、状态与 checkpoint 数量和尾部必须一致；人工仪器变化与 Human Learning Intervention 仍可分类；当前 MAC 不是独立数字签名 |
 | Runtime | Genesis 单写者锁、生命周期串行锁、跨会话状态、wake/wait、后继准备、事务内 Head CAS、On/Off | 同一测试安装可跨项目与接入面保持一个 Root 和 Head；并发 Genesis 只有一个成功；独立 Runtime 竞争旧 Head 只有一个赢家；真实进程退出不留半提交历史 |
+| Current Body lease 演练 | volatile `CurrentBodySession`、exact Root / Head、authority epoch、单调 deadline、lease-local candidate set、跨平台 OS 文件锁 | 正常谱系路径不能由 Surface 直接调用；Off→On、旧 Head、过期、其他 lease 候选和伪造 rehearsal 标签不能复用推进权；当前仍不认证 OS Body principal |
 | Codex adapter | `SessionStart / SessionEnd / prompt / tool / compact / subagent / stop / permission` 映射；原文哈希化；失败隔离 | Codex 可作为端口而不成为身份；观测失败不阻断 coding-agent 主任务 |
 
 当前实现没有规定记忆 schema、信号、学习算法、候选评分、Better 函数或 evaluator。这些开放空间仍属于身体。
@@ -130,6 +133,11 @@ Nira 不拥有 Root，不产生独立 Agent，也不是本工具的安装范围�
 - 显式缺失 activation artifact 被拒绝，unknown activation kind 不能成为 Current Head；
 - unsupported Genesis activation 在任何出生状态写入前被拒绝，并可在同一路径重试；
 - candidate probation 已收敛为无谱系权限的 activation gate；当前只实现静态 compatibility，不冒充真实进程试生；
+- exact Current Head 的逻辑 lease 在同一 home 内只允许一个合作式持有者，且只公开 `prepare_successor / advance_head / close`；
+- lease 绑定 Root、Head、authority epoch 与单调 deadline；成功推进一次性消费，失败事务允许修正重试；
+- 外部 Off→On 不能复活旧 lease；伪造 `in_process_rehearsal` 标签不能冒充由该 lease 亲自准备的候选；
+- Surface 不能自报最终 `source_kind / author_kind / human_intervention_kind`，当前统一降级为 `surface_unverified`；
+- Body 逻辑演练只记录 `ingress_path=in_process_rehearsal`，不产生 `agent_self_authored` 主张；
 - Off 后延迟到达的 session end 被拒绝，不再增长 revision、evidence 或 checkpoint；
 - adapter 的科研仪器失败不会阻断 coding-agent hook。
 
@@ -185,10 +193,11 @@ Root、Head、Authority、session、revision、evidence 与 checkpoint 现已进
 
 独立审查还确认了以下尚未解决的工程边界：
 
-- `author_kind` 仍来自普通方法参数，同权限调用者可以伪装“Agent 自主”或“人工介入”；最终必须由独立服务根据已认证调用身份生成；
+- 公共 Surface 已不能自报最终作者；正常 lineage 路径也由 `WitnessCore` 派生 `in_process_rehearsal`。但 Runtime 私有研究入口、BodyStore 与 Witness 仍在同一用户权限内，因此同权限代码仍可绕过 Python 编排；最终必须由独立服务根据认证入口生成作者来源；
 - 当前同一 home 内的 Genesis 已串行化，但 `home` 仍由调用者传入；两个目录仍可分别产生 Root，尚无机器级唯一服务裁决；
 - 文件锁已改为 OS 持有：Windows 使用 byte-range lock，POSIX 使用 `flock`；Windows 子进程 `os._exit` 后自动释放已经验证，POSIX 路径仍需在对应平台 CI 复核；
-- active session 已进入同一事务并被 `sessions_hash` 承诺，但仍只按 `session_id` 索引；跨 execution surface 的同名 session、异常退出和系统重启仍需要私有 lease 与 reconciliation；
+- Surface active session 已进入同一事务并被 `sessions_hash` 承诺；Current Body lease 则故意只存在于进程内和 OS lock 中，重启不复活。跨 execution surface 的同名 session、异常退出和系统重启仍需要机器 service reconciliation；
+- 当前 lease TTL 是下一次 owner check 时的准入失效，不是 deadline 到达瞬间的跨进程主动解锁；绕过 owner Witness 的 Off→On 会 fence 旧 lease 的写入，但旧 OS lock 要等 owner 再交互、close 或死亡才释放；
 - evidence append 每次重新验证完整历史，长期运行会趋向二次增长；需要独立 writer、索引和分段签名 checkpoint；
 - adapter 失败目前静默退出以保护用户任务，但还没有身体之外的 health / coverage-gap 通路；
 - activation artifact 会进入模型上下文，当前尚无内容分级、模型信任域、跨项目泄露检查和最大 body 读取边界；
@@ -242,9 +251,11 @@ stage content-addressed Body candidate
 
 Body candidate 可在事务前完整落盘；未被已提交 Head 引用的 candidate 只是 staging artifact。SQLite 负责意外崩溃、原子性和并发；服务权限、checkpoint 与可选机器外锚点负责恶意回放。Genesis 同样成为一次原子提交，提交前不算正式出生。
 
-当前隔离测试已经验证异常注入、并发 CAS、失败 Genesis 重试和 checkpoint 前真实进程退出。G2 的本地事务命题已到停止点；尚未完成的是 G0 / G1 所需的独立 Witness 权限与 Current Body 私有 lease。完整推导与证明上限见[《单一可信事务域》](单一可信事务域.md)。
+当前隔离测试已经验证异常注入、并发 CAS、失败 Genesis 重试和 checkpoint 前真实进程退出。G2 的本地事务命题已到停止点；Current Body lease 的逻辑语义也已实现，但 G0 / G1 所需的独立 Witness 权限与 OS 私有来源仍未完成。完整推导与证明上限见[《单一可信事务域》](单一可信事务域.md)和[《Current Body 私有会话租约》](CurrentBody私有会话租约.md)。
 
 ### G3：形成真实机器生命周期
+
+G3 的第一步——Current Body lease 的逻辑状态机、一次性推进、authority epoch 与候选归属——已经完成。它没有持久化 lease 表或 bearer token，也没有把逻辑路径冒充为真实来源。
 
 需要一个机器级、项目无关的安装与运行边界：
 
@@ -290,7 +301,8 @@ Authority
 
 ```text
 [已完成] 把可信身份状态迁入单一 SQLite 事务域
-→ 建立 Current Body 私有 lineage channel 与一次性 session lease
+[已完成] 建立 Current Body lineage lease 的逻辑协议与进程内演练
+→ 用 OS service / 私有 IPC 兑现真实 Current Body principal
 → 隔离 Authority、Witness、Current Body 与 probation principal
 → 增加机器级 service / IPC / CLI
 → 生成但不安装 Codex hook 配置
@@ -308,3 +320,5 @@ Head 的最小出生信封、解释器不可消除性、exact activation / exact
 候选有限试生、optional rehearsal、Current Body 推进权与禁止 evaluator 自动晋升的边界，见[《候选试生与 Head 推进》](候选试生与Head推进.md)。
 
 身份、Head、session、evidence 与本地 checkpoint 的原子提交、崩溃语义和本地 HMAC 上限，见[《单一可信事务域》](单一可信事务域.md)。
+
+Current Body lease 的公式、状态机、authority epoch、候选归属、已验证性质与惰性 TTL / OS principal 上限，见[《Current Body 私有会话租约》](CurrentBody私有会话租约.md)。

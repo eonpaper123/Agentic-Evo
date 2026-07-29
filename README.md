@@ -6,7 +6,7 @@ The project is not a Codex plugin or a Codex-specific optimization system. The u
 
 ## Current status
 
-**Pre-Genesis.** The first machine-level `Trusted State + Body + Runtime + Codex Adapter` vertical slice now exists and is tested, but it is not installed globally and no real Root has been created. Identity, Head, sessions, evidence, and local checkpoints now commit in one SQLite transaction. Authority/witness isolation, a private Current-Body lease, and a single machine service remain hard blockers before the one formal Genesis.
+**Pre-Genesis.** The first machine-level `Trusted State + Body + Runtime + Witness lease rehearsal + Codex Adapter` vertical slice now exists and is tested, but it is not installed globally and no real Root has been created. Identity, Head, sessions, evidence, and local checkpoints commit in one SQLite transaction; a volatile exact-Head lease now gates the normal lineage path without claiming authenticated Body identity. Authority/Witness isolation, a real OS-private Current-Body channel, and a single machine service remain hard blockers before the one formal Genesis.
 
 See [实现状态：Pre-Genesis](docs/engineering/实现状态_Pre-Genesis.md).
 
@@ -29,6 +29,8 @@ See [实现状态：Pre-Genesis](docs/engineering/实现状态_Pre-Genesis.md).
 [候选试生与 Head 推进](docs/engineering/候选试生与Head推进.md)
 
 [单一可信事务域](docs/engineering/单一可信事务域.md)
+
+[Current Body 私有会话租约](docs/engineering/CurrentBody私有会话租约.md)
 
 [跨模块科研假设矩阵](docs/research/跨模块科研假设矩阵.md)
 

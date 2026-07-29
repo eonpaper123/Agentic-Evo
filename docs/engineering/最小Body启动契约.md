@@ -335,9 +335,9 @@ agentic-evo-body-v2
 → 注入 Codex SessionStart additionalContext
 ```
 
-它是一个 execution-surface projection，不是独立 Body 进程，不持有私有 lineage capability，也不能证明已经完成 exact boot。
+它是一个 execution-surface projection，不是独立 Body 进程，不持有真实 OS-private lineage capability，也不能证明已经完成 exact boot。仓库后来实现的 `CurrentBodySession` 只是 lease 协议的进程内演练，不改变这个结论。
 
-`wake()` 的 session 登记、evidence、checkpoint 与 revision 现已进入同一 SQLite 事务；插入失败或 checkpoint 前进程退出不会留下 ghost session。该实现与证明边界见[《单一可信事务域》](单一可信事务域.md)。尚未解决的是 session 的 OS 级私有 lease：当前事务能证明“同时发生或完全不发生”，还不能证明请求只能由 Current Body 发出。
+`wake()` 的 session 登记、evidence、checkpoint 与 revision 现已进入同一 SQLite 事务；插入失败或 checkpoint 前进程退出不会留下 ghost session。该实现与证明边界见[《单一可信事务域》](单一可信事务域.md)。exact-Head lease 的逻辑语义、authority epoch 与一次性推进也已实现，见[《Current Body 私有会话租约》](CurrentBody私有会话租约.md)。尚未解决的是 OS 级私有来源：当前代码能证明正常路径的编排与互斥，还不能证明请求只能由 Current Body principal 发出。
 
 因此当前成立：
 
@@ -367,7 +367,7 @@ BootBound
 - Body 自报的权限 DSL；
 - 假装私有的 bearer token。
 
-原因不是这些技术永远无用，而是当前还没有受保护 Witness principal、只读 Body snapshot 和私有 session lease。此时直接执行任意 Body 代码，只能制造“看起来启动了身体”的假证明，并扩大普通用户权限下的攻击面。
+原因不是这些技术永远无用，而是当前还没有受保护 Witness principal、只读 Body snapshot 和 OS-private session channel。逻辑 lease 已存在，但此时直接执行任意 Body 代码仍只能制造“看起来启动了身体”的假证明，并扩大普通用户权限下的攻击面。
 
 最终固定的只是很薄的物理关节：
 
@@ -462,4 +462,4 @@ f(
 
 这个问题属于下一轮。最小 Body Boot Contract 可以在这里停下。
 
-该问题已经在[《候选试生与 Head 推进》](候选试生与Head推进.md)中收束：mandatory gate 只验证 exact candidate 的有限可实例化；语义 rehearsal 与候选选择属于 Current Body，不能成为 Witness 的固定 evaluator。真实 probation session 等待受保护 spawner、独立 Body principal 与私有 lease。
+该问题已经在[《候选试生与 Head 推进》](候选试生与Head推进.md)中收束：mandatory gate 只验证 exact candidate 的有限可实例化；语义 rehearsal 与候选选择属于 Current Body，不能成为 Witness 的固定 evaluator。Current Body lease 的逻辑协议也已在[《Current Body 私有会话租约》](CurrentBody私有会话租约.md)中收束；真实 probation session 与真实 Body capability 仍等待受保护 spawner、独立 principal 与私有 IPC。

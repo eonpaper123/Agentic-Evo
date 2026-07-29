@@ -21,6 +21,8 @@
   分离 mandatory activation gate 与 optional rehearsal，规定无谱系权限的 candidate probation 只能证明有限可实例化，不能成为 evaluator、自动晋升器或候选质量判决。
 - [单一可信事务域](engineering/单一可信事务域.md)
   把身份锚、Root、Head、Authority、session、evidence 与本地 checkpoint 收入一个 SQLite 原子提交，给出 Genesis、CAS、崩溃、session 承诺和本地 HMAC 的公式、关系图、验证结果与证明上限。
+- [Current Body 私有会话租约](engineering/CurrentBody私有会话租约.md)
+  给出 exact-Head 短期 lease、authority epoch、候选归属、一次性推进、失败重试与来源降级的公式、状态机和测试；明确当前只是进程内协议演练与合作式互斥，不是 OS Body principal 身份证明。
 
 ## 专题
 
