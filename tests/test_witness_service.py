@@ -671,6 +671,75 @@ class WitnessServiceTests(unittest.TestCase):
         self.assertFalse(service._active_connections)
         self.assertTrue(service._connection_slots.acquire(blocking=False))
 
+    def test_internal_stop_waits_for_one_already_admitted_mutation(
+        self,
+    ) -> None:
+        service = WitnessService(self.home)
+        self.addCleanup(service.witness.close)
+        admitted = threading.Event()
+        allow_commit = threading.Event()
+        committed = threading.Event()
+        stop_returned = threading.Event()
+        request_failures: list[BaseException] = []
+        stop_failures: list[BaseException] = []
+        before_records = service.runtime.evidence.records()
+
+        def admitted_mutation(_: object) -> dict[str, object]:
+            admitted.set()
+            allow_commit.wait(timeout=1.0)
+            record = service.runtime.observe(
+                event_kind="admitted_before_supervisor_stop",
+                payload={"outcome": "committed_once"},
+            )
+            committed.set()
+            return {"event_id": record.event_id}
+
+        def dispatch_request() -> None:
+            try:
+                service.dispatch_public({})
+            except BaseException as exc:
+                request_failures.append(exc)
+
+        def stop_service() -> None:
+            try:
+                service.request_stop()
+                stop_returned.set()
+            except BaseException as exc:
+                stop_failures.append(exc)
+
+        service._dispatch_public = admitted_mutation
+        request = threading.Thread(target=dispatch_request, daemon=True)
+        stopper = threading.Thread(target=stop_service, daemon=True)
+
+        try:
+            request.start()
+            self.assertTrue(admitted.wait(timeout=1.0))
+            stopper.start()
+            self.assertTrue(service._stop_requested.wait(timeout=1.0))
+            self.assertFalse(stop_returned.wait(timeout=0.05))
+            self.assertEqual(service.runtime.evidence.records(), before_records)
+            allow_commit.set()
+            request.join(timeout=1.0)
+            stopper.join(timeout=1.0)
+        finally:
+            allow_commit.set()
+            request.join(timeout=1.0)
+            if stopper.ident is not None:
+                stopper.join(timeout=1.0)
+
+        self.assertFalse(request.is_alive())
+        self.assertFalse(stopper.is_alive())
+        self.assertFalse(request_failures)
+        self.assertFalse(stop_failures)
+        self.assertTrue(committed.is_set())
+        self.assertTrue(stop_returned.is_set())
+        after_records = service.runtime.evidence.records()
+        self.assertEqual(len(after_records), len(before_records) + 1)
+        self.assertEqual(
+            after_records[-1].event_kind,
+            "admitted_before_supervisor_stop",
+        )
+
     def test_external_off_on_cycle_replaces_the_subprocess_binding(self) -> None:
         process = self._spawn()
         client = self._wait_until_ready(process)
