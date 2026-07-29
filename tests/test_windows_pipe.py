@@ -298,6 +298,44 @@ class WindowsPublicPipeTests(unittest.TestCase):
             listener.close()
             _winapi.CloseHandle(malformed)
 
+    def test_close_interrupts_an_active_accept(self) -> None:
+        from agentic_evo.windows_pipe import (
+            WindowsPublicPipeListener,
+            connect_windows_public_pipe,
+            current_process_sid,
+        )
+
+        address = rf"\\.\pipe\agentic-evo-test-{uuid4().hex}"
+        listener = WindowsPublicPipeListener(
+            address,
+            expected_sid=current_process_sid(),
+        )
+        result: Queue[object] = Queue()
+
+        def accept() -> None:
+            try:
+                result.put(listener.accept())
+            except Exception as exc:
+                result.put(exc)
+
+        thread = threading.Thread(target=accept, daemon=True)
+        thread.start()
+        time.sleep(0.05)
+        listener.close()
+        thread.join(timeout=0.5)
+        interrupted = not thread.is_alive()
+
+        if thread.is_alive():
+            connection = connect_windows_public_pipe(address)
+            connection.close()
+            thread.join(timeout=2.0)
+
+        outcome = result.get_nowait()
+        if not isinstance(outcome, Exception):
+            outcome.connection.close()
+        self.assertTrue(interrupted)
+        self.assertIsInstance(outcome, OSError)
+
 
 if __name__ == "__main__":
     unittest.main()
