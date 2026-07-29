@@ -5,6 +5,7 @@ from dataclasses import asdict
 import json
 from multiprocessing.connection import Connection, Listener
 from pathlib import Path
+import socket
 import sys
 import threading
 from typing import Any, Mapping
@@ -93,7 +94,11 @@ class WitnessService:
             self._MAX_CONCURRENT_CONNECTIONS
         )
         self._lifecycle_guard = threading.RLock()
+        self._quiescent = threading.Condition(self._lifecycle_guard)
         self._stop_requested = threading.Event()
+        self._active_dispatches = 0
+        self._active_connections: dict[int, Connection] = {}
+        self._connection_workers: set[threading.Thread] = set()
         self._public_listener: Any | None = None
         self._control_listener: Listener | None = None
         self._control_thread: threading.Thread | None = None
@@ -101,16 +106,22 @@ class WitnessService:
     def request_stop(self) -> None:
         """Ask the supervisor loop to stop without changing runtime authority."""
 
-        self._stop_requested.set()
         with self._lifecycle_guard:
+            self._stop_requested.set()
             public_listener = self._public_listener
             control_listener = self._control_listener
-            control_thread = self._control_thread
+            active_connections = tuple(self._active_connections.values())
+        self._wake_pending_listener(self.endpoint, public_listener)
+        self._wake_pending_listener(self.control_endpoint, control_listener)
         if public_listener is not None:
             public_listener.close()
         if control_listener is not None:
             control_listener.close()
-        self._wake_pending_windows_control_accept(control_thread)
+        for connection in active_connections:
+            connection.close()
+        with self._quiescent:
+            while self._active_dispatches:
+                self._quiescent.wait()
 
     def serve_forever(self) -> None:
         service_lock = ExclusiveFileLock(
@@ -156,7 +167,7 @@ class WitnessService:
                     connection = (
                         accepted.connection if native_windows else accepted
                     )
-                    if self._stop_requested.is_set():
+                    if not self._register_connection(connection):
                         connection.close()
                         break
                     if native_windows:
@@ -164,16 +175,28 @@ class WitnessService:
                             self._serve_connection(connection)
                         finally:
                             connection.close()
+                            self._unregister_connection(connection)
                         continue
                     if not self._connection_slots.acquire(blocking=False):
                         connection.close()
+                        self._unregister_connection(connection)
                         continue
                     worker = threading.Thread(
                         target=self._serve_connection_with_deadline,
                         args=(connection,),
                         daemon=True,
                     )
-                    worker.start()
+                    with self._lifecycle_guard:
+                        self._connection_workers.add(worker)
+                    try:
+                        worker.start()
+                    except BaseException:
+                        with self._lifecycle_guard:
+                            self._connection_workers.discard(worker)
+                        connection.close()
+                        self._unregister_connection(connection)
+                        self._connection_slots.release()
+                        raise
             finally:
                 self.request_stop()
                 with self._lifecycle_guard:
@@ -191,13 +214,24 @@ class WitnessService:
                     control_thread is not None
                     and control_thread is not threading.current_thread()
                 ):
-                    control_thread.join(timeout=PUBLIC_IO_TIMEOUT_SECONDS + 0.5)
+                    control_thread.join()
+                self._join_connection_workers()
                 self._close_body()
                 self.witness.close()
                 self._remove_stale_unix_endpoint(self.endpoint)
                 self._remove_stale_unix_endpoint(self.control_endpoint)
 
     def dispatch_public(
+        self,
+        request: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        self._begin_dispatch()
+        try:
+            return self._dispatch_public(request)
+        finally:
+            self._end_dispatch()
+
+    def _dispatch_public(
         self,
         request: Mapping[str, Any],
     ) -> dict[str, Any]:
@@ -278,6 +312,9 @@ class WitnessService:
             self._serve_connection(connection)
         finally:
             connection.close()
+            self._unregister_connection(connection)
+            with self._lifecycle_guard:
+                self._connection_workers.discard(threading.current_thread())
             self._connection_slots.release()
 
     @classmethod
@@ -482,29 +519,38 @@ class WitnessService:
                 connection = listener.accept()
             except (EOFError, OSError):
                 return
-            if self._stop_requested.is_set():
+            if not self._register_connection(connection):
                 connection.close()
                 return
-            self._serve_control_connection_with_deadline(connection)
+            try:
+                self._serve_control_connection_with_deadline(connection)
+            finally:
+                self._unregister_connection(connection)
 
-    def _wake_pending_windows_control_accept(
+    def _wake_pending_listener(
         self,
-        control_thread: threading.Thread | None,
+        endpoint: Any,
+        listener: Any | None,
     ) -> None:
-        if (
-            sys.platform != "win32"
-            or control_thread is None
-            or not control_thread.is_alive()
-        ):
+        if listener is None:
             return
-        from .windows_pipe import connect_windows_public_pipe
-
         try:
-            connection = connect_windows_public_pipe(
-                self.control_endpoint.address,
-                timeout_seconds=0.25,
-            )
-        except OSError:
+            if sys.platform == "win32":
+                from .windows_pipe import connect_windows_public_pipe
+
+                connection = connect_windows_public_pipe(
+                    endpoint.address,
+                    timeout_seconds=0.25,
+                )
+            else:
+                wake_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                wake_socket.settimeout(0.25)
+                try:
+                    wake_socket.connect(endpoint.address)
+                finally:
+                    wake_socket.close()
+                return
+        except (EOFError, OSError):
             return
         connection.close()
 
@@ -537,7 +583,11 @@ class WitnessService:
             if isinstance(possible_id, str):
                 request_id = possible_id
             self._validate_control_request(request)
-            result = self._turn_off_rehearsal()
+            self._begin_dispatch()
+            try:
+                result = self._turn_off_rehearsal()
+            finally:
+                self._end_dispatch()
             response = {
                 "protocol": CONTROL_PROTOCOL,
                 "request_id": request_id,
@@ -676,6 +726,42 @@ class WitnessService:
                     "provenance": "subprocess_rehearsal",
                 }
             return self._body.describe()
+
+    def _register_connection(self, connection: Connection) -> bool:
+        with self._lifecycle_guard:
+            if self._stop_requested.is_set():
+                return False
+            self._active_connections[id(connection)] = connection
+            return True
+
+    def _unregister_connection(self, connection: Connection) -> None:
+        with self._lifecycle_guard:
+            self._active_connections.pop(id(connection), None)
+
+    def _begin_dispatch(self) -> None:
+        with self._quiescent:
+            if self._stop_requested.is_set():
+                raise PublicRequestError(
+                    "service_stopping",
+                    "Witness service is stopping",
+                )
+            self._active_dispatches += 1
+
+    def _end_dispatch(self) -> None:
+        with self._quiescent:
+            self._active_dispatches -= 1
+            if not self._active_dispatches:
+                self._quiescent.notify_all()
+
+    def _join_connection_workers(self) -> None:
+        while True:
+            with self._lifecycle_guard:
+                workers = tuple(self._connection_workers)
+            if not workers:
+                return
+            for worker in workers:
+                if worker is not threading.current_thread():
+                    worker.join()
 
 
 def _write_startup_error(code: str, message: str) -> None:

@@ -791,6 +791,9 @@ class WitnessServiceTests(unittest.TestCase):
         connection = FakeConnection()
         observed_during_dispatch: list[bool] = []
         service = WitnessService.__new__(WitnessService)
+        service._lifecycle_guard = threading.RLock()
+        service._active_connections = {}
+        service._connection_workers = set()
         service._connection_slots = threading.BoundedSemaphore(1)
         service._connection_slots.acquire()
 
