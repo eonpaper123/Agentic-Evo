@@ -602,6 +602,34 @@ class WitnessServiceTests(unittest.TestCase):
         self.assertEqual(observed_during_shutdown, [False])
         self.assertTrue(connection.closed)
 
+    def test_public_receive_deadline_does_not_abort_slow_dispatch(
+        self,
+    ) -> None:
+        class FakeConnection:
+            def __init__(self) -> None:
+                self.closed = False
+
+            def close(self) -> None:
+                self.closed = True
+
+        connection = FakeConnection()
+        observed_during_dispatch: list[bool] = []
+        service = WitnessService.__new__(WitnessService)
+        service._connection_slots = threading.BoundedSemaphore(1)
+        service._connection_slots.acquire()
+
+        def slow_public_work(_: object) -> None:
+            time.sleep(0.05)
+            observed_during_dispatch.append(connection.closed)
+
+        service._serve_connection = slow_public_work
+        with patch("agentic_evo.service.PUBLIC_IO_TIMEOUT_SECONDS", 0.01):
+            service._serve_connection_with_deadline(connection)
+
+        self.assertEqual(observed_during_dispatch, [False])
+        self.assertTrue(connection.closed)
+        self.assertTrue(service._connection_slots.acquire(blocking=False))
+
     def test_control_partial_frame_cannot_block_the_off_listener_forever(
         self,
     ) -> None:
