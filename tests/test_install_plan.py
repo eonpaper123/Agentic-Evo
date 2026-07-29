@@ -155,18 +155,55 @@ class InstallPlanTests(unittest.TestCase):
             self.assertEqual(target["native_test_status"], "not_run")
 
         self.assertEqual(platforms["win32"]["supervisor"], "windows_scm")
+        self.assertIn(
+            "reject_remote_clients",
+            platforms["win32"]["public_surface"],
+        )
+        self.assertIn(
+            "bound_host_sid",
+            platforms["win32"]["public_surface"],
+        )
+        self.assertIn(
+            "reject_remote_clients",
+            platforms["win32"]["private_lineage"],
+        )
         self.assertEqual(
             platforms["darwin"]["supervisor"],
             "launchd_launchdaemon",
         )
         self.assertEqual(
+            platforms["darwin"]["body_principal"],
+            "signed_current_body_launcher",
+        )
+        self.assertEqual(
+            platforms["darwin"]["public_surface"],
+            "xpc_audit_token_bound_host_uid",
+        )
+        self.assertEqual(
+            platforms["darwin"]["private_lineage"],
+            "private_xpc_audit_token_and_code_requirement",
+        )
+        self.assertEqual(
+            platforms["darwin"]["worker_fencing"],
+            "launchd_managed_body_job_required",
+        )
+        self.assertEqual(
             platforms["linux"]["supervisor"],
             "systemd_system_service",
         )
+        self.assertEqual(
+            platforms["linux"]["worker_fencing"],
+            "systemd_managed_body_cgroup_required",
+        )
         self.assertIn("pathname", platforms["linux"]["public_surface"])
         self.assertIn("so_peercred", platforms["linux"]["public_surface"])
+        self.assertIn("bound_host_uid", platforms["linux"]["public_surface"])
         self.assertNotIn("abstract", platforms["linux"]["public_surface"])
         self.assertTrue(plan["blockers"])
+        self.assertIn(
+            "native_service_artifacts_and_reversible_uninstall",
+            plan["blockers"],
+        )
 
     def test_hook_plan_is_observation_only_public_surface_and_fail_open(
         self,
@@ -186,6 +223,10 @@ class InstallPlanTests(unittest.TestCase):
         self.assertEqual(hook["runtime_access"], "public_surface_only")
         self.assertEqual(hook["failure_policy"], "fail_open")
         self.assertEqual(hook["provenance"], "surface_unverified")
+        self.assertEqual(
+            hook["event_mapping_status"],
+            "planned_not_installed_and_not_integration_tested",
+        )
         self.assertEqual(
             hook["event_mapping"],
             {
