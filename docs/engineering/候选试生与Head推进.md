@@ -338,4 +338,4 @@ GenericRunnerFactory
 
 下一工程项不再继续设计候选评价，而是解决所有真实 session、Head、evidence 与 checkpoint 都依赖的共同基础：
 
-> 把 Root、Head、Authority、revision、transition、evidence 与 checkpoint 收入单一 SQLite 可信事务域。
+该下一项现已实现并收束，见[《单一可信事务域》](单一可信事务域.md)。当前新的工程问题是：怎样让无谱系权限的 probation principal 与拥有私有 session lease 的 Current Body principal 在 OS Witness 边界上成为两个真实、不可混淆的调用来源。

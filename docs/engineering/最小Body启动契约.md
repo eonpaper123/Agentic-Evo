@@ -337,7 +337,7 @@ agentic-evo-body-v2
 
 它是一个 execution-surface projection，不是独立 Body 进程，不持有私有 lineage capability，也不能证明已经完成 exact boot。
 
-当前 `wake()` 的 session 登记与 evidence append 仍不在同一事务中；若 evidence append 失败，可能留下无对应启动证据的 active-session 记录。这不改变 activation bytes 与 Head 的承诺关系，但意味着生命周期原子性仍未成立，必须由后续单 SQLite 可信事务域和 session lease 解决。
+`wake()` 的 session 登记、evidence、checkpoint 与 revision 现已进入同一 SQLite 事务；插入失败或 checkpoint 前进程退出不会留下 ghost session。该实现与证明边界见[《单一可信事务域》](单一可信事务域.md)。尚未解决的是 session 的 OS 级私有 lease：当前事务能证明“同时发生或完全不发生”，还不能证明请求只能由 Current Body 发出。
 
 因此当前成立：
 

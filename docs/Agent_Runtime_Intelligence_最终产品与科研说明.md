@@ -1973,17 +1973,17 @@ incident、episode、candidate registry、replay、eval、rollout、rollback 和
 6. 怎样在实验失败时定位应重新打开哪个理论专题；
 7. 怎样形成可发表、可复现、允许负结果的阶段性研究计划。
 
-跨模块假设矩阵、工具—实验双螺旋计划和实验 001 现已形成；首条 `Kernel + Body + Evidence Ledger + Machine Runtime + Codex Adapter` 纵切面也已进入 Pre-Genesis 代码状态。它们不是串行交付，且当前测试 Genesis 不构成正式生命史。
+跨模块假设矩阵、工具—实验双螺旋计划和实验 001 现已形成；首条 `Trusted State + Content-addressed Body + Machine Runtime + Codex Adapter` 纵切面也已进入 Pre-Genesis 代码状态。身份锚、Head、Authority、session、evidence 与本地 checkpoint 已进入一个 SQLite 原子事务；它们不是串行交付，且当前测试 Genesis 不构成正式生命史。
 
 Genesis 前的当前硬问题已经进一步收敛为：
 
 1. 怎样让微核 authority、Root custody 与科研 witness 真正脱离身体普通文件权限；
 2. 怎样让任何证据全量重写都留下可检测的签名失败或外部缺口；
-3. 怎样对账 Head 与 evidence 跨存储变化中的崩溃中间态；
+3. 怎样让只有 Current Body 持有私有、短期、可撤销的 lineage lease，同时让 probation、模型器官和普通用户进程没有同等推进权；
 4. 怎样形成项目无关的机器级 service、IPC、On / Off 与多 coding-agent adapter；
 5. 怎样在临时安装中验证崩溃恢复、覆盖缺口、Off 和卸载后，再冻结 `I_0 / Protocol_0` 并由用户明确 Genesis。
 
-具体状态见[《实现状态：Pre-Genesis》](engineering/实现状态_Pre-Genesis.md)。工具一旦完成正式 Genesis 并进入真实使用，正式纵向数据生成即已经开始。
+Head 与 evidence 的本地崩溃中间态问题已经由单一可信事务域收束；其证明和上限见[《单一可信事务域》](engineering/单一可信事务域.md)。具体总状态见[《实现状态：Pre-Genesis》](engineering/实现状态_Pre-Genesis.md)。工具一旦完成正式 Genesis 并进入真实使用，正式纵向数据生成即已经开始。
 
 ---
 

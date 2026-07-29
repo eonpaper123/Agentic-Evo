@@ -19,6 +19,8 @@
   证明不存在无解释器的任意 Body 启动，收敛 `activation_kind + activation_artifact` 的最小出生信封，区分 exact activation reference 与受保护 exact boot，并明确当前 UTF-8 context 只是首个 surface projection。
 - [候选试生与 Head 推进](engineering/候选试生与Head推进.md)
   分离 mandatory activation gate 与 optional rehearsal，规定无谱系权限的 candidate probation 只能证明有限可实例化，不能成为 evaluator、自动晋升器或候选质量判决。
+- [单一可信事务域](engineering/单一可信事务域.md)
+  把身份锚、Root、Head、Authority、session、evidence 与本地 checkpoint 收入一个 SQLite 原子提交，给出 Genesis、CAS、崩溃、session 承诺和本地 HMAC 的公式、关系图、验证结果与证明上限。
 
 ## 专题
 

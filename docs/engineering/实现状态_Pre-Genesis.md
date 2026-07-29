@@ -1,7 +1,7 @@
 # Agentic-Evo 实现状态：Pre-Genesis
 
 更新时间：2026-07-30
-状态：首条机器级纵切面已形成代码，尚未安装，尚未 Genesis
+状态：本地单一可信事务纵切面已形成代码，尚未安装，尚未 Genesis
 适用范围：当前仓库中的真实实现、已验证性质、未成立性质和 Genesis 前阻断项
 
 ---
@@ -13,9 +13,8 @@ Agentic-Evo 已经从纯理论仓库进入工具与实验共同建设阶段，�
 当前代码实现的是最终架构的最小纵切面：
 
 ```text
-Micro Life Kernel
+Trusted State（身份锚 + Head + session + evidence + checkpoint）
 + Content-addressed Body
-+ Evidence Ledger
 + Machine Runtime
 + Codex Adapter
 ```
@@ -28,7 +27,7 @@ Genesis
 → 当前身体被唤醒
 → 有界事件进入证据链
 → 身体准备后继
-→ 合法父代原子竞争推进 Head
+→ 合法父代在单一可信事务中竞争推进 Head
 → 等待
 → Off / On
 ```
@@ -90,10 +89,10 @@ Nira 不拥有 Root，不产生独立 Agent，也不是本工具的安装范围�
 
 | 边界 | 当前实现 | 当前能证明什么 |
 |---|---|---|
-| 微型生命核 | `Who / Why / Authority / Root / Head` 的常量大小状态；HMAC 完整性；`Gate / Bind / AdvanceHead / On / Off` | 无有效签名的修改可被发现；单独回放旧 Kernel 可由当前 ledger 对账发现；错 Root、错父代和并发旧 Head 被拒绝 |
+| 单一可信状态 | 一个标准库 SQLite 事务域保存 `Who / Why / Authority / Root / Head / revision`、session、evidence 与 checkpoint；本地 HMAC checkpoint | 每次变化完整提交或完整回滚；身份锚、Head、Authority、session 与科研记录的局部篡改可被对账发现 |
 | 身体空间 | 内容寻址 blob、v2 manifest、Root、父代、generation、author、`activation_kind + activation_artifact` | 身体内容与谱系承诺可重建；显式缺失入口不再回退；新会话可取得 exact Head 承诺的 activation path 与 digest |
-| 证据层 | 有界 JSONL、sequence、前序哈希、instrument/protocol、来源、作者、干预与覆盖缺口 | 已记录历史的局部修改可被检测；人工仪器变化与 Human Learning Intervention 可分类 |
-| Runtime | Genesis 单写者锁、生命周期串行锁、跨会话状态、wake/wait、后继准备、Head 推进、On/Off | 同一测试安装可跨项目与接入面保持一个 Root 和 Head；同一 home 内并发 Genesis 只有一个成功；wake 与 Off 有确定顺序 |
+| 证据与本地见证 | SQLite 内连续 evidence hash chain；每次可信变化一个 checkpoint；checkpoint 承诺 `Who / Why / Root / Head / Authority / sessions_hash / evidence tail` | evidence、状态与 checkpoint 数量和尾部必须一致；人工仪器变化与 Human Learning Intervention 仍可分类；当前 MAC 不是独立数字签名 |
+| Runtime | Genesis 单写者锁、生命周期串行锁、跨会话状态、wake/wait、后继准备、事务内 Head CAS、On/Off | 同一测试安装可跨项目与接入面保持一个 Root 和 Head；并发 Genesis 只有一个成功；独立 Runtime 竞争旧 Head 只有一个赢家；真实进程退出不留半提交历史 |
 | Codex adapter | `SessionStart / SessionEnd / prompt / tool / compact / subagent / stop / permission` 映射；原文哈希化；失败隔离 | Codex 可作为端口而不成为身份；观测失败不阻断 coding-agent 主任务 |
 
 当前实现没有规定记忆 schema、信号、学习算法、候选评分、Better 函数或 evaluator。这些开放空间仍属于身体。
@@ -113,10 +112,13 @@ Nira 不拥有 Root，不产生独立 Agent，也不是本工具的安装范围�
 - Off 后 wake 与 observe 被拒绝，错误用户绑定不能重新开启；
 - 并发 wake 与 Off 经同一生命周期锁形成确定顺序；
 - 并发 load 会等待正在进行的生命周期 transition，不把合法中间态误报为永久损坏；
-- 微核状态被直接修改时能够检测；
-- 只回放旧签名 Kernel、但不回放 evidence 时能够检测；
-- Runtime 状态损坏被归类为完整性失败；
-- 证据序列和前序哈希链验证；
+- Root、Head、Authority、session、evidence、checkpoint 与 revision 已进入一个 SQLite 原子事务；
+- wake evidence 写入失败不会留下 ghost session，Head / Off 写入失败不会留下半提交状态；
+- Genesis 在 checkpoint 前失败不算出生，可在同一路径重试且最终只有一条 Genesis；
+- 子进程在 checkpoint 前真实 `os._exit` 后，数据库恢复到完整旧状态，生命周期锁也由 OS 自动释放；
+- 单独篡改可信 state 行、session JSON、identity anchor 或 checkpoint 会在加载时失败；
+- 单独回放旧 state 行、但不回放当前 evidence / checkpoint 历史时能够检测；
+- evidence 序列、前序哈希链、checkpoint 链、HMAC 与尾部状态交叉验证；
 - 读取 records 时默认先验证完整证据链；
 - 已篡改的证据历史不能继续追加一个看似正常的新尾部；
 - 退化 body path 被归类为领域错误而非未处理异常；
@@ -128,6 +130,7 @@ Nira 不拥有 Root，不产生独立 Agent，也不是本工具的安装范围�
 - 显式缺失 activation artifact 被拒绝，unknown activation kind 不能成为 Current Head；
 - unsupported Genesis activation 在任何出生状态写入前被拒绝，并可在同一路径重试；
 - candidate probation 已收敛为无谱系权限的 activation gate；当前只实现静态 compatibility，不冒充真实进程试生；
+- Off 后延迟到达的 session end 被拒绝，不再增长 revision、evidence 或 checkpoint；
 - adapter 的科研仪器失败不会阻断 coding-agent hook。
 
 这些结果证明的是代码契约，不是长期学习、自我进化或独立科研证据已经成立。
@@ -146,13 +149,13 @@ Nira 不拥有 Root，不产生独立 Agent，也不是本工具的安装范围�
 \operatorname{PreventOrExposeFullRewrite}
 \]
 
-证据链使用普通哈希而非身体不可获得的签名密钥。如果一个进程能够改写整个 ledger，它也能重新计算完整链。当前代码可以发现意外损坏和局部篡改，不能抵抗拥有相同文件权限的恶意全量重写。
+evidence 使用哈希链，checkpoint 使用本地 HMAC；但数据库与 `witness.key` 仍在同一个 OS 用户权限域。如果一个同权限进程能够同时读取 key 并改写整个数据库，它仍可重算完整历史。当前代码可以发现意外损坏和局部篡改，不能抵抗同权限恶意全量重写。
 
 ### 5.2 本地 HMAC 不等于不可冒充的身份根
 
-微核状态由本地 HMAC 保护，但密钥与状态目前位于同一 OS 用户可读目录。能够读取并改写两者的代码仍可重新签名。复制整个目录也会复制当前身份材料。
+可信状态的 checkpoint 由本地 HMAC 保护，但密钥与数据库目前位于同一 OS 用户可读目录。能够读取并改写两者的代码仍可重新生成 MAC。复制整个目录也会复制当前身份材料。
 
-Runtime 现在会交叉检查 Kernel、当前 Body 与 evidence 的 Root、Head 和 On / Off 见证状态，因此只回放其中一个域会被发现；但攻击者若同时回放或重写整个同权限域，仍可制造内部一致的旧世界。没有身体权限之外的单调承诺时，HMAC 不能证明“这是历史上最新的状态”。
+Runtime 现在会交叉检查 SQLite state、session、当前 Body、evidence 与 checkpoint 尾部，因此只回放其中一个部分会被发现；但攻击者若同时回放整个数据库和旧 key，仍可制造内部一致的旧世界。没有身体权限之外的单调承诺时，HMAC 不能证明“这是历史上最新的状态”。
 
 因此当前只能称为：
 
@@ -170,9 +173,9 @@ Runtime 现在会交叉检查 Kernel、当前 Body 与 evidence 的 Root、Head 
 
 当前只有一个未安装的 Codex 映射函数。其他 coding agent 需要各自经过验证的生命周期入口。没有公开稳定接口的执行表面必须记录覆盖缺口，不能通过全盘监控伪装成全覆盖。
 
-### 5.5 当前 Head 写入与科研事件尚未形成同一可信事务
+### 5.5 单库原子性不等于独立时间见证
 
-`Head` 与 evidence 是两个独立持久化域。进程可能在“请求已记录、Head 已推进、完成事件尚未落盘”的中间状态崩溃。当前加载时的交叉验证能够拒绝部分不一致状态，但尚未把 Root、Head、Authority、revision、transition、evidence 与 checkpoint 收入同一可信事务。检测到生命史断裂不等于已经恢复它。
+Root、Head、Authority、session、revision、evidence 与 checkpoint 现已进入一个可信事务，意外崩溃不会再暴露半提交世界。但 SQLite 自己不能证明这份数据库从未被整体替换为一个更老、内部同样一致的副本。最新性仍需由身体权限之外的 OS Witness、单调 checkpoint 或机器外锚点提供。
 
 ### 5.6 测试中的 Genesis 不是正式实验数据
 
@@ -185,8 +188,7 @@ Runtime 现在会交叉检查 Kernel、当前 Body 与 evidence 的 Root、Head 
 - `author_kind` 仍来自普通方法参数，同权限调用者可以伪装“Agent 自主”或“人工介入”；最终必须由独立服务根据已认证调用身份生成；
 - 当前同一 home 内的 Genesis 已串行化，但 `home` 仍由调用者传入；两个目录仍可分别产生 Root，尚无机器级唯一服务裁决；
 - 文件锁已改为 OS 持有：Windows 使用 byte-range lock，POSIX 使用 `flock`；Windows 子进程 `os._exit` 后自动释放已经验证，POSIX 路径仍需在对应平台 CI 复核；
-- active session 仍只按 `session_id` 索引，跨 execution surface 的同名 session、异常退出和系统重启需要 lease 与 reconciliation；
-- `wake()` 的 session 登记与 evidence append 尚非同一事务；后者失败时可能留下无对应证据的 ghost session；
+- active session 已进入同一事务并被 `sessions_hash` 承诺，但仍只按 `session_id` 索引；跨 execution surface 的同名 session、异常退出和系统重启仍需要私有 lease 与 reconciliation；
 - evidence append 每次重新验证完整历史，长期运行会趋向二次增长；需要独立 writer、索引和分段签名 checkpoint；
 - adapter 失败目前静默退出以保护用户任务，但还没有身体之外的 health / coverage-gap 通路；
 - activation artifact 会进入模型上下文，当前尚无内容分级、模型信任域、跨项目泄露检查和最大 body 读取边界；
@@ -225,20 +227,22 @@ Host On / Off authority
 \operatorname{DetectableGapOrSignatureFailure}
 \]
 
-### G2：补全崩溃恢复与状态对账
+### G2：补全崩溃恢复与状态对账（本地层已完成）
 
 单一 Witness 写入的身份状态必须形成一个原子事务：
 
 ```text
 stage content-addressed Body candidate
 → BEGIN IMMEDIATE
-→ validate Root / Head / private Body session
+→ validate Root / Head / Authority / current state
 → update Head / revision
 → append transition / evidence / checkpoint
 → COMMIT
 ```
 
-Body candidate 可在事务前完整落盘；未被已提交 Head 引用的 candidate 只是 staging artifact。SQLite 负责意外崩溃、原子性和并发；服务权限、checkpoint 与可选机器外锚点负责恶意回放。Genesis 同样必须成为一次原子提交，提交前不算正式出生。
+Body candidate 可在事务前完整落盘；未被已提交 Head 引用的 candidate 只是 staging artifact。SQLite 负责意外崩溃、原子性和并发；服务权限、checkpoint 与可选机器外锚点负责恶意回放。Genesis 同样成为一次原子提交，提交前不算正式出生。
+
+当前隔离测试已经验证异常注入、并发 CAS、失败 Genesis 重试和 checkpoint 前真实进程退出。G2 的本地事务命题已到停止点；尚未完成的是 G0 / G1 所需的独立 Witness 权限与 Current Body 私有 lease。完整推导与证明上限见[《单一可信事务域》](单一可信事务域.md)。
 
 ### G3：形成真实机器生命周期
 
@@ -285,9 +289,9 @@ Authority
 下一步不再新增记忆理论，也不先实现某一种自我学习算法，而是继续同一条终局纵切面：
 
 ```text
-隔离 Authority、Witness 与 Current Body principal
-→ 把可信身份状态迁入单一 SQLite 事务域
-→ 建立私有 Body lineage channel 与一次性 session lease
+[已完成] 把可信身份状态迁入单一 SQLite 事务域
+→ 建立 Current Body 私有 lineage channel 与一次性 session lease
+→ 隔离 Authority、Witness、Current Body 与 probation principal
 → 增加机器级 service / IPC / CLI
 → 生成但不安装 Codex hook 配置
 → 在临时安装中完成 crash / Off / uninstall 演练
@@ -302,3 +306,5 @@ Authority
 Head 的最小出生信封、解释器不可消除性、exact activation / exact boot 的证明边界及下一轮 probation boot 问题，见[《最小 Body 启动契约》](最小Body启动契约.md)。
 
 候选有限试生、optional rehearsal、Current Body 推进权与禁止 evaluator 自动晋升的边界，见[《候选试生与 Head 推进》](候选试生与Head推进.md)。
+
+身份、Head、session、evidence 与本地 checkpoint 的原子提交、崩溃语义和本地 HMAC 上限，见[《单一可信事务域》](单一可信事务域.md)。
