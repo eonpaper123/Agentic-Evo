@@ -595,6 +595,82 @@ class WitnessServiceTests(unittest.TestCase):
         self.assertEqual(self.runtime.status(), before_status)
         self.assertEqual(self.runtime.evidence.records(), before_records)
 
+    def test_internal_stop_and_connection_owner_close_each_transport_once(
+        self,
+    ) -> None:
+        class ConcurrentCloseRejectingConnection:
+            def __init__(self) -> None:
+                self.close_entered = threading.Event()
+                self.release_close = threading.Event()
+                self._guard = threading.Lock()
+                self._close_in_progress = False
+                self.close_calls = 0
+
+            def close(self) -> None:
+                with self._guard:
+                    self.close_calls += 1
+                    if self._close_in_progress:
+                        raise OSError("connection was closed concurrently")
+                    self._close_in_progress = True
+                self.close_entered.set()
+                self.release_close.wait(timeout=1.0)
+                with self._guard:
+                    self._close_in_progress = False
+
+        service = WitnessService(self.home)
+        connection = ConcurrentCloseRejectingConnection()
+        owner_started = threading.Event()
+        owner_may_close = threading.Event()
+        owner_failures: list[BaseException] = []
+        stop_failures: list[BaseException] = []
+
+        def serve_connection(_: object) -> None:
+            owner_started.set()
+            owner_may_close.wait(timeout=1.0)
+
+        def own_connection() -> None:
+            try:
+                service._serve_connection_with_deadline(connection)
+            except BaseException as exc:
+                owner_failures.append(exc)
+
+        def stop_service() -> None:
+            try:
+                service.request_stop()
+            except BaseException as exc:
+                stop_failures.append(exc)
+
+        service._serve_connection = serve_connection
+        self.assertTrue(service._register_connection(connection))
+        self.assertTrue(service._connection_slots.acquire(blocking=False))
+        owner = threading.Thread(target=own_connection, daemon=True)
+        with service._lifecycle_guard:
+            service._connection_workers.add(owner)
+
+        try:
+            owner.start()
+            self.assertTrue(owner_started.wait(timeout=1.0))
+            stopper = threading.Thread(target=stop_service, daemon=True)
+            stopper.start()
+            self.assertTrue(connection.close_entered.wait(timeout=1.0))
+            owner_may_close.set()
+            owner.join(timeout=1.0)
+        finally:
+            owner_may_close.set()
+            connection.release_close.set()
+            if "stopper" in locals():
+                stopper.join(timeout=1.0)
+            owner.join(timeout=1.0)
+            service.witness.close()
+
+        self.assertFalse(owner.is_alive())
+        self.assertFalse(stopper.is_alive())
+        self.assertFalse(owner_failures)
+        self.assertFalse(stop_failures)
+        self.assertEqual(connection.close_calls, 1)
+        self.assertFalse(service._active_connections)
+        self.assertTrue(service._connection_slots.acquire(blocking=False))
+
     def test_external_off_on_cycle_replaces_the_subprocess_binding(self) -> None:
         process = self._spawn()
         client = self._wait_until_ready(process)
