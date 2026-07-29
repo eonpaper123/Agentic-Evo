@@ -173,7 +173,7 @@ class InstallPlanTests(unittest.TestCase):
         )
         self.assertEqual(
             platforms["darwin"]["body_principal"],
-            "signed_current_body_launcher",
+            "dedicated_non_login_body_uid_with_signed_launcher",
         )
         self.assertEqual(
             platforms["darwin"]["public_surface"],
@@ -181,7 +181,11 @@ class InstallPlanTests(unittest.TestCase):
         )
         self.assertEqual(
             platforms["darwin"]["private_lineage"],
-            "private_xpc_audit_token_and_code_requirement",
+            "private_xpc_audit_token_body_uid_and_code_requirement",
+        )
+        self.assertNotEqual(
+            platforms["darwin"]["witness_principal"],
+            platforms["darwin"]["body_principal"],
         )
         self.assertEqual(
             platforms["darwin"]["worker_fencing"],
