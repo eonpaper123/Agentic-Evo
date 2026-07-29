@@ -141,6 +141,10 @@ class WindowsJobObjectTests(unittest.TestCase):
             self.assertTrue(process.token_profile.is_restricted)
             self.assertEqual(process.token_profile.integrity_rid, 4096)
             self.assertLessEqual(process.token_profile.privilege_count, 1)
+            self.assertIsNone(process.poll())
+            self.assertFalse(os.get_handle_inheritable(child_write_handle))
+            self.assertFalse(os.get_handle_inheritable(int(included_event)))
+            self.assertTrue(os.get_handle_inheritable(int(decoy)))
             self.assertEqual(
                 _winapi.PeekNamedPipe(
                     msvcrt.get_osfhandle(read_stream.fileno())
