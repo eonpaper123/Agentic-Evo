@@ -4,6 +4,7 @@ import ctypes
 from ctypes import wintypes
 from dataclasses import dataclass
 from multiprocessing import connection as mp_connection
+import threading
 import time
 
 import _winapi
@@ -135,6 +136,9 @@ class WindowsPublicPipeListener:
         self.address = address
         self.expected_sid = expected_sid
         self.authentication_timeout_seconds = authentication_timeout_seconds
+        self._state_guard = threading.Lock()
+        self._active_handle: int | None = None
+        self._closed = False
         self._security_descriptor = _security_descriptor(expected_sid)
         self._security_attributes = _SecurityAttributes(
             ctypes.sizeof(_SecurityAttributes),
@@ -146,19 +150,20 @@ class WindowsPublicPipeListener:
         except Exception:
             _kernel32.LocalFree(self._security_descriptor)
             raise
-        self._closed = False
 
     def accept(self) -> AcceptedWindowsPipe:
-        if self._closed:
-            raise OSError("Windows public pipe listener is closed")
         while True:
-            if self._pending is None:
-                self._pending = self._new_handle()
-            handle = self._pending
-            self._pending = None
+            with self._state_guard:
+                if self._closed:
+                    raise OSError("Windows public pipe listener is closed")
+                if self._pending is None:
+                    self._pending = self._new_handle()
+                handle = self._pending
+                self._pending = None
+                self._active_handle = handle
             try:
                 if not _connect_named_pipe(handle):
-                    _winapi.CloseHandle(handle)
+                    self._discard_active_handle(handle)
                     continue
                 _read_authentication_preface(
                     handle,
@@ -168,32 +173,50 @@ class WindowsPublicPipeListener:
                 client_sid = _impersonated_client_sid(handle)
                 if client_sid != self.expected_sid:
                     raise _RejectedPipeClient
-                connection = mp_connection.PipeConnection(handle)
+                with self._state_guard:
+                    if self._closed or self._active_handle != handle:
+                        raise OSError("Windows public pipe listener is closed")
+                    connection = mp_connection.PipeConnection(handle)
+                    self._active_handle = None
             except _RejectedPipeClient:
-                _winapi.CloseHandle(handle)
+                self._discard_active_handle(handle)
                 continue
             except OSError as exc:
-                _winapi.CloseHandle(handle)
-                if exc.winerror in (
+                self._discard_active_handle(handle)
+                if getattr(exc, "winerror", None) in (
                     _winapi.ERROR_BROKEN_PIPE,
                     _winapi.ERROR_NO_DATA,
                 ):
                     continue
                 raise
             except Exception:
-                _winapi.CloseHandle(handle)
+                self._discard_active_handle(handle)
                 raise
             return AcceptedWindowsPipe(connection, client_pid, client_sid)
 
     def close(self) -> None:
-        if self._closed:
-            return
-        self._closed = True
-        if self._pending is not None:
-            _winapi.CloseHandle(self._pending)
+        with self._state_guard:
+            if self._closed:
+                return
+            self._closed = True
+            pending = self._pending
             self._pending = None
-        _kernel32.LocalFree(self._security_descriptor)
-        self._security_descriptor = None
+            active = self._active_handle
+            self._active_handle = None
+            security_descriptor = self._security_descriptor
+            self._security_descriptor = None
+        if pending is not None:
+            _winapi.CloseHandle(pending)
+        if active is not None:
+            _winapi.CloseHandle(active)
+        _kernel32.LocalFree(security_descriptor)
+
+    def _discard_active_handle(self, handle: int) -> None:
+        with self._state_guard:
+            if self._active_handle != handle:
+                return
+            self._active_handle = None
+        _winapi.CloseHandle(handle)
 
     def _new_handle(self) -> int:
         open_mode = (
@@ -329,7 +352,11 @@ def _read_authentication_preface(
             raise ctypes.WinError(ctypes.get_last_error())
     read, error = overlapped.GetOverlappedResult(True)
     if error:
-        if error in (_winapi.ERROR_BROKEN_PIPE, _winapi.ERROR_NO_DATA):
+        if error in (
+            _winapi.ERROR_BROKEN_PIPE,
+            _winapi.ERROR_MORE_DATA,
+            _winapi.ERROR_NO_DATA,
+        ):
             raise _RejectedPipeClient
         raise ctypes.WinError(error)
     if read != len(_AUTHENTICATION_PREFACE):

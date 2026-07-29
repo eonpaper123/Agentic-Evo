@@ -164,13 +164,25 @@ def receive_public_message(
 
 
 @contextmanager
-def open_public_connection(endpoint: Endpoint) -> Iterator[Connection]:
+def open_public_connection(
+    endpoint: Endpoint,
+    *,
+    native_windows: bool = False,
+) -> Iterator[Connection]:
     try:
-        connection = Client(
-            endpoint.address,
-            family=endpoint.family,
-            authkey=None,
-        )
+        if native_windows and sys.platform == "win32":
+            from .windows_pipe import connect_windows_public_pipe
+
+            connection = connect_windows_public_pipe(
+                endpoint.address,
+                timeout_seconds=PUBLIC_IO_TIMEOUT_SECONDS,
+            )
+        else:
+            connection = Client(
+                endpoint.address,
+                family=endpoint.family,
+                authkey=None,
+            )
     except (EOFError, OSError) as exc:
         raise ServiceUnavailableError(
             "Witness foreground rehearsal is unavailable"
@@ -249,7 +261,10 @@ class SurfaceClient:
             "operation": operation,
             "params": dict(params),
         }
-        with open_public_connection(self.endpoint) as connection:
+        with open_public_connection(
+            self.endpoint,
+            native_windows=True,
+        ) as connection:
             try:
                 send_public_message(connection, request)
                 response = receive_public_message(

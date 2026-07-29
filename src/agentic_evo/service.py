@@ -102,18 +102,39 @@ class WitnessService:
         with service_lock:
             self._remove_stale_unix_endpoint(self.endpoint)
             self._remove_stale_unix_endpoint(self.control_endpoint)
-            listener: Listener | None = None
+            listener: Any | None = None
             try:
                 self._ensure_body()
                 self._start_control_listener()
-                listener = Listener(
-                    self.endpoint.address,
-                    family=self.endpoint.family,
-                    backlog=1,
-                    authkey=None,
-                )
+                native_windows = sys.platform == "win32"
+                if native_windows:
+                    from .windows_pipe import (
+                        WindowsPublicPipeListener,
+                        current_process_sid,
+                    )
+
+                    listener = WindowsPublicPipeListener(
+                        self.endpoint.address,
+                        expected_sid=current_process_sid(),
+                    )
+                else:
+                    listener = Listener(
+                        self.endpoint.address,
+                        family=self.endpoint.family,
+                        backlog=1,
+                        authkey=None,
+                    )
                 while True:
-                    connection = listener.accept()
+                    accepted = listener.accept()
+                    connection = (
+                        accepted.connection if native_windows else accepted
+                    )
+                    if native_windows:
+                        try:
+                            self._serve_connection(connection)
+                        finally:
+                            connection.close()
+                        continue
                     if not self._connection_slots.acquire(blocking=False):
                         connection.close()
                         continue

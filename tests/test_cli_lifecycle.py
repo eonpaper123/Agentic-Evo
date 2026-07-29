@@ -181,7 +181,7 @@ class CLILifecycleTests(unittest.TestCase):
             if generic is not None:
                 generic.close()
 
-        self.assertEqual(client.status()["root"], self.runtime.root)
+        self.assertEqual(client.status()["root"], self.runtime.status().root)
 
     def test_rehearsal_off_survives_service_crash_and_restart(
         self,
