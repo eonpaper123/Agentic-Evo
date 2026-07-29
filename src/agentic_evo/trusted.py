@@ -308,7 +308,7 @@ class TrustedState:
                 head_before=expected_head,
                 head_after=expected_head,
                 source_kind="execution_surface",
-                author_kind="normal_host_interaction",
+                author_kind="surface_unverified",
                 execution_surface=execution_surface,
                 session_id=session_id,
                 project_environment=project_environment,
@@ -342,7 +342,7 @@ class TrustedState:
                 head_before=state["head"],
                 head_after=state["head"],
                 source_kind="execution_surface",
-                author_kind="normal_host_interaction",
+                author_kind="surface_unverified",
                 execution_surface=(
                     str(session.get("execution_surface")) if session else None
                 ),
