@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from multiprocessing.connection import Client
 import os
 from pathlib import Path
 import subprocess
@@ -9,7 +10,11 @@ import tempfile
 import time
 import unittest
 
-from agentic_evo.ipc import ServiceUnavailableError, SurfaceClient
+from agentic_evo.ipc import (
+    ServiceUnavailableError,
+    SurfaceClient,
+    service_endpoint,
+)
 from agentic_evo.runtime import DevelopmentalRuntime
 
 
@@ -157,6 +162,26 @@ class CLILifecycleTests(unittest.TestCase):
         last = self.runtime.evidence.records()[-1]
         self.assertEqual(last.event_kind, "session_start")
         self.assertEqual(last.author_kind, "surface_unverified")
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows native contract")
+    def test_windows_public_endpoint_rejects_generic_pipe_clients(self) -> None:
+        service = self._spawn_service()
+        client = self._wait_until_ready(service)
+        endpoint = service_endpoint(self.home)
+        generic = None
+        try:
+            with self.assertRaises(OSError) as denied:
+                generic = Client(
+                    endpoint.address,
+                    family=endpoint.family,
+                    authkey=None,
+                )
+            self.assertEqual(denied.exception.winerror, 5)
+        finally:
+            if generic is not None:
+                generic.close()
+
+        self.assertEqual(client.status()["root"], self.runtime.root)
 
     def test_rehearsal_off_survives_service_crash_and_restart(
         self,
