@@ -3,8 +3,11 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from queue import Queue
 import subprocess
 import sys
+import threading
+import time
 import unittest
 from uuid import uuid4
 
@@ -98,6 +101,54 @@ class WindowsPublicPipeTests(unittest.TestCase):
                 process.stdout.close()
             if process is not None and process.stderr is not None:
                 process.stderr.close()
+
+    def test_listener_discards_a_client_that_disconnects_before_authentication(
+        self,
+    ) -> None:
+        from agentic_evo.windows_pipe import (
+            WindowsPublicPipeListener,
+            connect_windows_public_pipe,
+            current_process_sid,
+        )
+
+        address = rf"\\.\pipe\agentic-evo-test-{uuid4().hex}"
+        listener = WindowsPublicPipeListener(
+            address,
+            expected_sid=current_process_sid(),
+        )
+        stale = connect_windows_public_pipe(address)
+        stale.close()
+        result: Queue[object] = Queue()
+
+        def valid_client() -> None:
+            try:
+                time.sleep(0.1)
+                connection = connect_windows_public_pipe(address)
+                try:
+                    send_public_message(connection, {"kind": "ping"})
+                    result.put(receive_public_message(connection))
+                finally:
+                    connection.close()
+            except Exception as exc:
+                result.put(exc)
+
+        thread = threading.Thread(target=valid_client, daemon=True)
+        thread.start()
+        accepted = None
+        try:
+            accepted = listener.accept()
+            self.assertEqual(
+                receive_public_message(accepted.connection),
+                {"kind": "ping"},
+            )
+            send_public_message(accepted.connection, {"ok": True})
+            thread.join(timeout=5.0)
+            self.assertFalse(thread.is_alive())
+            self.assertEqual(result.get_nowait(), {"ok": True})
+        finally:
+            if accepted is not None:
+                accepted.connection.close()
+            listener.close()
 
 
 if __name__ == "__main__":
