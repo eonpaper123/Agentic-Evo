@@ -133,6 +133,8 @@ class InstallPlanTests(unittest.TestCase):
                 "implemented_native_components": [
                     "win32_job_object_process_tree_fencing",
                     "win32_public_named_pipe_dacl_peer_authentication",
+                    "win32_restricted_low_integrity_body_process_rehearsal",
+                    "win32_explicit_inherited_private_lineage_transport_rehearsal",
                 ],
                 "native_security_verified": False,
                 "portable_protocol_complete": True,
