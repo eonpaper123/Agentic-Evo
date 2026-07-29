@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 from queue import Queue
 import tempfile
+import threading
 import time
 import unittest
 from unittest.mock import MagicMock, patch
@@ -333,6 +334,39 @@ class BodyProcessTests(unittest.TestCase):
                 outcome = body._rehearsal_outcomes.get_nowait()
                 self.assertIsInstance(outcome, BodyBootError)
                 body._process.kill.assert_called_once()
+
+    def test_async_channel_failure_after_command_is_outcome_unknown(
+        self,
+    ) -> None:
+        from agentic_evo.body_process import BodyLineageOutcomeUnknown
+
+        body = object.__new__(SpawnedBodyProcess)
+        body._closed = threading.Event()
+        body._process = MagicMock()
+        body._process.poll.return_value = None
+        body._rehearsal_guard = threading.Lock()
+        body._pending_rehearsal = None
+        body._pending_lineage_request = None
+        body._pending_lineage_response = None
+        body._next_lineage_sequence = 1
+        body._request_timeout_seconds = 0.1
+        body._rehearsal_outcomes = Queue(maxsize=1)
+        body._rehearsal_outcomes.put_nowait(
+            BodyBootError("child exited after command write")
+        )
+        body._write_frame = MagicMock()
+
+        with self.assertRaises(BodyLineageOutcomeUnknown):
+            body._run_rehearsal(
+                {
+                    "protocol": "agentic-evo-private-lineage-v1",
+                    "kind": "rehearsal_command",
+                    "operation": "prepare_successor",
+                    "files": {"entrypoint.md": "possibly buffered"},
+                    "activation_kind": None,
+                    "activation_artifact": None,
+                }
+            )
 
     def test_deep_private_json_fails_as_a_bounded_protocol_error(self) -> None:
         deeply_nested = (
