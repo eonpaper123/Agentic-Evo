@@ -1,8 +1,8 @@
 # 机器 Witness 服务与 exact-Head 子进程演练
 
 更新时间：2026-07-30  
-状态：可移植进程协议停止点已形成；独立 OS principal 与真实私有 lineage channel 尚未形成  
-用途：记录 singleton Witness 前台服务、公共 Surface IPC、exact-Head 子进程启动、已验证事实与证明上限
+状态：可移植进程协议停止点已形成；Windows foreground public pipe 已形成 account-bound 原生证据，独立 OS principal 与真实私有 lineage channel 尚未形成
+用途：记录 singleton Witness 前台服务、Windows 原生 public Surface IPC、exact-Head 子进程启动、已验证事实与证明上限
 
 ---
 
@@ -29,7 +29,7 @@ foreground_service_rehearsal
 ```mermaid
 flowchart TD
     S["Codex / Other Surface<br/>普通用户进程"]
-    PUB["Public Surface IPC<br/>AF_PIPE 或 AF_UNIX<br/>64 KiB 有界 JSON"]
+    PUB["Public Surface IPC<br/>Windows native named pipe / AF_UNIX<br/>64 KiB 有界 JSON"]
     W["Foreground Witness Service<br/>固定 dev-home · singleton lock"]
     T["SQLite Trusted State<br/>Root · Head · Authority · Evidence"]
     L["WitnessCore logical lease<br/>Root · Head · authority epoch · deadline"]
@@ -53,12 +53,12 @@ Public Surface connection
 anonymous child boot pipe
 ```
 
-但二者目前仍位于同一个普通用户权限域，所以：
+Windows public connection 现已校验绑定账户 SID；但 public 与 child boot 两条通路仍位于同一个普通用户权限域，所以：
 
 ```text
-different connection topology
+public account-bound connection topology
 ≠
-different OS principal
+private Body OS principal / lineage authority
 ```
 
 ---
@@ -174,7 +174,7 @@ author_kind = surface_unverified
 
 ### 4.1 传输边界
 
-公共帧采用标准库 `multiprocessing.connection` 的 bytes transport，但只调用 `send_bytes / recv_bytes`，不反序列化 pickle。帧内容是有界 UTF-8 JSON：
+公共帧沿用标准库 `multiprocessing.connection` 的 `PipeConnection` bytes framing，但只调用 `send_bytes / recv_bytes`，不反序列化 pickle。Windows listener / client 已改为原生 named-pipe handle；POSIX 仍使用 AF_UNIX。帧内容是有界 UTF-8 JSON：
 
 \[
 \boxed{
@@ -191,9 +191,22 @@ author_kind = surface_unverified
 + malformed / oversize / EOF fail closed
 ```
 
-静默连接在独立 worker 中等待并被 receive Timer 关闭，不再阻塞整个服务的 `accept` 循环。response Timer 只约束客户端等待，不会强制终止卡在业务处理中的 Python worker；这一点仍要由原生可取消 I/O、进程隔离或 supervisor fencing 兑现。
+POSIX foreground rehearsal 仍由独立 worker 处理连接。Windows foreground pipe 为避免把 `FILE_CREATE_PIPE_INSTANCE` 交给同账户客户端，当前只允许一个 authentic server instance，因而串行处理：静默客户端会占用当前连接，直到 2 秒 request-frame deadline 或客户端断开，随后 listener 才重建并接纳下一连接。response Timer 只约束客户端等待，不会强制终止卡在业务处理中的 Python worker；真正并发与进程级取消仍要由独立 Witness principal、原生可取消 I/O 或 supervisor fencing 兑现。
 
-这些机制限制普通故障和低成本阻塞，不等于具备正式 DACL、peer credential 或抗本机恶意 DoS 能力。
+Windows foreground public pipe 还满足：
+
+```text
+explicit protected DACL
++ SYSTEM / expected user SID only
++ minimal client access
++ PIPE_REJECT_REMOTE_CLIENTS
++ impersonated TokenUser SID equality
++ GetNamedPipeClientProcessId diagnostic fact
+```
+
+要求 `GENERIC_READ | GENERIC_WRITE` 的宽权限客户端会被 DACL 拒绝；正常 Surface client 只请求 `SYNCHRONIZE + read/write data + read/write attributes`，不取得 `FILE_CREATE_PIPE_INSTANCE`。SID 不匹配时连接被拒绝。PID 只用于诊断，不作为身份或授权；SID 只证明账户绑定，不证明第一宿主真人在场。
+
+这些机制限制 public Surface 的账户与远端边界，但仍不等于 HostPresence、private lineage、独立 service principal、protected state 或抗本机同权限恶意 DoS 能力。Off control endpoint 也仍是另一条 generic、未认证 transport。
 
 ---
 
@@ -421,9 +434,11 @@ commit Authority=Off
 - worker argv 不含 Root、Head、challenge 或 boot session；
 - worker 不继承服务进程中的任意环境 secret；
 - public status 不暴露 challenge 或 boot session；
-- boot 不产生 evidence，也不产生 `agent_self_authored`。
+- boot 不产生 evidence，也不产生 `agent_self_authored`；
+- Windows public pipe 的显式 DACL 拒绝宽权限 generic client，拒绝 remote clients，并在独立子进程 roundtrip 中取得匹配的 TokenUser SID 与 client PID；
+- public Surface 仍没有 lineage operation；SID 不升级为 HostPresence，PID 不升级为 authority，Off endpoint 不继承 public pipe 的认证事实。
 
-这些是协议和进程生命周期事实，不是长期学习或自我进化证据。
+这些是协议和进程生命周期事实，不是长期学习或自我进化证据。截至当前，全仓 100 项测试在 `ResourceWarning` 作为错误时通过。
 
 ---
 
@@ -467,11 +482,11 @@ subprocess_rehearsal
 agent_self_authored
 ```
 
-### 9.3 匿名 pipe 不是独立 principal
+### 9.3 account-bound public pipe 与匿名 child pipe 都不是独立 Body principal
 
-服务程序、worker、SQLite、key 和项目代码仍属于同一个 OS 用户。匿名 pipe 证明的是连接拓扑与父子创建关系，不证明普通用户无法替换服务代码、调试进程或直接访问状态目录。
+Windows public pipe 证明客户端 token 属于绑定账户，匿名 child pipe 证明父子创建与连接拓扑；二者都不证明 worker 拥有与普通用户分离的 Body principal，也不证明普通用户无法替换服务代码、调试进程或直接访问状态目录。public peer SID 不能授权 lineage，diagnostic PID 也不能充当 capability。
 
-### 9.4 本文件停止点尚无 OS process-tree 原子 fencing
+### 9.4 process-tree 原子 fencing 目前只在 Windows diagnostic Body 成立
 
 本文件形成时，父进程被强杀后，worker 只会因 stdin EOF 退出；当时 Windows 还没有 Job Object，macOS/Linux 也没有对应 supervisor principal。旧 worker 从父进程死亡到读到 EOF 之间，可能与新 worker 短暂重叠。
 
@@ -496,7 +511,7 @@ public Surface allowlist
 
 | 平台 | 尚需兑现的真实边界 |
 |---|---|
-| Windows | SCM service、restricted service SID、ProgramData ACL、显式 named-pipe DACL、受限 worker token；Job Object primitive 已实现，安装后 service-context 攻击测试仍未完成 |
+| Windows | foreground public named-pipe DACL / remote rejection / peer account binding 与 Job Object primitive 已实现；仍需 SCM service、restricted service SID、ProgramData ACL、restricted Body token、private inherited lineage handle 与安装态攻击测试 |
 | macOS | LaunchDaemon、独立 Witness/Body UID、daemon-owned state、XPC audit token + Body UID + code-signing requirement、process supervision |
 | Linux | systemd system service、专用/DynamicUser、StateDirectory、pathname AF_UNIX、SO_PEERCRED、独立 Body UID/cgroup |
 
@@ -530,4 +545,4 @@ public Surface allowlist
 
 > 冻结并审计 Python 可移植层，然后直接进入平台原生 service/principal、protected state、peer credential 与 process-tree fencing；不再扩张模拟安全层。
 
-该冻结与 Windows Job Object 第一切片现已完成，见[《Windows 原生 Witness 边界》](Windows原生Witness边界.md)。当前下一项是 Windows foreground native public named-pipe boundary；它先证明显式 DACL、remote rejection 与 peer SID/PID，不提前安装 SCM service。
+该冻结、Windows Job Object 与 foreground native public named-pipe 切片现已完成，见[《Windows 原生 Witness 边界》](Windows原生Witness边界.md)。当前下一项是 restricted Body token + private inherited lineage handle；它先证明 public Surface 不能冒充 Current Body，不提前宣称 SCM、protected state、HostPresence、安装或正式 Genesis。

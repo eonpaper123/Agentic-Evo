@@ -1,6 +1,6 @@
 # 跨平台 CLI、Off 控制与零安装副作用计划
 
-> 状态：Pre-Genesis 可移植层停止点  
+> 状态：Pre-Genesis 可移植层停止点；Windows foreground public pipe 已原生化，Off control 仍为 generic / unverified
 > 对应实现：`src/agentic_evo/cli.py`、`ipc.py`、`service.py`、`install_plan.py`、`adapters/codex.py`  
 > 当前实测平台：Windows  
 > macOS / Linux 状态：协议与目标计划可生成，原生实现和实机测试均未完成
@@ -40,9 +40,9 @@ CLI 是操作表面，不是 Agentic-Evo 本体；install plan 是待兑现契�
 flowchart LR
     C["Codex lifecycle hook"]
     H["agentic-evo hook"]
-    P["Public Surface endpoint"]
+    P["Public Surface endpoint<br/>Windows: native named pipe"]
     O["agentic-evo off"]
-    K["Unauthenticated Off-only rehearsal endpoint"]
+    K["Generic unauthenticated<br/>Off-only rehearsal endpoint"]
     S["Foreground Witness service"]
     T["SQLite trusted transaction"]
     B["exact-Head diagnostic Body process"]
@@ -155,7 +155,7 @@ On\notin A_{control}^{rehearsal}
 }
 \]
 
-独立 endpoint 目前没有原生 DACL、peer credential 或 HostPresence 证明。它只能证明协议拓扑分离：
+独立 Off endpoint 目前仍没有原生 DACL、peer credential 或 HostPresence 证明。Windows public endpoint 已有显式 DACL、remote-client rejection 与 peer account SID，但该证据不向 control endpoint 继承，也不能证明真人在场。Off 通路目前仍只能证明协议拓扑分离：
 
 ```text
 different endpoint + different protocol
@@ -455,7 +455,8 @@ ready_to_install = false
 native_security_verified = false
 portable_protocol_complete = true
 implemented_native_components =
-  [win32_job_object_process_tree_fencing]
+  [win32_job_object_process_tree_fencing,
+   win32_public_named_pipe_dacl_peer_authentication]
 ```
 
 计划不包含：
@@ -554,7 +555,7 @@ RenderPlan(P)\neq NativeVerified(P)
 }
 \]
 
-本节的 plan rendering 与可移植协议测试不能证明 macOS 或 Linux 原生边界，也不能证明 Windows SCM、DACL 或 service SID。后续单独的 Windows ctypes 父/孙进程测试已经证明 Job Object primitive；该局部证据不能反推其他原生边界。
+本节的 plan rendering 与可移植协议测试不能证明 macOS 或 Linux 原生边界，也不能证明 Windows SCM、service SID、protected state、HostPresence 或 private lineage。后续 Windows 原生测试已经证明 foreground Job Object primitive 与 public named-pipe DACL / remote rejection / peer account binding；这些局部证据不能反推安装态或其他原生边界。
 
 ---
 
@@ -632,9 +633,12 @@ AdvanceHead
 25. macOS 目标明确区分 Witness UID 与 dedicated Body UID，代码签名只作为附加身份条件；
 26. escape-heavy session、文件名与 activation context 按 canonical JSON bytes 二次预算，最终响应仍落在一个 64 KiB frame 内；
 27. public client 的 12 秒 response Timer 与 2 秒 request-frame receive Timer 分离，冷缓存下的大 Head wake 不再被错误截断；
-28. request receive Timer 不包住后续 dispatch，合法慢 dispatch 不会在 2 秒时被服务端主动关断。
+28. request receive Timer 不包住后续 dispatch，合法慢 dispatch 不会在 2 秒时被服务端主动关断；
+29. Windows foreground public pipe 的显式 DACL 只给 SYSTEM 与绑定用户 SID 最小 client access，要求 `GENERIC_READ | GENERIC_WRITE` 的宽权限客户端被拒绝；
+30. `PIPE_REJECT_REMOTE_CLIENTS`、server-side named-pipe impersonation / TokenUser SID 与 client PID 在独立子进程往返中成立；SID 不等于 HostPresence，PID 只用于诊断；
+31. public Surface 与 generic、未认证 Off endpoint 仍是两条不同 transport，public account binding 不会把 Off provenance 升级。
 
-截至本文件停止点，全仓共 90 项测试通过；后续 Windows Job Object 原生切片使全仓达到 93 项，并继续以 `ResourceWarning` 作为错误运行。
+截至当前停止点，全仓共 100 项测试通过，并以 `ResourceWarning` 作为错误运行。
 
 ---
 
@@ -650,10 +654,10 @@ AdvanceHead
 6. Body subprocess 拥有自己的 lineage capability；
 7. Body 已执行 activation 的真实语义；
 8. macOS / Linux 原生行为；
-9. Windows SCM / SID / DACL，以及 Job Object 在安装后 service context 中的完整行为；当前只验证 foreground diagnostic Body 的 kill-on-close；
+9. Windows SCM / service SID / protected state，以及 Job Object 和 public pipe 在安装后 service context 中的完整行为；当前只验证 foreground diagnostic Body 的 kill-on-close 与 public peer account binding；
 10. Codex Hook 已安装、已信任或已在真实 session 自然触发；
 11. `PermissionRequest` 或其他计划事件已由本项目做安装后集成验证；
-12. 当前 Windows AF_PIPE 的显式 DACL 与 remote-client rejection；
+12. 当前 Windows public pipe 的 SID 是 HostPresence，或 client PID 是授权身份；
 13. 当前跨线程 `close()` 在真实 AF_PIPE / AF_UNIX 上可靠中断 partial frame；
 14. 所有孙进程均已退出；
 15. 一个卡在业务处理中的 Python worker 会被 Timer 强制终止；
@@ -687,6 +691,12 @@ cross-platform native implementation verified
 ```
 
 ```text
+Public peer SID + diagnostic PID
+≠
+HostPresence + private lineage authority
+```
+
+```text
 CLI available
 ≠
 Agentic-Evo is a CLI product
@@ -710,6 +720,8 @@ Agentic-Evo is a CLI product
 
 继续在 Python 层增加 token、另一把用户密钥、通用 control RPC、模拟 principal、可执行但虚假的 service 脚本，不会增强上述命题。
 
+Windows foreground Job Object 与 public named pipe 已完成当前局部原生切片；`native_security_verified=false`、`ready_to_install=false`，也没有 SCM、protected state 或安装事实。
+
 下一项是：
 
-> 冻结并审计 Pre-Genesis 可移植层；随后直接进入一个目标平台的原生 Witness service / principal / protected state / peer credential / process-tree fencing 实现，并让同一 conformance contract 在另外两个平台复现。真实安装、正式 Genesis 与用户级 Codex Hook 写入仍需单独授权。
+> 建立 restricted Body token + private inherited lineage handle，使 Current Body 来源不能由 public Surface 冒充；随后再进入 SCM principal、protected state、HostPresence 与可逆安装。正式 Genesis 与用户级 Codex Hook 写入仍需单独授权。

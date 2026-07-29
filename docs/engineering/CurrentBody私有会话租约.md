@@ -1,7 +1,7 @@
 # Current Body 私有会话租约
 
 更新时间：2026-07-30
-状态：逻辑协议与进程内演练已实现并通过隔离测试；OS 私有来源证明尚未实现
+状态：逻辑协议与进程内演练已实现并通过隔离测试；Windows public pipe 已认证账户但 OS 私有 Body 来源证明尚未实现
 用途：规定 Current Body 如何取得一次、短期、可撤销的谱系推进权，并准确划定当前实现与真实 Witness capability 之间的边界
 
 ---
@@ -299,7 +299,7 @@ author_kind = in_process_rehearsal
 14. Surface 声明 `agent_self_authored` 不改变派生来源；
 15. 当前 Pre-Genesis evidence 不把逻辑演练冒充为 `agent_self_authored`。
 
-这些结果与单一可信事务域共同证明“正常实现路径上的谱系操作编排”，不是不可绕过的安全来源。
+这些结果与单一可信事务域共同证明“正常实现路径上的谱系操作编排”，不是不可绕过的安全来源。包含后续 Windows Job 与 public-pipe 回归在内，当前全仓 100 项测试在 `ResourceWarning` 作为错误时通过。
 
 ---
 
@@ -344,7 +344,7 @@ Authority=Off
 
 但这只建立了 `subprocess_rehearsal`，不等于独立安全主体、可信私有 lineage 通道或可复用的 RPC 防重放协议。尤其 Boot challenge 只是本次启动握手的私有 challenge，不是 lineage RPC 的 nonce / replay protection。
 
-截至当前仍然没有：
+Windows foreground public pipe 后续已加入显式 DACL、remote rejection、最小 client access、impersonated TokenUser SID 与 client PID。这个结果只认证 public peer 的账户：SID 不等于 HostPresence，PID 只用于诊断，public connection 不等于 private lineage；Off control 仍是 generic / unverified。因此截至当前仍然没有：
 
 - 独立 Witness service principal；
 - 绑定独立 Body principal 的 authenticated private lineage endpoint；
@@ -362,9 +362,8 @@ Authority=Off
 
 ```text
 Windows
-→ restricted service SID
-→ service-owned trusted state
-→ private inherited handle / ACL-limited IPC
+→ [foreground 下一项] restricted Body token + private inherited lineage handle
+→ [installed final] restricted service SID + service-owned trusted state
 
 macOS
 → machine LaunchDaemon under dedicated Witness UID
@@ -413,14 +412,14 @@ CLI、Off-only control 与三平台 dry-run 工件现已完成；下一项仍不
 + [已完成] zero-install-effect service / hook plan
 + [已演练] 临时目录 Off / crash / restart / tracked-service cleanup
 + [Windows 已实现] diagnostic Body Job Object kill-on-close
-→ native machine-level Witness service
++ [Windows 已实现] foreground public pipe DACL / remote rejection / peer-SID verification / diagnostic PID
+→ restricted Body token + private inherited lineage handle
++ native machine-level Witness service
 + service-owned trusted state / key
-+ Current Body 独立 principal
-+ private inherited IPC
 + probation 无谱系 dispatcher
 + 平台临时安装 / 权限攻击 / uninstall 演练
 ```
 
-CLI/control/install-plan 的公式、因果顺序、三平台合同与证明上限见[《跨平台 CLI、Off 控制与零安装副作用计划》](跨平台CLI与Off控制演练.md)；第一项 Windows 原生围栏证据见[《Windows 原生 Witness 边界》](Windows原生Witness边界.md)。
+CLI/control/install-plan 的公式、因果顺序、三平台合同与证明上限见[《跨平台 CLI、Off 控制与零安装副作用计划》](跨平台CLI与Off控制演练.md)；Windows Job 围栏与 foreground public-pipe 两项原生证据见[《Windows 原生 Witness 边界》](Windows原生Witness边界.md)。
 
 在该边界真实形成前，不安装正式服务，不启动正式 Genesis，也不产生 `agent_self_authored` 科研主张。

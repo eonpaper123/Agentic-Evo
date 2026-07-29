@@ -12,7 +12,7 @@
 - [工具与实验共生开发计划](engineering/工具与实验共生开发计划.md)
   规定工具、真实使用与实验同步推进的双螺旋；统一唯一用户宿主、机器栖息地、coding-agent 执行表面、器官和项目环境；划分微核、身体、独立科研仪器与适配器的信任边界。
 - [实现状态：Pre-Genesis](engineering/实现状态_Pre-Genesis.md)
-  记录首条机器级纵切面的真实代码、已验证性质、尚不能成立的主张、最小可信计算基与 Genesis 前四个硬阻断项；当前尚未安装、尚未产生唯一 Root。
+  记录首条机器级纵切面的真实代码、已验证性质、尚不能成立的主张、最小可信计算基与 Genesis 前硬阻断项；当前尚未由 SCM 安装、尚未产生唯一 Root，`native_security_verified` 与 `ready_to_install` 仍为 `false`。
 - [最小可信边界与来源证明](engineering/最小可信边界与来源证明.md)
   推导同权限域下作者来源不可区分定理，区分身份、科研见证与自我作者证明，确定 Windows service SID、显式 named-pipe ACL、Body 私有 capability 和单 SQLite 事务域的最小路径。
 - [最小 Body 启动契约](engineering/最小Body启动契约.md)
@@ -28,7 +28,7 @@
 - [跨平台 CLI、Off 控制与零安装副作用计划](engineering/跨平台CLI与Off控制演练.md)
   记录 `serve/status/hook/off/plan-install`、Codex adapter 实现只经公共 Surface、未认证控制只允许 Off、原子幂等、输入/输出投影与 Timer 边界、Off/crash/restart/tracked-service cleanup 实验，以及 Windows/macOS/Linux 原生目标合同；计划不安装任何服务或 Hook，三平台均保持 `not_run`。
 - [Windows 原生 Witness 边界](engineering/Windows原生Witness边界.md)
-  记录第一项真实 Windows 原生证据：Job Object 在 exact-Head Boot 前围栏 fixed diagnostic Body，最后 handle 关闭由内核终止父进程与后代；同时明确 SCM、service SID、ACL、peer-authenticated IPC、HostPresence、安装与 Genesis 仍未成立。
+  记录两项真实 Windows foreground 原生证据：Job Object 通过既有 process handle 在 exact-Head Boot 前围栏 fixed diagnostic Body；public named pipe 使用显式 DACL、`PIPE_REJECT_REMOTE_CLIENTS`、最小 client access，并核验 peer SID、记录 PID。全仓 100 项测试在 `ResourceWarning` 作为错误时通过；同账户 SID 不是 HostPresence，public 认证不是 private lineage，Off 仍是 unverified rehearsal，SCM 安装态与完整 native security 均未成立。下一项是 restricted Body token 与 private inherited lineage capability。
 
 ## 专题
 
@@ -69,7 +69,7 @@
 ## 实验
 
 - [实验 001：机器级连续生命循环](../experiments/001_机器级连续生命循环.md)
-  从 Genesis 开始验证同一用户绑定 Agent 的机器级唯一身份、跨对话和跨项目连续、跨 coding-agent 接入、独立证据、合法 Head 推进、睡眠/等待恢复与真实 Off；当前纵切面已形成 Pre-Genesis 代码，正式实验尚未启动。
+  从 Genesis 开始验证同一用户绑定 Agent 的机器级唯一身份、跨对话和跨项目连续、跨 coding-agent 接入、独立证据、合法 Head 推进、睡眠/等待恢复与真实 Off；当前纵切面已形成 Pre-Genesis 代码与两项 Windows foreground 原生证据，正式实验尚未启动。
 
 ## 文档原则
 
