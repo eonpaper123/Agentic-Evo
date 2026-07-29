@@ -223,8 +223,12 @@ class CLILifecycleTests(unittest.TestCase):
             "hook",
             input_text=secret + ("x" * (2 * 1024 * 1024)),
         )
+        deeply_nested = self._run_cli(
+            "hook",
+            input_text=("[" * 100_000) + "0" + ("]" * 100_000),
+        )
 
-        for result in (malformed, oversized):
+        for result in (malformed, oversized, deeply_nested):
             self.assertEqual(result.returncode, 0)
             self.assertEqual(result.stdout, "")
             self.assertNotIn(secret, result.stderr)
