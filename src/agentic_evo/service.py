@@ -92,7 +92,25 @@ class WitnessService:
         self._connection_slots = threading.BoundedSemaphore(
             self._MAX_CONCURRENT_CONNECTIONS
         )
+        self._lifecycle_guard = threading.RLock()
+        self._stop_requested = threading.Event()
+        self._public_listener: Any | None = None
         self._control_listener: Listener | None = None
+        self._control_thread: threading.Thread | None = None
+
+    def request_stop(self) -> None:
+        """Ask the supervisor loop to stop without changing runtime authority."""
+
+        self._stop_requested.set()
+        with self._lifecycle_guard:
+            public_listener = self._public_listener
+            control_listener = self._control_listener
+            control_thread = self._control_thread
+        if public_listener is not None:
+            public_listener.close()
+        if control_listener is not None:
+            control_listener.close()
+        self._wake_pending_windows_control_accept(control_thread)
 
     def serve_forever(self) -> None:
         service_lock = ExclusiveFileLock(
@@ -124,11 +142,23 @@ class WitnessService:
                         backlog=1,
                         authkey=None,
                     )
-                while True:
-                    accepted = listener.accept()
+                with self._lifecycle_guard:
+                    if self._stop_requested.is_set():
+                        return
+                    self._public_listener = listener
+                while not self._stop_requested.is_set():
+                    try:
+                        accepted = listener.accept()
+                    except (EOFError, OSError):
+                        if self._stop_requested.is_set():
+                            break
+                        raise
                     connection = (
                         accepted.connection if native_windows else accepted
                     )
+                    if self._stop_requested.is_set():
+                        connection.close()
+                        break
                     if native_windows:
                         try:
                             self._serve_connection(connection)
@@ -145,10 +175,23 @@ class WitnessService:
                     )
                     worker.start()
             finally:
+                self.request_stop()
+                with self._lifecycle_guard:
+                    if self._public_listener is listener:
+                        self._public_listener = None
+                    control_listener = self._control_listener
+                    self._control_listener = None
+                    control_thread = self._control_thread
+                    self._control_thread = None
                 if listener is not None:
                     listener.close()
-                if self._control_listener is not None:
-                    self._control_listener.close()
+                if control_listener is not None:
+                    control_listener.close()
+                if (
+                    control_thread is not None
+                    and control_thread is not threading.current_thread()
+                ):
+                    control_thread.join(timeout=PUBLIC_IO_TIMEOUT_SECONDS + 0.5)
                 self._close_body()
                 self.witness.close()
                 self._remove_stale_unix_endpoint(self.endpoint)
@@ -419,21 +462,51 @@ class WitnessService:
             backlog=1,
             authkey=None,
         )
-        self._control_listener = listener
+        with self._lifecycle_guard:
+            if self._stop_requested.is_set():
+                listener.close()
+                return
+            self._control_listener = listener
         thread = threading.Thread(
             target=self._serve_control_loop,
             args=(listener,),
             daemon=True,
         )
+        with self._lifecycle_guard:
+            self._control_thread = thread
         thread.start()
 
     def _serve_control_loop(self, listener: Listener) -> None:
-        while True:
+        while not self._stop_requested.is_set():
             try:
                 connection = listener.accept()
             except (EOFError, OSError):
                 return
+            if self._stop_requested.is_set():
+                connection.close()
+                return
             self._serve_control_connection_with_deadline(connection)
+
+    def _wake_pending_windows_control_accept(
+        self,
+        control_thread: threading.Thread | None,
+    ) -> None:
+        if (
+            sys.platform != "win32"
+            or control_thread is None
+            or not control_thread.is_alive()
+        ):
+            return
+        from .windows_pipe import connect_windows_public_pipe
+
+        try:
+            connection = connect_windows_public_pipe(
+                self.control_endpoint.address,
+                timeout_seconds=0.25,
+            )
+        except OSError:
+            return
+        connection.close()
 
     def _serve_control_connection_with_deadline(
         self,
