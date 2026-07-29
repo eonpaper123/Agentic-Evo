@@ -37,6 +37,22 @@ class BodyBootError(AgenticEvoError):
     """Raised when the exact-Head subprocess rehearsal cannot be established."""
 
 
+class BodyLineageOutcomeUnknown(BodyBootError):
+    """Raised when a timed-out request may already have crossed linearization."""
+
+    def __init__(
+        self,
+        *,
+        operation: str,
+        candidate_head: str | None = None,
+    ) -> None:
+        self.operation = operation
+        self.candidate_head = candidate_head
+        super().__init__(
+            "private Body lineage outcome is unknown; inspect trusted state"
+        )
+
+
 @dataclass(frozen=True)
 class BootEnvelope:
     protocol: str
@@ -510,10 +526,24 @@ class SpawnedBodyProcess:
                         timeout=self._request_timeout_seconds
                     )
                 except Empty as exc:
-                    if self._process.poll() is None:
-                        self._process.kill()
-                    raise BodyBootError(
-                        "private Body lineage rehearsal timed out"
+                    try:
+                        if self._process.poll() is None:
+                            self._process.kill()
+                    except OSError:
+                        pass
+                    operation = command.get("operation")
+                    raise BodyLineageOutcomeUnknown(
+                        operation=(
+                            str(operation)
+                            if isinstance(operation, str)
+                            else "unknown"
+                        ),
+                        candidate_head=(
+                            str(command["candidate_head"])
+                            if operation == "advance_head"
+                            and isinstance(command.get("candidate_head"), str)
+                            else None
+                        ),
                     ) from exc
                 if isinstance(outcome, BaseException):
                     raise BodyBootError(
