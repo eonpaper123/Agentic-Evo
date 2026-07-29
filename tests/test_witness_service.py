@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -458,6 +459,61 @@ class WitnessServiceTests(unittest.TestCase):
         response = json.loads(connection.sent[-1].decode("utf-8"))
         self.assertFalse(response["ok"])
         self.assertEqual(response["error"]["code"], "invalid_frame")
+
+    def test_off_client_waits_for_the_bounded_shutdown_response_window(
+        self,
+    ) -> None:
+        class DelayedControlResponse:
+            def __init__(self) -> None:
+                self.request: dict[str, object] | None = None
+                self.poll_timeout: float | None = None
+
+            def send_bytes(self, raw: bytes) -> None:
+                self.request = json.loads(raw.decode("utf-8"))
+
+            def poll(self, timeout: float) -> bool:
+                self.poll_timeout = timeout
+                return timeout >= 0.05
+
+            def recv_bytes(self, _: int) -> bytes:
+                assert self.request is not None
+                return json.dumps(
+                    {
+                        "protocol": CONTROL_PROTOCOL,
+                        "request_id": self.request["request_id"],
+                        "ok": True,
+                        "result": {
+                            "authority": "off",
+                            "body_rehearsal": {"state": "absent"},
+                        },
+                    }
+                ).encode("utf-8")
+
+            def close(self) -> None:
+                pass
+
+        connection = DelayedControlResponse()
+
+        @contextmanager
+        def open_fake_connection(_: object) -> object:
+            yield connection
+
+        with (
+            patch(
+                "agentic_evo.ipc.open_public_connection",
+                open_fake_connection,
+            ),
+            patch("agentic_evo.ipc.PUBLIC_IO_TIMEOUT_SECONDS", 0.01),
+            patch(
+                "agentic_evo.ipc.CONTROL_RESPONSE_TIMEOUT_SECONDS",
+                0.1,
+                create=True,
+            ),
+        ):
+            result = OffRehearsalClient(self.home).off()
+
+        self.assertEqual(result["authority"], "off")
+        self.assertEqual(connection.poll_timeout, 0.1)
 
     def test_malformed_and_oversize_frames_fail_closed(self) -> None:
         process = self._spawn()
