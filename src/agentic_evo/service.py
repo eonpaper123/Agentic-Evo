@@ -10,6 +10,7 @@ import threading
 from typing import Any, Mapping
 
 from ._util import ExclusiveFileLock
+from .body_process import BodyProcessSupervisor, SpawnedBodyProcess
 from .errors import AgenticEvoError, IntegrityError, RuntimeOffError
 from .ipc import (
     PUBLIC_PROTOCOL,
@@ -20,6 +21,7 @@ from .ipc import (
     service_endpoint,
 )
 from .runtime import DevelopmentalRuntime
+from .witness import WitnessCore
 
 
 class PublicRequestError(AgenticEvoError):
@@ -68,6 +70,13 @@ class WitnessService:
         self.home = Path(home).expanduser().resolve(strict=False)
         self.runtime = DevelopmentalRuntime.load(self.home)
         self.endpoint = service_endpoint(self.home)
+        self.witness = WitnessCore(self.runtime)
+        self.body_supervisor = BodyProcessSupervisor(
+            self.runtime,
+            self.witness,
+        )
+        self._body: SpawnedBodyProcess | None = None
+        self._body_guard = threading.RLock()
         self._connection_slots = threading.BoundedSemaphore(
             self._MAX_CONCURRENT_CONNECTIONS
         )
@@ -81,6 +90,7 @@ class WitnessService:
             self._remove_stale_unix_endpoint()
             listener: Listener | None = None
             try:
+                self._ensure_body()
                 listener = Listener(
                     self.endpoint.address,
                     family=self.endpoint.family,
@@ -101,6 +111,8 @@ class WitnessService:
             finally:
                 if listener is not None:
                     listener.close()
+                self._close_body()
+                self.witness.close()
                 self._remove_stale_unix_endpoint()
 
     def dispatch_public(
@@ -111,9 +123,12 @@ class WitnessService:
         operation = request["operation"]
         params = request["params"]
         self._validate_parameters(operation, params)
+        self._ensure_body()
 
         if operation == "status":
-            return asdict(self.runtime.status())
+            result = asdict(self.runtime.status())
+            result["body_rehearsal"] = self._body_description()
+            return result
         if operation == "wake":
             return asdict(self.runtime.wake(**params))
         if operation == "sleep":
@@ -287,6 +302,43 @@ class WitnessService:
             path.unlink()
         except FileNotFoundError:
             pass
+
+    def _ensure_body(self) -> None:
+        with self._body_guard:
+            status = self.runtime.status()
+            if status.authority != "on":
+                self._close_body()
+                return
+            if (
+                self._body is not None
+                and self._body.is_alive()
+                and self._body.boot.head == status.head
+            ):
+                try:
+                    self._body.assert_bound()
+                except AgenticEvoError:
+                    pass
+                else:
+                    return
+            self._close_body()
+            self._body = self.body_supervisor.spawn_current()
+
+    def _close_body(self) -> None:
+        with self._body_guard:
+            body = self._body
+            self._body = None
+            if body is not None:
+                body.close()
+
+    def _body_description(self) -> dict[str, Any]:
+        with self._body_guard:
+            if self._body is None:
+                return {
+                    "state": "absent",
+                    "head": None,
+                    "provenance": "subprocess_rehearsal",
+                }
+            return self._body.describe()
 
 
 def _write_startup_error(code: str, message: str) -> None:

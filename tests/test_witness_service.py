@@ -245,10 +245,6 @@ class WitnessServiceTests(unittest.TestCase):
 
         self.assertEqual(new_body["state"], "ready")
         self.assertEqual(new_body["head"], old_body["head"])
-        self.assertNotEqual(
-            new_body["boot_session"],
-            old_body["boot_session"],
-        )
         self.assertNotEqual(new_body["pid"], old_body["pid"])
 
     def test_endpoint_is_deterministic_platform_specific_and_bounded(

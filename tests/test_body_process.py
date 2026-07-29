@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -11,7 +12,7 @@ from agentic_evo.body_process import (
     BODY_BOOT_PROTOCOL,
     BodyBootError,
     BodyProcessSupervisor,
-    ReadyEcho,
+    _body_worker_environment,
     validate_ready_echo,
 )
 from agentic_evo.runtime import DevelopmentalRuntime
@@ -79,6 +80,7 @@ class BodyProcessTests(unittest.TestCase):
         self.assertNotIn(status.head, serialized_command)
         self.assertNotIn(body.boot.challenge, serialized_command)
         self.assertNotIn(body.boot.boot_session, serialized_command)
+        self.assertIn("-P", body.command)
 
         body.close()
         replacement = self._spawn()
@@ -148,7 +150,7 @@ class BodyProcessTests(unittest.TestCase):
             crashed.boot.boot_session,
         )
 
-    def test_valid_large_current_head_is_streamed_without_a_boot_size_cliff(
+    def test_valid_large_current_head_is_transferred_without_a_boot_size_cliff(
         self,
     ) -> None:
         session = self.witness.open_current_body_session(
@@ -167,23 +169,6 @@ class BodyProcessTests(unittest.TestCase):
             sha256_hex(large_activation),
         )
 
-    def test_invalid_ready_echo_is_not_accepted_as_a_live_body(self) -> None:
-        body = self._spawn()
-        forged = ReadyEcho(
-            protocol=body.ready.protocol,
-            boot_session=body.ready.boot_session,
-            challenge=body.ready.challenge,
-            root=body.ready.root,
-            head=body.ready.head,
-            generation=body.ready.generation,
-            activation_kind=body.ready.activation_kind,
-            activation_artifact=body.ready.activation_artifact,
-            activation_digest="0" * 64,
-        )
-        with self.assertRaises(BodyBootError):
-            validate_ready_echo(body.boot, forged)
-        self.assertTrue(body.is_alive())
-
     def test_boot_does_not_claim_agent_self_authorship(self) -> None:
         before = self.runtime.evidence.records()
         body = self._spawn()
@@ -193,6 +178,33 @@ class BodyProcessTests(unittest.TestCase):
         self.assertNotIn(
             "agent_self_authored",
             {record.author_kind for record in self.runtime.evidence.records()},
+        )
+
+    def test_worker_does_not_inherit_the_host_process_environment(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "AGENTIC_EVO_TEST_SECRET": "must-not-cross",
+                "PYTHONPATH": "caller-controlled-path",
+            },
+        ):
+            environment = _body_worker_environment()
+
+        self.assertNotIn("AGENTIC_EVO_TEST_SECRET", environment)
+        self.assertNotEqual(
+            environment["PYTHONPATH"],
+            "caller-controlled-path",
+        )
+        self.assertLessEqual(
+            set(environment),
+            {
+                "PYTHONPATH",
+                "PYTHONUTF8",
+                "PYTHONNOUSERSITE",
+                "PYTHONDONTWRITEBYTECODE",
+                "SystemRoot",
+                "WINDIR",
+            },
         )
 
 

@@ -217,21 +217,24 @@ class WitnessCore:
                 self._retire_lease()
 
     def _authorize(self, lease: CurrentBodySession) -> None:
-        if lease is not self._lease:
-            raise BodyLeaseError("Current Body lease is no longer active")
-        if self._clock() >= lease._expires_at:
-            self._retire_lease()
-            raise BodyLeaseError("Current Body lease expired")
+        with self._guard:
+            if lease is not self._lease:
+                raise BodyLeaseError("Current Body lease is no longer active")
+            if self._clock() >= lease._expires_at:
+                self._retire_lease()
+                raise BodyLeaseError("Current Body lease expired")
 
-        status, authority_epoch = self._runtime._body_lease_binding()
-        if (
-            status.authority != "on"
-            or status.root != lease._root
-            or status.head != lease._head
-            or authority_epoch != lease._authority_epoch
-        ):
-            self._retire_lease()
-            raise BodyLeaseError("Current Body lease lost its trusted binding")
+            status, authority_epoch = self._runtime._body_lease_binding()
+            if (
+                status.authority != "on"
+                or status.root != lease._root
+                or status.head != lease._head
+                or authority_epoch != lease._authority_epoch
+            ):
+                self._retire_lease()
+                raise BodyLeaseError(
+                    "Current Body lease lost its trusted binding"
+                )
 
     def _retire_lease(self) -> None:
         lease = self._lease
