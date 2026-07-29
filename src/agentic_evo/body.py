@@ -10,7 +10,7 @@ from ._util import atomic_write_bytes, atomic_write_json, canonical_json_bytes, 
 from .errors import BodyNotFoundError, IntegrityError, InvalidBodyError
 
 
-BODY_SCHEMA_VERSION = "agentic-evo-body-v1"
+BODY_SCHEMA_VERSION = "agentic-evo-body-v2"
 
 
 @dataclass(frozen=True)
@@ -21,6 +21,7 @@ class BodyManifest:
     generation: int
     author_kind: str
     created_at: str
+    activation_kind: str | None
     activation_artifact: str | None
     files: tuple[tuple[str, str], ...]
 
@@ -46,6 +47,7 @@ class BodyStore:
         parent_head: str | None,
         files: Mapping[str, str | bytes],
         author_kind: str,
+        activation_kind: str | None = None,
         activation_artifact: str | None = None,
     ) -> str:
         if not root or not author_kind:
@@ -61,23 +63,44 @@ class BodyStore:
             normalized[relative] = blob_hash
 
         generation = 0
+        inherited_activation_kind: str | None = None
         inherited_activation: str | None = None
         if parent_head is not None:
             try:
                 parent = self.read_manifest(parent_head)
                 generation = parent.generation + 1
+                inherited_activation_kind = parent.activation_kind
                 inherited_activation = parent.activation_artifact
             except BodyNotFoundError:
                 generation = 1
-        selected_activation = activation_artifact or inherited_activation
+        selected_activation_kind = (
+            activation_kind
+            if activation_kind is not None
+            else inherited_activation_kind
+        )
+        selected_activation = (
+            activation_artifact
+            if activation_artifact is not None
+            else inherited_activation
+        )
+        if selected_activation_kind is not None:
+            if (
+                not isinstance(selected_activation_kind, str)
+                or not selected_activation_kind
+                or len(selected_activation_kind) > 128
+                or any(character.isspace() for character in selected_activation_kind)
+            ):
+                raise InvalidBodyError("activation kind must be a compact non-empty string")
+        if (selected_activation_kind is None) != (selected_activation is None):
+            raise InvalidBodyError(
+                "activation kind and activation artifact must be specified together"
+            )
         if selected_activation is not None:
             selected_activation = self._normalize_relative_path(selected_activation)
             if selected_activation not in normalized:
-                selected_activation = None
-        if selected_activation is None and "entrypoint.md" in normalized:
-            selected_activation = "entrypoint.md"
-        if selected_activation is None and normalized:
-            selected_activation = sorted(normalized)[0]
+                raise InvalidBodyError(
+                    "activation artifact is not present in body files"
+                )
 
         manifest = {
             "schema_version": BODY_SCHEMA_VERSION,
@@ -86,6 +109,7 @@ class BodyStore:
             "generation": generation,
             "author_kind": author_kind,
             "created_at": utc_now(),
+            "activation_kind": selected_activation_kind,
             "activation_artifact": selected_activation,
             "files": dict(sorted(normalized.items())),
         }
@@ -127,6 +151,7 @@ class BodyStore:
             generation = int(manifest["generation"])
             author_kind = str(manifest["author_kind"])
             created_at = str(manifest["created_at"])
+            activation_kind = manifest.get("activation_kind")
             activation_artifact = manifest.get("activation_artifact")
         except (KeyError, TypeError, ValueError) as exc:
             raise IntegrityError("invalid body manifest envelope") from exc
@@ -134,6 +159,18 @@ class BodyStore:
             parent_head = str(parent_head)
         if generation < 0:
             raise IntegrityError("body generation cannot be negative")
+        if activation_kind is not None:
+            if (
+                not isinstance(activation_kind, str)
+                or not activation_kind
+                or len(activation_kind) > 128
+                or any(character.isspace() for character in activation_kind)
+            ):
+                raise IntegrityError("invalid activation kind")
+        if (activation_kind is None) != (activation_artifact is None):
+            raise IntegrityError(
+                "activation kind and activation artifact must be specified together"
+            )
         if activation_artifact is not None:
             activation_artifact = self._normalize_relative_path(
                 str(activation_artifact)
@@ -147,6 +184,7 @@ class BodyStore:
             generation=generation,
             author_kind=author_kind,
             created_at=created_at,
+            activation_kind=activation_kind,
             activation_artifact=activation_artifact,
             files=tuple(files),
         )
@@ -159,7 +197,13 @@ class BodyStore:
             raise BodyNotFoundError(
                 f"body file {normalized!r} does not exist in {commitment}"
             )
-        return (self.blob_path / file_map[normalized]).read_bytes()
+        expected_digest = file_map[normalized]
+        raw = (self.blob_path / expected_digest).read_bytes()
+        if sha256_hex(raw) != expected_digest:
+            raise IntegrityError(
+                f"body blob commitment mismatch during read: {expected_digest}"
+            )
+        return raw
 
     def export_manifest(self, commitment: str) -> dict[str, object]:
         manifest = self.read_manifest(commitment)

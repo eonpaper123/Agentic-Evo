@@ -1,6 +1,6 @@
 # Agentic-Evo 实现状态：Pre-Genesis
 
-更新时间：2026-07-29
+更新时间：2026-07-30
 状态：首条机器级纵切面已形成代码，尚未安装，尚未 Genesis
 适用范围：当前仓库中的真实实现、已验证性质、未成立性质和 Genesis 前阻断项
 
@@ -91,7 +91,7 @@ Nira 不拥有 Root，不产生独立 Agent，也不是本工具的安装范围�
 | 边界 | 当前实现 | 当前能证明什么 |
 |---|---|---|
 | 微型生命核 | `Who / Why / Authority / Root / Head` 的常量大小状态；HMAC 完整性；`Gate / Bind / AdvanceHead / On / Off` | 无有效签名的修改可被发现；单独回放旧 Kernel 可由当前 ledger 对账发现；错 Root、错父代和并发旧 Head 被拒绝 |
-| 身体空间 | 内容寻址 blob、manifest、Root、父代、generation、author、activation artifact | 身体内容与谱系承诺可重建；新会话可取得当前激活材料 |
+| 身体空间 | 内容寻址 blob、v2 manifest、Root、父代、generation、author、`activation_kind + activation_artifact` | 身体内容与谱系承诺可重建；显式缺失入口不再回退；新会话可取得 exact Head 承诺的 activation path 与 digest |
 | 证据层 | 有界 JSONL、sequence、前序哈希、instrument/protocol、来源、作者、干预与覆盖缺口 | 已记录历史的局部修改可被检测；人工仪器变化与 Human Learning Intervention 可分类 |
 | Runtime | Genesis 单写者锁、生命周期串行锁、跨会话状态、wake/wait、后继准备、Head 推进、On/Off | 同一测试安装可跨项目与接入面保持一个 Root 和 Head；同一 home 内并发 Genesis 只有一个成功；wake 与 Off 有确定顺序 |
 | Codex adapter | `SessionStart / SessionEnd / prompt / tool / compact / subagent / stop / permission` 映射；原文哈希化；失败隔离 | Codex 可作为端口而不成为身份；观测失败不阻断 coding-agent 主任务 |
@@ -124,6 +124,9 @@ Nira 不拥有 Root，不产生独立 Agent，也不是本工具的安装范围�
 - 人工仪器变化与 Human Learning Intervention 保持不同来源；
 - Codex prompt、tool input 和 tool response 不以原文进入 ledger；
 - `SessionStart` 返回有界身体激活上下文；
+- wake 返回当前 Head 承诺的 activation kind、path 与 digest；
+- 显式缺失 activation artifact 被拒绝，unknown activation kind 不能成为 Current Head；
+- unsupported Genesis activation 在任何出生状态写入前被拒绝，并可在同一路径重试；
 - adapter 的科研仪器失败不会阻断 coding-agent hook。
 
 这些结果证明的是代码契约，不是长期学习、自我进化或独立科研证据已经成立。
@@ -182,9 +185,11 @@ Runtime 现在会交叉检查 Kernel、当前 Body 与 evidence 的 Root、Head 
 - 当前同一 home 内的 Genesis 已串行化，但 `home` 仍由调用者传入；两个目录仍可分别产生 Root，尚无机器级唯一服务裁决；
 - 文件锁已改为 OS 持有：Windows 使用 byte-range lock，POSIX 使用 `flock`；Windows 子进程 `os._exit` 后自动释放已经验证，POSIX 路径仍需在对应平台 CI 复核；
 - active session 仍只按 `session_id` 索引，跨 execution surface 的同名 session、异常退出和系统重启需要 lease 与 reconciliation；
+- `wake()` 的 session 登记与 evidence append 尚非同一事务；后者失败时可能留下无对应证据的 ghost session；
 - evidence append 每次重新验证完整历史，长期运行会趋向二次增长；需要独立 writer、索引和分段签名 checkpoint；
 - adapter 失败目前静默退出以保护用户任务，但还没有身体之外的 health / coverage-gap 通路；
 - activation artifact 会进入模型上下文，当前尚无内容分级、模型信任域、跨项目泄露检查和最大 body 读取边界；
+- 当前 `surface-context-utf8-v1` 只形成 exact activation reference，不是受保护 Body principal 的真实 boot；
 - 敏感信息过滤主要检查 evidence payload key，尚不能替代完整的值分类与 artifact policy。
 
 这些问题不要求人类规定 Agent 应怎样记忆或学习；它们属于研究世界能否可信存在的工程条件。
@@ -292,3 +297,5 @@ Authority
 完成这些条件后，Agentic-Evo 才能第一次真实参与 Agentic-Evo 自身及机器中其他 coding 项目的开发；工具运行和实验 001 的正式纵向数据也从那一刻同时开始。
 
 同权限作者来源不可区分、Windows service boundary、Body 私有 capability 与可信事务域的进一步推导，见[《最小可信边界与来源证明》](最小可信边界与来源证明.md)。
+
+Head 的最小出生信封、解释器不可消除性、exact activation / exact boot 的证明边界及下一轮 probation boot 问题，见[《最小 Body 启动契约》](最小Body启动契约.md)。

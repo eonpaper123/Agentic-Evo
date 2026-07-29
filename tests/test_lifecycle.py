@@ -116,7 +116,7 @@ class MachineLifecycleTests(unittest.TestCase):
                 activation_artifact="boot/missing.md",
             )
 
-    def test_unknown_activation_kind_fails_closed_at_wake(self) -> None:
+    def test_unknown_activation_kind_cannot_become_current_head(self) -> None:
         before = self.runtime.status()
         candidate = self.runtime.prepare_successor(
             expected_parent=before.head,
@@ -125,17 +125,41 @@ class MachineLifecycleTests(unittest.TestCase):
             activation_kind="future-body-v9",
             activation_artifact="boot/body.bin",
         )
-        self.runtime.advance_head(
-            expected_head=before.head,
-            candidate_head=candidate,
-        )
 
         with self.assertRaises(InvalidBodyError):
-            self.runtime.wake(
-                execution_surface="codex",
-                session_id="unsupported-activation-session",
-                project_environment="project-a",
+            self.runtime.advance_head(
+                expected_head=before.head,
+                candidate_head=candidate,
             )
+
+        self.assertEqual(self.runtime.status().head, before.head)
+
+    def test_activation_bytes_are_rechecked_after_manifest_verification(self) -> None:
+        store = BodyStore(self.home / "race-body-store")
+        head = store.commit(
+            root="race-root",
+            parent_head=None,
+            files={"boot/activate.md": "Committed activation bytes"},
+            author_kind="research_instrument",
+            activation_kind="surface-context-utf8-v1",
+            activation_artifact="boot/activate.md",
+        )
+        manifest = store.read_manifest(head)
+        blob_path = store.blob_path / dict(manifest.files)["boot/activate.md"]
+        original_read_manifest = store.read_manifest
+
+        def verify_then_replace(commitment: str):
+            verified = original_read_manifest(commitment)
+            blob_path.write_bytes(b"replaced after manifest verification")
+            return verified
+
+        with patch.object(
+            store,
+            "read_manifest",
+            side_effect=verify_then_replace,
+        ):
+            with self.assertRaises(IntegrityError):
+                store.read_file(head, "boot/activate.md")
 
     def test_successor_requires_current_parent_and_advances_atomically(self) -> None:
         before = self.runtime.status()
@@ -265,6 +289,32 @@ class MachineLifecycleTests(unittest.TestCase):
         self.assertEqual(len(genesis_events), 1)
         self.assertEqual(genesis_events[0].root_commitment, loaded.status().root)
 
+    def test_unsupported_genesis_activation_is_rejected_before_birth(self) -> None:
+        genesis_home = self.home / "unsupported-genesis"
+
+        with self.assertRaises(InvalidBodyError):
+            DevelopmentalRuntime.genesis(
+                genesis_home,
+                host_binding=self.host_binding,
+                purpose_anchor="Improve the future of the one bound host.",
+                initial_body={"entrypoint.md": "Body zero"},
+                instrument_version="instrument-test-v1",
+                protocol_version="protocol-test-v1",
+                initial_activation_kind="future-body-v9",
+            )
+
+        self.assertFalse((genesis_home / "body").exists())
+        self.assertFalse((genesis_home / "kernel" / "state.json").exists())
+        retry = DevelopmentalRuntime.genesis(
+            genesis_home,
+            host_binding=self.host_binding,
+            purpose_anchor="Improve the future of the one bound host.",
+            initial_body={"entrypoint.md": "Body zero"},
+            instrument_version="instrument-test-v1",
+            protocol_version="protocol-test-v1",
+        )
+        self.assertEqual(retry.status().generation, 0)
+
     def test_off_is_ordered_after_a_concurrent_wake(self) -> None:
         entered_binding = threading.Event()
         release_binding = threading.Event()
@@ -325,6 +375,8 @@ class MachineLifecycleTests(unittest.TestCase):
             parent_head=before.head,
             files={"entrypoint.md": "Foreign body"},
             author_kind="agent_self_authored",
+            activation_kind="surface-context-utf8-v1",
+            activation_artifact="entrypoint.md",
         )
 
         self.runtime.body_store.import_manifest(

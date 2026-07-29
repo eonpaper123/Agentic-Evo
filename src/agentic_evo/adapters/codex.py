@@ -40,7 +40,9 @@ def handle_codex_hook(
                 f"Body files={body_files}. Treat Codex, the model, and this project "
                 "as replaceable organs/environment, not as the Agent identity. "
                 "No memory or learning algorithm is prescribed by this context. "
-                "Current body activation artifact follows:\n\n"
+                f"Activation={wake.activation_kind}:"
+                f"{wake.activation_artifact}@{wake.activation_digest}. "
+                "Current body activation projection follows:\n\n"
                 f"{wake.activation_context}"
             )
             return {

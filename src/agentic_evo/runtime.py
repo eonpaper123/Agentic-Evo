@@ -6,13 +6,31 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from ._util import ExclusiveFileLock, atomic_write_json, read_json, utc_now
-from .body import BodyStore
-from .errors import GenesisExistsError, HeadConflictError, IntegrityError
+from .body import BODY_SCHEMA_VERSION, BodyManifest, BodyStore
+from .errors import (
+    GenesisExistsError,
+    HeadConflictError,
+    IntegrityError,
+    InvalidBodyError,
+)
 from .evidence import EvidenceLedger
 from .kernel import MicroLifeKernel
 
 
 RUNTIME_SCHEMA_VERSION = "agentic-evo-runtime-v1"
+SURFACE_CONTEXT_ACTIVATION_KIND = "surface-context-utf8-v1"
+
+
+def _require_supported_activation_kind(activation_kind: str) -> None:
+    if activation_kind != SURFACE_CONTEXT_ACTIVATION_KIND:
+        raise InvalidBodyError(f"unsupported activation kind: {activation_kind}")
+
+
+def _require_supported_activation(manifest: BodyManifest) -> tuple[str, str]:
+    if manifest.activation_kind is None or manifest.activation_artifact is None:
+        raise InvalidBodyError("Body has no activation descriptor")
+    _require_supported_activation_kind(manifest.activation_kind)
+    return manifest.activation_kind, manifest.activation_artifact
 
 
 def _serialized_lifecycle(method: Callable[..., Any]) -> Callable[..., Any]:
@@ -42,6 +60,9 @@ class WakeState:
     head: str
     generation: int
     body_files: tuple[str, ...]
+    activation_kind: str
+    activation_artifact: str
+    activation_digest: str
     activation_context: str
 
 
@@ -68,7 +89,10 @@ class DevelopmentalRuntime:
         initial_body: Mapping[str, str | bytes],
         instrument_version: str,
         protocol_version: str,
+        initial_activation_kind: str = SURFACE_CONTEXT_ACTIVATION_KIND,
+        initial_activation_artifact: str = "entrypoint.md",
     ) -> "DevelopmentalRuntime":
+        _require_supported_activation_kind(initial_activation_kind)
         home = Path(home)
         with ExclusiveFileLock(home / ".genesis.lock"):
             return cls._genesis_locked(
@@ -78,6 +102,8 @@ class DevelopmentalRuntime:
                 initial_body=initial_body,
                 instrument_version=instrument_version,
                 protocol_version=protocol_version,
+                initial_activation_kind=initial_activation_kind,
+                initial_activation_artifact=initial_activation_artifact,
             )
 
     @classmethod
@@ -90,6 +116,8 @@ class DevelopmentalRuntime:
         initial_body: Mapping[str, str | bytes],
         instrument_version: str,
         protocol_version: str,
+        initial_activation_kind: str,
+        initial_activation_artifact: str,
     ) -> "DevelopmentalRuntime":
         home = Path(home)
         marker_paths = [
@@ -106,6 +134,8 @@ class DevelopmentalRuntime:
             parent_head=None,
             files=initial_body,
             author_kind="research_instrument",
+            activation_kind=initial_activation_kind,
+            activation_artifact=initial_activation_artifact,
         )
         MicroLifeKernel.genesis(
             home / "kernel",
@@ -136,9 +166,10 @@ class DevelopmentalRuntime:
             source_kind="research_instrument",
             author_kind="research_instrument",
             payload={
-                "body_schema": "agentic-evo-body-v1",
+                "body_schema": BODY_SCHEMA_VERSION,
                 "kernel_schema": "agentic-evo-kernel-v1",
                 "runtime_schema": RUNTIME_SCHEMA_VERSION,
+                "activation_kind": initial_activation_kind,
             },
         )
         return cls(home)
@@ -182,6 +213,16 @@ class DevelopmentalRuntime:
         snapshot = kernel.gate()
         manifest = self.body_store.read_manifest(snapshot.head)
         kernel.bind(root=manifest.root, head=manifest.commitment)
+        activation_kind, activation_artifact = _require_supported_activation(
+            manifest
+        )
+        file_map = dict(manifest.files)
+        activation_digest = file_map[activation_artifact]
+        raw_context = self.body_store.read_file(
+            manifest.commitment,
+            activation_artifact,
+        )
+        activation_context = raw_context.decode("utf-8", errors="replace")[:8000]
         self._update_session(
             session_id=session_id,
             value={
@@ -204,20 +245,19 @@ class DevelopmentalRuntime:
             payload={
                 "body_generation": manifest.generation,
                 "model_ref": model,
+                "activation_kind": activation_kind,
+                "activation_artifact": activation_artifact,
+                "activation_digest": activation_digest,
             },
         )
-        activation_context = ""
-        if manifest.activation_artifact is not None:
-            raw_context = self.body_store.read_file(
-                manifest.commitment,
-                manifest.activation_artifact,
-            )
-            activation_context = raw_context.decode("utf-8", errors="replace")[:8000]
         return WakeState(
             root=snapshot.root,
             head=snapshot.head,
             generation=manifest.generation,
             body_files=manifest.file_names,
+            activation_kind=activation_kind,
+            activation_artifact=activation_artifact,
+            activation_digest=activation_digest,
             activation_context=activation_context,
         )
 
@@ -287,6 +327,8 @@ class DevelopmentalRuntime:
         expected_parent: str,
         files: Mapping[str, str | bytes],
         author_kind: str,
+        activation_kind: str | None = None,
+        activation_artifact: str | None = None,
     ) -> str:
         status = self.status()
         MicroLifeKernel.load(self.home / "kernel").gate()
@@ -295,6 +337,8 @@ class DevelopmentalRuntime:
             parent_head=expected_parent,
             files=files,
             author_kind=author_kind,
+            activation_kind=activation_kind,
+            activation_artifact=activation_artifact,
         )
         self.evidence.append(
             event_kind="body_candidate_prepared",
@@ -328,6 +372,7 @@ class DevelopmentalRuntime:
             raise HeadConflictError("Head changed before this transition")
         current = self.body_store.read_manifest(before.head)
         candidate = self.body_store.read_manifest(candidate_head)
+        _require_supported_activation(candidate)
         if candidate.generation != current.generation + 1:
             raise IntegrityError("candidate generation does not follow current Head")
         self.evidence.append(
