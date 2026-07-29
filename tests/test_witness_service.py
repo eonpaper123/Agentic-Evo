@@ -671,6 +671,110 @@ class WitnessServiceTests(unittest.TestCase):
         self.assertFalse(service._active_connections)
         self.assertTrue(service._connection_slots.acquire(blocking=False))
 
+    def test_receive_deadlines_share_the_registered_transport_close_owner(
+        self,
+    ) -> None:
+        class DeadlineRaceConnection:
+            def __init__(self) -> None:
+                self.poll_entered = threading.Event()
+                self.close_entered = threading.Event()
+                self.release_close = threading.Event()
+                self._guard = threading.Lock()
+                self._close_in_progress = False
+                self.raw_close_calls = 0
+                self.concurrent_raw_close = False
+
+            def poll(self, _: float) -> bool:
+                self.poll_entered.set()
+                time.sleep(0.1)
+                return False
+
+            def recv_bytes(self, _: int) -> bytes:
+                raise AssertionError("timed-out receive must not read a frame")
+
+            def send_bytes(self, _: bytes) -> None:
+                pass
+
+            def close(self) -> None:
+                with self._guard:
+                    self.raw_close_calls += 1
+                    if self._close_in_progress:
+                        self.concurrent_raw_close = True
+                        raise OSError("transport was closed concurrently")
+                    self._close_in_progress = True
+                self.close_entered.set()
+                self.release_close.wait(timeout=1.0)
+                with self._guard:
+                    self._close_in_progress = False
+
+        for channel in ("public", "control"):
+            with self.subTest(channel=channel):
+                service = WitnessService(self.home)
+                connection = DeadlineRaceConnection()
+                owner_failures: list[BaseException] = []
+                stop_failures: list[BaseException] = []
+                self.assertTrue(service._register_connection(connection))
+
+                if channel == "public":
+                    self.assertTrue(
+                        service._connection_slots.acquire(blocking=False)
+                    )
+
+                    def own_connection() -> None:
+                        try:
+                            service._serve_connection_with_deadline(connection)
+                        except BaseException as exc:
+                            owner_failures.append(exc)
+
+                else:
+
+                    def own_connection() -> None:
+                        try:
+                            service._serve_control_connection_with_deadline(
+                                connection
+                            )
+                        except BaseException as exc:
+                            owner_failures.append(exc)
+                        finally:
+                            service._unregister_connection(connection)
+
+                def stop_service() -> None:
+                    try:
+                        service.request_stop()
+                    except BaseException as exc:
+                        stop_failures.append(exc)
+
+                owner = threading.Thread(target=own_connection, daemon=True)
+                stopper = threading.Thread(target=stop_service, daemon=True)
+                if channel == "public":
+                    with service._lifecycle_guard:
+                        service._connection_workers.add(owner)
+
+                try:
+                    with patch(
+                        "agentic_evo.service.PUBLIC_IO_TIMEOUT_SECONDS",
+                        0.05,
+                    ):
+                        owner.start()
+                        self.assertTrue(connection.poll_entered.wait(timeout=1.0))
+                        stopper.start()
+                        self.assertTrue(
+                            connection.close_entered.wait(timeout=1.0)
+                        )
+                        time.sleep(0.1)
+                finally:
+                    connection.release_close.set()
+                    owner.join(timeout=1.0)
+                    stopper.join(timeout=1.0)
+                    service.witness.close()
+
+                self.assertFalse(owner.is_alive())
+                self.assertFalse(stopper.is_alive())
+                self.assertFalse(owner_failures)
+                self.assertFalse(stop_failures)
+                self.assertEqual(connection.raw_close_calls, 1)
+                self.assertFalse(connection.concurrent_raw_close)
+
     def test_internal_stop_waits_for_one_already_admitted_mutation(
         self,
     ) -> None:
