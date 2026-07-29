@@ -19,6 +19,9 @@ from .errors import AgenticEvoError
 from .runtime import DevelopmentalRuntime
 from .witness import CurrentBodySession, WitnessCore
 
+if sys.platform == "win32":
+    from .windows_native import KillOnCloseJob
+
 
 BODY_BOOT_PROTOCOL = "agentic-evo-private-boot-v1"
 MAX_BODY_BOOT_FRAME_BYTES = 8 * 1024 * 1024
@@ -285,6 +288,7 @@ class SpawnedBodyProcess:
         ready: ReadyEcho,
         session: CurrentBodySession,
         witness: WitnessCore,
+        process_fence: Any | None,
     ) -> None:
         self._process = process
         self.command = command
@@ -292,6 +296,7 @@ class SpawnedBodyProcess:
         self.ready = ready
         self._session = session
         self._witness = witness
+        self._process_fence = process_fence
         self._guard = threading.Lock()
         self._closed = threading.Event()
         monitor = threading.Thread(target=self._monitor, daemon=True)
@@ -323,6 +328,11 @@ class SpawnedBodyProcess:
             "pid": self.pid,
             "head": self.boot.head,
             "provenance": self.provenance,
+            "process_fencing": (
+                "windows_job_object_kill_on_close"
+                if self._process_fence is not None
+                else "subprocess_only"
+            ),
         }
 
     def close(self) -> None:
@@ -364,6 +374,8 @@ class SpawnedBodyProcess:
                     self._process.stdin.close()
                 if self._process.stdout is not None:
                     self._process.stdout.close()
+                if self._process_fence is not None:
+                    self._process_fence.close()
                 self._session.close()
             finally:
                 self._closed.set()
@@ -389,6 +401,7 @@ class BodyProcessSupervisor:
         status = self.runtime.status()
         session: CurrentBodySession | None = None
         process: subprocess.Popen[bytes] | None = None
+        process_fence: Any | None = None
         try:
             session = self.witness.open_current_body_session(
                 expected_head=status.head
@@ -420,6 +433,8 @@ class BodyProcessSupervisor:
                 "-m",
                 "agentic_evo.body_worker",
             )
+            if sys.platform == "win32":
+                process_fence = KillOnCloseJob()
             process = subprocess.Popen(
                 command,
                 stdin=subprocess.PIPE,
@@ -430,6 +445,8 @@ class BodyProcessSupervisor:
                 cwd=Path(sys.executable).resolve().parent,
                 env=_body_worker_environment(),
             )
+            if process_fence is not None:
+                process_fence.assign(process.pid)
             if process.stdin is None or process.stdout is None:
                 raise BodyBootError("Body subprocess pipes were not created")
             write_private_frame(
@@ -453,12 +470,15 @@ class BodyProcessSupervisor:
                 ready=ready,
                 session=session,
                 witness=self.witness,
+                process_fence=process_fence,
             )
         except Exception as exc:
             if process is not None:
                 _terminate_process(process)
             if session is not None:
                 session.close()
+            if process_fence is not None:
+                process_fence.close()
             if isinstance(exc, BodyBootError):
                 raise
             raise BodyBootError(

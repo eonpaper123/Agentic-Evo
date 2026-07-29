@@ -39,6 +39,8 @@ class WindowsJobObjectTests(unittest.TestCase):
             parent.stdin.write(b"1")
             parent.stdin.flush()
             child_pid = int(parent.stdout.readline())
+            self.assertFalse(_wait_for_process_exit(parent.pid, timeout_ms=50))
+            self.assertFalse(_wait_for_process_exit(child_pid, timeout_ms=50))
 
             job.close()
 
@@ -49,6 +51,10 @@ class WindowsJobObjectTests(unittest.TestCase):
             if parent.poll() is None:
                 parent.kill()
                 parent.wait(timeout=5.0)
+            if parent.stdin is not None:
+                parent.stdin.close()
+            if parent.stdout is not None:
+                parent.stdout.close()
 
 
 def _wait_for_process_exit(pid: int, *, timeout_ms: int) -> bool:

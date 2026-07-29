@@ -190,6 +190,20 @@ class BodyProcessTests(unittest.TestCase):
             "windows_job_object_kill_on_close",
         )
 
+    @unittest.skipUnless(sys.platform == "win32", "Windows native contract")
+    def test_windows_fence_failure_aborts_before_sending_boot(self) -> None:
+        with (
+            patch("agentic_evo.body_process.KillOnCloseJob") as job_type,
+            patch("agentic_evo.body_process.write_private_frame") as write_frame,
+        ):
+            job_type.return_value.assign.side_effect = OSError("assign failed")
+            with self.assertRaises(BodyBootError):
+                self.supervisor.spawn_current()
+
+        write_frame.assert_not_called()
+        job_type.return_value.close.assert_called_once()
+        self.assertTrue(self._spawn().is_alive())
+
     def test_worker_does_not_inherit_the_host_process_environment(self) -> None:
         with patch.dict(
             os.environ,
