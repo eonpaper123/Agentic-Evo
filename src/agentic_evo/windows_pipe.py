@@ -12,6 +12,8 @@ import _winapi
 WINDOWS_PUBLIC_PIPE_CLIENT_ACCESS = 0x00100183
 
 _AUTHENTICATION_PREFACE = b"\x00"
+_DEFAULT_AUTHENTICATION_TIMEOUT_SECONDS = 2.0
+_ERROR_FILE_NOT_FOUND = 2
 _ERROR_INSUFFICIENT_BUFFER = 122
 _ERROR_INVALID_PARAMETER = 87
 _FILE_FLAG_FIRST_PIPE_INSTANCE = 0x00080000
@@ -39,6 +41,10 @@ class _SidAndAttributes(ctypes.Structure):
 
 class _TokenUser(ctypes.Structure):
     _fields_ = [("User", _SidAndAttributes)]
+
+
+class _RejectedPipeClient(Exception):
+    pass
 
 
 _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -115,37 +121,69 @@ class AcceptedWindowsPipe:
 
 
 class WindowsPublicPipeListener:
-    def __init__(self, address: str, *, expected_sid: str) -> None:
+    def __init__(
+        self,
+        address: str,
+        *,
+        expected_sid: str,
+        authentication_timeout_seconds: float = (
+            _DEFAULT_AUTHENTICATION_TIMEOUT_SECONDS
+        ),
+    ) -> None:
+        if authentication_timeout_seconds <= 0:
+            raise ValueError("authentication_timeout_seconds must be positive")
         self.address = address
         self.expected_sid = expected_sid
+        self.authentication_timeout_seconds = authentication_timeout_seconds
         self._security_descriptor = _security_descriptor(expected_sid)
         self._security_attributes = _SecurityAttributes(
             ctypes.sizeof(_SecurityAttributes),
             self._security_descriptor,
             False,
         )
-        self._pending = self._new_handle()
+        try:
+            self._pending = self._new_handle()
+        except Exception:
+            _kernel32.LocalFree(self._security_descriptor)
+            raise
         self._closed = False
 
     def accept(self) -> AcceptedWindowsPipe:
         if self._closed:
             raise OSError("Windows public pipe listener is closed")
-        if self._pending is None:
-            self._pending = self._new_handle()
-        handle = self._pending
-        self._pending = None
-        try:
-            _connect_named_pipe(handle)
-            _read_authentication_preface(handle)
-            client_pid = _client_pid(handle)
-            client_sid = _impersonated_client_sid(handle)
-            if client_sid != self.expected_sid:
-                raise PermissionError("Windows public pipe peer SID is not bound")
-            connection = mp_connection.PipeConnection(handle)
-        except Exception:
-            _winapi.CloseHandle(handle)
-            raise
-        return AcceptedWindowsPipe(connection, client_pid, client_sid)
+        while True:
+            if self._pending is None:
+                self._pending = self._new_handle()
+            handle = self._pending
+            self._pending = None
+            try:
+                if not _connect_named_pipe(handle):
+                    _winapi.CloseHandle(handle)
+                    continue
+                _read_authentication_preface(
+                    handle,
+                    timeout_seconds=self.authentication_timeout_seconds,
+                )
+                client_pid = _client_pid(handle)
+                client_sid = _impersonated_client_sid(handle)
+                if client_sid != self.expected_sid:
+                    raise _RejectedPipeClient
+                connection = mp_connection.PipeConnection(handle)
+            except _RejectedPipeClient:
+                _winapi.CloseHandle(handle)
+                continue
+            except OSError as exc:
+                _winapi.CloseHandle(handle)
+                if exc.winerror in (
+                    _winapi.ERROR_BROKEN_PIPE,
+                    _winapi.ERROR_NO_DATA,
+                ):
+                    continue
+                raise
+            except Exception:
+                _winapi.CloseHandle(handle)
+                raise
+            return AcceptedWindowsPipe(connection, client_pid, client_sid)
 
     def close(self) -> None:
         if self._closed:
@@ -192,8 +230,10 @@ def connect_windows_public_pipe(
         raise ValueError("timeout_seconds must be positive")
     deadline = time.monotonic() + timeout_seconds
     while True:
+        remaining = deadline - time.monotonic()
+        wait_milliseconds = max(1, min(200, int(remaining * 1000 + 0.999)))
         try:
-            _winapi.WaitNamedPipe(address, 200)
+            _winapi.WaitNamedPipe(address, wait_milliseconds)
             handle = _winapi.CreateFile(
                 address,
                 WINDOWS_PUBLIC_PIPE_CLIENT_ACCESS,
@@ -206,10 +246,15 @@ def connect_windows_public_pipe(
         except OSError as exc:
             if (
                 exc.winerror
-                not in (_winapi.ERROR_PIPE_BUSY, _winapi.ERROR_SEM_TIMEOUT)
+                not in (
+                    _ERROR_FILE_NOT_FOUND,
+                    _winapi.ERROR_PIPE_BUSY,
+                    _winapi.ERROR_SEM_TIMEOUT,
+                )
                 or time.monotonic() >= deadline
             ):
                 raise
+            time.sleep(min(0.01, max(0.0, deadline - time.monotonic())))
             continue
         try:
             _winapi.SetNamedPipeHandleState(
@@ -246,34 +291,51 @@ def _client_pid(pipe_handle: int) -> int:
     return int(pid.value)
 
 
-def _connect_named_pipe(handle: int) -> None:
+def _connect_named_pipe(handle: int) -> bool:
     try:
         overlapped = _winapi.ConnectNamedPipe(handle, overlapped=True)
     except OSError as exc:
-        if exc.winerror not in (
-            _winapi.ERROR_NO_DATA,
-            getattr(_winapi, "ERROR_PIPE_CONNECTED", 535),
-        ):
+        if exc.winerror == _winapi.ERROR_NO_DATA:
+            return False
+        if exc.winerror != getattr(_winapi, "ERROR_PIPE_CONNECTED", 535):
             raise
-        return
+        return True
     _, error = overlapped.GetOverlappedResult(True)
     if error:
         raise ctypes.WinError(error)
+    return True
 
 
-def _read_authentication_preface(handle: int) -> None:
-    overlapped, _ = _winapi.ReadFile(
+def _read_authentication_preface(
+    handle: int,
+    *,
+    timeout_seconds: float,
+) -> None:
+    overlapped, error = _winapi.ReadFile(
         handle,
         len(_AUTHENTICATION_PREFACE),
         overlapped=True,
     )
+    if error == _winapi.ERROR_IO_PENDING:
+        wait_result = _winapi.WaitForSingleObject(
+            overlapped.event,
+            max(1, int(timeout_seconds * 1000 + 0.999)),
+        )
+        if wait_result == _winapi.WAIT_TIMEOUT:
+            overlapped.cancel()
+            overlapped.GetOverlappedResult(True)
+            raise _RejectedPipeClient
+        if wait_result != _winapi.WAIT_OBJECT_0:
+            raise ctypes.WinError(ctypes.get_last_error())
     read, error = overlapped.GetOverlappedResult(True)
     if error:
+        if error in (_winapi.ERROR_BROKEN_PIPE, _winapi.ERROR_NO_DATA):
+            raise _RejectedPipeClient
         raise ctypes.WinError(error)
     if read != len(_AUTHENTICATION_PREFACE):
-        raise PermissionError("Windows public pipe authentication preface is incomplete")
+        raise _RejectedPipeClient
     if bytes(overlapped.getbuffer()) != _AUTHENTICATION_PREFACE:
-        raise PermissionError("Windows public pipe authentication preface is invalid")
+        raise _RejectedPipeClient
 
 
 def _write_authentication_preface(handle: int) -> None:
