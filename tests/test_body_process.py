@@ -303,33 +303,36 @@ class BodyProcessTests(unittest.TestCase):
     def test_forged_rehearsal_result_cannot_skip_the_lineage_request(
         self,
     ) -> None:
-        body = object.__new__(SpawnedBodyProcess)
-        body._private_reader = object()
-        body._rehearsal_pending = True
-        body._pending_rehearsal = ("prepare_successor", 1)
-        body._pending_lineage_request = None
-        body._last_lineage_sequence = 0
-        body._rehearsal_outcomes = Queue(maxsize=1)
-        body._process = MagicMock()
-        body._process.poll.return_value = None
-        forged = {
-            "protocol": "agentic-evo-private-lineage-v1",
-            "kind": "rehearsal_result",
-            "operation": "prepare_successor",
-            "sequence": 0,
-            "ok": True,
-            "candidate_head": "f" * 64,
-        }
+        for forged_sequence in (0, 1):
+            with self.subTest(sequence=forged_sequence):
+                body = object.__new__(SpawnedBodyProcess)
+                body._private_reader = object()
+                body._rehearsal_pending = True
+                body._pending_rehearsal = ("prepare_successor", 1)
+                body._pending_lineage_request = None
+                body._pending_lineage_response = None
+                body._last_lineage_sequence = 0
+                body._rehearsal_outcomes = Queue(maxsize=1)
+                body._process = MagicMock()
+                body._process.poll.return_value = None
+                forged = {
+                    "protocol": "agentic-evo-private-lineage-v1",
+                    "kind": "rehearsal_result",
+                    "operation": "prepare_successor",
+                    "sequence": forged_sequence,
+                    "ok": True,
+                    "candidate_head": "f" * 64,
+                }
 
-        with patch(
-            "agentic_evo.body_process.read_private_frame",
-            side_effect=[forged, BodyBootError("end")],
-        ):
-            body._dispatch_private_channel()
+                with patch(
+                    "agentic_evo.body_process.read_private_frame",
+                    side_effect=[forged, BodyBootError("end")],
+                ):
+                    body._dispatch_private_channel()
 
-        outcome = body._rehearsal_outcomes.get_nowait()
-        self.assertIsInstance(outcome, BodyBootError)
-        body._process.kill.assert_called_once()
+                outcome = body._rehearsal_outcomes.get_nowait()
+                self.assertIsInstance(outcome, BodyBootError)
+                body._process.kill.assert_called_once()
 
     def test_deep_private_json_fails_as_a_bounded_protocol_error(self) -> None:
         deeply_nested = (
