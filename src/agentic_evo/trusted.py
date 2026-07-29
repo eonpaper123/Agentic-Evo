@@ -207,6 +207,16 @@ class TrustedState:
             _, records, _ = self._verify_connection(connection)
         return tuple(records)
 
+    def authority_epoch(self) -> int:
+        return max(
+            (
+                record.sequence
+                for record in self.records()
+                if record.event_kind == "host_off"
+            ),
+            default=0,
+        )
+
     def verify(self) -> bool:
         with self._read_transaction() as connection:
             self._verify_connection(connection)
@@ -348,6 +358,8 @@ class TrustedState:
         *,
         expected_head: str,
         candidate: BodyManifest,
+        author_kind: str,
+        ingress_path: str,
         human_intervention_kind: str | None,
     ) -> EvidenceRecord:
         with self._write_transaction() as connection:
@@ -367,11 +379,14 @@ class TrustedState:
                 head_before=expected_head,
                 head_after=candidate.commitment,
                 source_kind="body",
-                author_kind=candidate.author_kind,
+                author_kind=author_kind,
                 human_intervention_kind=human_intervention_kind,
                 payload={
                     "body_generation": candidate.generation,
                     "parent_head": candidate.parent_head,
+                    "ingress_path": ingress_path,
+                    "operation": "advance_head",
+                    "affected_domain": "body_lineage",
                 },
             )
 

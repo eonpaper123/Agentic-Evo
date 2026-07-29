@@ -5,12 +5,14 @@ from pathlib import Path
 import sqlite3
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from agentic_evo.errors import (
     AuthorityError,
     BodyLeaseError,
     HeadConflictError,
     InvalidBodyError,
+    RuntimeOffError,
 )
 from agentic_evo.runtime import DevelopmentalRuntime
 from agentic_evo.witness import WitnessCore
@@ -82,11 +84,37 @@ class CurrentBodyLeaseTests(unittest.TestCase):
         )
         replacement.close()
 
+    def test_lease_duration_must_be_finite_and_positive(self) -> None:
+        for invalid in (0.0, -1.0, float("nan"), float("inf")):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(ValueError):
+                    WitnessCore(self.runtime, lease_seconds=invalid)
+
+    def test_issuance_rechecks_binding_after_the_session_lock_is_acquired(
+        self,
+    ) -> None:
+        runtime = self.runtime
+
+        class InterruptingLock:
+            def __init__(self, *args, **kwargs) -> None:
+                pass
+
+            def __enter__(self):
+                runtime.turn_off()
+                return self
+
+            def __exit__(self, exc_type, exc_value, traceback) -> None:
+                pass
+
+        with patch("agentic_evo.witness.ExclusiveFileLock", InterruptingLock):
+            with self.assertRaises(RuntimeOffError):
+                self._open()
+
     def test_explicit_revoke_allows_replacement_but_old_session_stays_dead(
         self,
     ) -> None:
         old = self._open()
-        self.witness.revoke_current_body_session(reason="test replacement")
+        self.witness.revoke_current_body_session()
         replacement = self._open()
 
         with self.assertRaises(BodyLeaseError):
@@ -126,6 +154,17 @@ class CurrentBodyLeaseTests(unittest.TestCase):
         self.witness.turn_on(host_binding=self.host_binding)
         with self.assertRaises(BodyLeaseError):
             session.prepare_successor(files={"entrypoint.md": "after on"})
+
+        replacement = self._open()
+        replacement.close()
+
+    def test_external_off_on_cycle_cannot_resurrect_an_old_lease(self) -> None:
+        session = self._open()
+        self.runtime.turn_off()
+        self.runtime.turn_on(host_binding=self.host_binding)
+
+        with self.assertRaises(BodyLeaseError):
+            session.prepare_successor(files={"entrypoint.md": "resurrected"})
 
         replacement = self._open()
         replacement.close()
@@ -214,8 +253,7 @@ class CurrentBodyLeaseTests(unittest.TestCase):
         )
         self.assertTrue(
             all(
-                record.payload["ingress_principal"]
-                == "in_process_body_lease"
+                record.payload["ingress_path"] == "in_process_rehearsal"
                 for record in lineage_records
             )
         )
@@ -232,6 +270,12 @@ class CurrentBodyLeaseTests(unittest.TestCase):
         surface_record = self.runtime.evidence.records()[-1]
         self.assertEqual(surface_record.source_kind, "execution_surface")
         self.assertEqual(surface_record.author_kind, "surface_unverified")
+        with self.assertRaises(TypeError):
+            self.runtime.observe(
+                event_kind="forged_intervention",
+                payload={},
+                human_intervention_kind="selected_successor",
+            )
 
     def test_foreign_authorship_cannot_be_laundered_through_the_lease(
         self,
@@ -249,6 +293,22 @@ class CurrentBodyLeaseTests(unittest.TestCase):
 
         with self.assertRaises(AuthorityError):
             session.advance_head(candidate_head=foreign)
+        self.assertEqual(self.runtime.status().head, status.head)
+
+    def test_rehearsal_label_alone_does_not_make_a_lease_candidate(self) -> None:
+        session = self._open()
+        status = self.runtime.status()
+        forged = self.runtime.body_store.commit(
+            root=status.root,
+            parent_head=status.head,
+            files={"entrypoint.md": "forged rehearsal label"},
+            author_kind="in_process_rehearsal",
+            activation_kind="surface-context-utf8-v1",
+            activation_artifact="entrypoint.md",
+        )
+
+        with self.assertRaises(AuthorityError):
+            session.advance_head(candidate_head=forged)
         self.assertEqual(self.runtime.status().head, status.head)
 
 

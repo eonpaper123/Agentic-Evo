@@ -25,6 +25,10 @@ class RuntimeOffError(AgenticEvoError):
     """Raised when active work is attempted while the host has turned the runtime off."""
 
 
+class BodyLeaseError(AgenticEvoError):
+    """Raised when a Current Body session has no live lineage lease."""
+
+
 class HeadConflictError(AgenticEvoError):
     """Raised when an attempted Head transition does not start at the current Head."""
 

@@ -43,6 +43,23 @@ class MachineLifecycleTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.tempdir.cleanup()
 
+    def _prepare_successor(self, **kwargs):
+        return self.runtime._prepare_successor(
+            ingress_path="test_instrument",
+            expected_authority_epoch=self.runtime.trusted.authority_epoch(),
+            **kwargs,
+        )
+
+    def _advance_head(self, *, expected_head: str, candidate_head: str):
+        manifest = self.runtime.body_store.read_manifest(candidate_head)
+        return self.runtime._advance_head(
+            expected_head=expected_head,
+            candidate_head=candidate_head,
+            author_kind=manifest.author_kind,
+            ingress_path="test_instrument",
+            expected_authority_epoch=self.runtime.trusted.authority_epoch(),
+        )
+
     def test_genesis_persists_one_root_and_head_across_projects_and_sessions(self) -> None:
         initial = self.runtime.status()
 
@@ -74,17 +91,17 @@ class MachineLifecycleTests(unittest.TestCase):
 
     def test_wake_describes_activation_material_from_the_exact_current_head(self) -> None:
         before = self.runtime.status()
-        candidate = self.runtime.prepare_successor(
+        candidate = self._prepare_successor(
             expected_parent=before.head,
             files={
                 "boot/activate.md": "Exact body one",
                 "entrypoint.md": "This file is not the selected activation artifact",
             },
-            author_kind="agent_self_authored",
+            author_kind="research_instrument",
             activation_kind="surface-context-utf8-v1",
             activation_artifact="boot/activate.md",
         )
-        self.runtime.advance_head(
+        self._advance_head(
             expected_head=before.head,
             candidate_head=candidate,
         )
@@ -109,26 +126,26 @@ class MachineLifecycleTests(unittest.TestCase):
         before = self.runtime.status()
 
         with self.assertRaises(InvalidBodyError):
-            self.runtime.prepare_successor(
+            self._prepare_successor(
                 expected_parent=before.head,
                 files={"entrypoint.md": "Body one"},
-                author_kind="agent_self_authored",
+                author_kind="research_instrument",
                 activation_kind="surface-context-utf8-v1",
                 activation_artifact="boot/missing.md",
             )
 
     def test_unknown_activation_kind_cannot_become_current_head(self) -> None:
         before = self.runtime.status()
-        candidate = self.runtime.prepare_successor(
+        candidate = self._prepare_successor(
             expected_parent=before.head,
             files={"boot/body.bin": b"\x00\x01future-body"},
-            author_kind="agent_self_authored",
+            author_kind="research_instrument",
             activation_kind="future-body-v9",
             activation_artifact="boot/body.bin",
         )
 
         with self.assertRaises(InvalidBodyError):
-            self.runtime.advance_head(
+            self._advance_head(
                 expected_head=before.head,
                 candidate_head=candidate,
             )
@@ -164,16 +181,16 @@ class MachineLifecycleTests(unittest.TestCase):
 
     def test_successor_requires_current_parent_and_advances_atomically(self) -> None:
         before = self.runtime.status()
-        candidate = self.runtime.prepare_successor(
+        candidate = self._prepare_successor(
             expected_parent=before.head,
             files={
                 "entrypoint.md": "Body one",
                 "state/open-questions.json": '["observe real outcomes"]',
             },
-            author_kind="agent_self_authored",
+            author_kind="research_instrument",
         )
 
-        after = self.runtime.advance_head(
+        after = self._advance_head(
             expected_head=before.head,
             candidate_head=candidate,
         )
@@ -185,27 +202,47 @@ class MachineLifecycleTests(unittest.TestCase):
             before.head,
         )
 
-        stale_candidate = self.runtime.prepare_successor(
-            expected_parent=before.head,
-            files={"entrypoint.md": "Stale branch"},
-            author_kind="agent_self_authored",
-        )
+        before_stale_attempt = self.runtime.evidence.records()
         with self.assertRaises(HeadConflictError):
-            self.runtime.advance_head(
-                expected_head=before.head,
-                candidate_head=stale_candidate,
+            self._prepare_successor(
+                expected_parent=before.head,
+                files={"entrypoint.md": "Stale branch"},
+                author_kind="research_instrument",
             )
+        self.assertEqual(
+            self.runtime.evidence.records(),
+            before_stale_attempt,
+        )
 
         self.assertEqual(self.runtime.status().head, candidate)
         self.assertEqual(self.runtime.status().generation, 1)
 
+    def test_internal_transition_cannot_relabel_candidate_authorship(self) -> None:
+        before = self.runtime.status()
+        candidate = self._prepare_successor(
+            expected_parent=before.head,
+            files={"entrypoint.md": "Research-authored candidate"},
+            author_kind="research_instrument",
+        )
+
+        with self.assertRaises(AuthorityError):
+            self.runtime._advance_head(
+                expected_head=before.head,
+                candidate_head=candidate,
+                author_kind="human_learning_intervention",
+                ingress_path="test_instrument",
+                expected_authority_epoch=self.runtime.trusted.authority_epoch(),
+            )
+
+        self.assertEqual(self.runtime.status().head, before.head)
+
     def test_concurrent_successors_cannot_both_advance_the_same_head(self) -> None:
         before = self.runtime.status()
         candidates = [
-            self.runtime.prepare_successor(
+            self._prepare_successor(
                 expected_parent=before.head,
                 files={"entrypoint.md": f"Candidate {index}"},
-                author_kind="agent_self_authored",
+                author_kind="research_instrument",
             )
             for index in range(2)
         ]
@@ -216,9 +253,15 @@ class MachineLifecycleTests(unittest.TestCase):
         def advance(candidate: str) -> None:
             barrier.wait()
             try:
-                DevelopmentalRuntime.load(self.home).advance_head(
+                runtime = DevelopmentalRuntime.load(self.home)
+                runtime._advance_head(
                     expected_head=before.head,
                     candidate_head=candidate,
+                    author_kind=runtime.body_store.read_manifest(
+                        candidate
+                    ).author_kind,
+                    ingress_path="test_instrument",
+                    expected_authority_epoch=runtime.trusted.authority_epoch(),
                 )
                 successes.append(candidate)
             except HeadConflictError:
@@ -376,7 +419,7 @@ class MachineLifecycleTests(unittest.TestCase):
             root="foreign-root",
             parent_head=before.head,
             files={"entrypoint.md": "Foreign body"},
-            author_kind="agent_self_authored",
+            author_kind="research_instrument",
             activation_kind="surface-context-utf8-v1",
             activation_artifact="entrypoint.md",
         )
@@ -386,7 +429,7 @@ class MachineLifecycleTests(unittest.TestCase):
         )
 
         with self.assertRaises(RootBindingError):
-            self.runtime.advance_head(
+            self._advance_head(
                 expected_head=before.head,
                 candidate_head=foreign_head,
             )
@@ -421,8 +464,6 @@ class MachineLifecycleTests(unittest.TestCase):
         with self.assertRaises(RuntimeOffError):
             self.runtime.observe(
                 event_kind="tool_use_finished",
-                source_kind="execution_surface",
-                author_kind="execution_surface",
                 payload={},
             )
 
@@ -430,10 +471,10 @@ class MachineLifecycleTests(unittest.TestCase):
 
     def test_forged_body_generation_cannot_advance_head(self) -> None:
         before = self.runtime.status()
-        valid_candidate = self.runtime.prepare_successor(
+        valid_candidate = self._prepare_successor(
             expected_parent=before.head,
             files={"entrypoint.md": "Forged generation"},
-            author_kind="agent_self_authored",
+            author_kind="research_instrument",
         )
         manifest_path = (
             self.home / "body" / "manifests" / f"{valid_candidate}.json"
@@ -447,7 +488,7 @@ class MachineLifecycleTests(unittest.TestCase):
         )
 
         with self.assertRaises(IntegrityError):
-            self.runtime.advance_head(
+            self._advance_head(
                 expected_head=before.head,
                 candidate_head=forged_candidate,
             )
@@ -478,12 +519,12 @@ class MachineLifecycleTests(unittest.TestCase):
                 """
             ).fetchone()
         before = self.runtime.status()
-        candidate = self.runtime.prepare_successor(
+        candidate = self._prepare_successor(
             expected_parent=before.head,
             files={"entrypoint.md": "Body one"},
-            author_kind="agent_self_authored",
+            author_kind="research_instrument",
         )
-        self.runtime.advance_head(
+        self._advance_head(
             expected_head=before.head,
             candidate_head=candidate,
         )
@@ -505,10 +546,10 @@ class MachineLifecycleTests(unittest.TestCase):
 
     def test_load_waits_for_an_in_flight_head_transition(self) -> None:
         before = self.runtime.status()
-        candidate = self.runtime.prepare_successor(
+        candidate = self._prepare_successor(
             expected_parent=before.head,
             files={"entrypoint.md": "Body one"},
-            author_kind="agent_self_authored",
+            author_kind="research_instrument",
         )
         entered_completion = threading.Event()
         release_completion = threading.Event()
@@ -534,7 +575,7 @@ class MachineLifecycleTests(unittest.TestCase):
             )
 
         def advance() -> None:
-            self.runtime.advance_head(
+            self._advance_head(
                 expected_head=before.head,
                 candidate_head=candidate,
             )

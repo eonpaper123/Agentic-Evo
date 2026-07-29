@@ -60,8 +60,6 @@ def handle_codex_hook(
         event_kind, event_payload = _map_event(event_name, payload)
         runtime.observe(
             event_kind=event_kind,
-            source_kind="execution_surface",
-            author_kind=_author_kind(event_name),
             execution_surface="codex",
             session_id=session_id or None,
             turn_id=_bounded_text(payload.get("turn_id")),
@@ -151,14 +149,6 @@ def _map_event(
         "execution_surface_event",
         {"unmapped_event_name": _bounded_text(event_name)},
     )
-
-
-def _author_kind(event_name: str) -> str:
-    if event_name == "UserPromptSubmit":
-        return "normal_host_interaction"
-    return "execution_surface"
-
-
 def _project_ref(value: Any) -> str:
     raw = str(value or "")
     return f"sha256:{sha256_hex(raw)}"

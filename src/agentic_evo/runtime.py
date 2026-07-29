@@ -8,6 +8,8 @@ from typing import Any, Callable, Mapping
 from ._util import ExclusiveFileLock, utc_now
 from .body import BODY_SCHEMA_VERSION, BodyManifest, BodyStore
 from .errors import (
+    AuthorityError,
+    BodyLeaseError,
     GenesisExistsError,
     HeadConflictError,
     IntegrityError,
@@ -233,15 +235,12 @@ class DevelopmentalRuntime:
         self,
         *,
         event_kind: str,
-        source_kind: str,
-        author_kind: str,
         payload: Mapping[str, Any],
         execution_surface: str | None = None,
         session_id: str | None = None,
         turn_id: str | None = None,
         tool_call_id: str | None = None,
         project_environment: str | None = None,
-        human_intervention_kind: str | None = None,
         coverage_gap: str | None = None,
     ):
         snapshot = self.trusted.gate()
@@ -250,29 +249,38 @@ class DevelopmentalRuntime:
             root_commitment=snapshot.root,
             head_before=snapshot.head,
             head_after=snapshot.head,
-            source_kind=source_kind,
-            author_kind=author_kind,
+            source_kind="execution_surface",
+            author_kind="surface_unverified",
             execution_surface=execution_surface,
             session_id=session_id,
             turn_id=turn_id,
             tool_call_id=tool_call_id,
             project_environment=project_environment,
-            human_intervention_kind=human_intervention_kind,
             coverage_gap=coverage_gap,
             payload=payload,
         )
 
     @_serialized_lifecycle
-    def prepare_successor(
+    def _body_lease_binding(self) -> tuple[RuntimeStatus, int]:
+        return self.status(), self.trusted.authority_epoch()
+
+    @_serialized_lifecycle
+    def _prepare_successor(
         self,
         *,
         expected_parent: str,
         files: Mapping[str, str | bytes],
         author_kind: str,
+        ingress_path: str,
+        expected_authority_epoch: int,
         activation_kind: str | None = None,
         activation_artifact: str | None = None,
     ) -> str:
         snapshot = self.trusted.gate()
+        if snapshot.head != expected_parent:
+            raise HeadConflictError("candidate parent is not the Current Head")
+        if self.trusted.authority_epoch() != expected_authority_epoch:
+            raise BodyLeaseError("Body lease crossed an Off boundary")
         candidate = self.body_store.commit(
             root=snapshot.root,
             parent_head=expected_parent,
@@ -291,6 +299,9 @@ class DevelopmentalRuntime:
             payload={
                 "candidate_head": candidate,
                 "expected_parent": expected_parent,
+                "ingress_path": ingress_path,
+                "operation": "prepare_successor",
+                "affected_domain": "body_lineage",
             },
             human_intervention_kind=(
                 "body_content_authored"
@@ -301,27 +312,36 @@ class DevelopmentalRuntime:
         return candidate
 
     @_serialized_lifecycle
-    def advance_head(
+    def _advance_head(
         self,
         *,
         expected_head: str,
         candidate_head: str,
+        author_kind: str,
+        ingress_path: str,
+        expected_authority_epoch: int,
     ) -> RuntimeStatus:
         before = self.trusted.gate()
         if before.head != expected_head:
             raise HeadConflictError("Head changed before this transition")
+        if self.trusted.authority_epoch() != expected_authority_epoch:
+            raise BodyLeaseError("Body lease crossed an Off boundary")
         current = self.body_store.read_manifest(before.head)
         candidate = self.body_store.read_manifest(candidate_head)
         self._bind_manifest(before.root, before.head, current)
+        if candidate.author_kind != author_kind:
+            raise AuthorityError("candidate authorship does not match its ingress")
         _require_supported_activation(candidate)
         if candidate.generation != current.generation + 1:
             raise IntegrityError("candidate generation does not follow current Head")
         self.trusted.advance_head(
             expected_head=expected_head,
             candidate=candidate,
+            author_kind=author_kind,
+            ingress_path=ingress_path,
             human_intervention_kind=(
                 "selected_successor"
-                if candidate.author_kind == "human_learning_intervention"
+                if author_kind == "human_learning_intervention"
                 else None
             ),
         )

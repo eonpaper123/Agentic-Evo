@@ -37,6 +37,23 @@ class TrustedTransactionTests(unittest.TestCase):
             protocol_version="protocol-test-v1",
         )
 
+    def _prepare_successor(self, **kwargs):
+        return self.runtime._prepare_successor(
+            ingress_path="test_instrument",
+            expected_authority_epoch=self.runtime.trusted.authority_epoch(),
+            **kwargs,
+        )
+
+    def _advance_head(self, *, expected_head: str, candidate_head: str):
+        manifest = self.runtime.body_store.read_manifest(candidate_head)
+        return self.runtime._advance_head(
+            expected_head=expected_head,
+            candidate_head=candidate_head,
+            author_kind=manifest.author_kind,
+            ingress_path="test_instrument",
+            expected_authority_epoch=self.runtime.trusted.authority_epoch(),
+        )
+
     def _fail_event(self, event_kind: str) -> None:
         with closing(sqlite3.connect(self.db_path)) as connection:
             connection.execute(
@@ -149,17 +166,17 @@ with patch.object(TrustedState, "_insert_checkpoint", side_effect=lambda *a, **k
 
     def test_failed_head_advance_rolls_back_head_evidence_and_checkpoint(self) -> None:
         before = self.runtime.status()
-        candidate = self.runtime.prepare_successor(
+        candidate = self._prepare_successor(
             expected_parent=before.head,
             files={"entrypoint.md": "Body one"},
-            author_kind="agent_self_authored",
+            author_kind="research_instrument",
         )
         before_records = self.runtime.evidence.records()
         before_counts = self._trusted_counts()
         self._fail_event("head_advanced")
 
         with self.assertRaises(sqlite3.DatabaseError):
-            self.runtime.advance_head(
+            self._advance_head(
                 expected_head=before.head,
                 candidate_head=candidate,
             )
@@ -246,12 +263,12 @@ with patch.object(TrustedState, "_insert_checkpoint", side_effect=lambda *a, **k
 
     def test_checkpoint_chain_matches_state_and_detects_tampering(self) -> None:
         before = self.runtime.status()
-        candidate = self.runtime.prepare_successor(
+        candidate = self._prepare_successor(
             expected_parent=before.head,
             files={"entrypoint.md": "Body one"},
-            author_kind="agent_self_authored",
+            author_kind="research_instrument",
         )
-        self.runtime.advance_head(
+        self._advance_head(
             expected_head=before.head,
             candidate_head=candidate,
         )
