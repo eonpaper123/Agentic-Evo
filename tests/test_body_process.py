@@ -241,6 +241,31 @@ class BodyProcessTests(unittest.TestCase):
         advanced = body.rehearse_advance_head(candidate_head=owned_candidate)
         self.assertEqual(advanced["head"], owned_candidate)
 
+    def test_private_lineage_rejects_boolean_sequence_and_claimed_authorship(
+        self,
+    ) -> None:
+        body = self._spawn()
+        before = self.runtime.status()
+        request = {
+            "protocol": "agentic-evo-private-lineage-v1",
+            "kind": "lineage_request",
+            "boot_session": body.boot.boot_session,
+            "sequence": True,
+            "operation": "prepare_successor",
+            "files": {"entrypoint.md": "malformed candidate"},
+            "activation_kind": None,
+            "activation_artifact": None,
+        }
+
+        with self.assertRaises(BodyBootError):
+            body._handle_lineage_request(request)
+
+        request["sequence"] = 1
+        request["author_kind"] = "agent_self_authored"
+        with self.assertRaises(BodyBootError):
+            body._handle_lineage_request(request)
+        self.assertEqual(self.runtime.status().head, before.head)
+
     @unittest.skipUnless(sys.platform == "win32", "Windows native contract")
     def test_windows_body_worker_is_kernel_fenced(self) -> None:
         body = self._spawn()
