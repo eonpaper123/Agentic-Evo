@@ -172,6 +172,10 @@ class InstallPlanTests(unittest.TestCase):
             "launchd_launchdaemon",
         )
         self.assertEqual(
+            platforms["darwin"]["witness_principal"],
+            "dedicated_non_login_uid",
+        )
+        self.assertEqual(
             platforms["darwin"]["body_principal"],
             "dedicated_non_login_body_uid_with_signed_launcher",
         )

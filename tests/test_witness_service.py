@@ -12,6 +12,7 @@ import time
 import unittest
 from unittest.mock import patch
 
+from agentic_evo._util import canonical_json_bytes
 from agentic_evo.ipc import (
     CONTROL_PROTOCOL,
     MAX_PUBLIC_FRAME_BYTES,
@@ -240,7 +241,7 @@ class WitnessServiceTests(unittest.TestCase):
     def test_public_status_bounds_active_session_projection(self) -> None:
         service = WitnessService(self.home)
         self.addCleanup(service.witness.close)
-        sessions = tuple(f"session-{index:04d}-{'x' * 500}" for index in range(100))
+        sessions = tuple(f"session-{index:04d}-" + "\0" * 1000 for index in range(100))
         status = RuntimeStatus(
             root="r" * 64,
             head="h" * 64,
@@ -266,7 +267,48 @@ class WitnessServiceTests(unittest.TestCase):
 
         self.assertEqual(result["active_session_count"], len(sessions))
         self.assertTrue(result["active_sessions_truncated"])
-        self.assertEqual(result["active_sessions"], list(sessions[:32]))
+        self.assertLessEqual(len(result["active_sessions"]), 32)
+        response = {
+            "protocol": "agentic-evo-public-v1",
+            "request_id": "bounded-status",
+            "ok": True,
+            "result": result,
+        }
+        self.assertLessEqual(
+            len(canonical_json_bytes(response)),
+            MAX_PUBLIC_FRAME_BYTES,
+        )
+
+    def test_escape_heavy_wake_projection_stays_inside_one_frame(self) -> None:
+        escaped_home = Path(self.tempdir.name) / "escaped-runtime"
+        quote_run = '"' * 500
+        files = {
+            "entrypoint.md": "\0" * 8000,
+            **{
+                f"{index:02d}-{quote_run}.md": "shared"
+                for index in range(20)
+            },
+        }
+        DevelopmentalRuntime.genesis(
+            escaped_home,
+            host_binding=self.host_binding,
+            purpose_anchor="Improve the future of the one bound host.",
+            initial_body=files,
+            instrument_version="instrument-test-v1",
+            protocol_version="protocol-test-v1",
+        )
+        process = self._spawn(escaped_home)
+        client = self._wait_until_ready(process, home=escaped_home)
+
+        wake = client.wake(
+            execution_surface="codex",
+            session_id="escaped-session",
+            project_environment="project-a",
+        )
+
+        self.assertEqual(wake["body_file_count"], len(files))
+        self.assertTrue(wake["body_files_truncated"])
+        self.assertTrue(wake["activation_context_truncated"])
 
     def test_public_string_parameters_have_an_explicit_byte_bound(self) -> None:
         process = self._spawn()
