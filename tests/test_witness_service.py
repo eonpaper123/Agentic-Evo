@@ -15,6 +15,7 @@ from unittest.mock import patch
 from agentic_evo._util import canonical_json_bytes
 from agentic_evo.ipc import (
     CONTROL_PROTOCOL,
+    InvalidPublicFrame,
     MAX_PUBLIC_FRAME_BYTES,
     PUBLIC_PROTOCOL,
     OffRehearsalClient,
@@ -506,6 +507,91 @@ class WitnessServiceTests(unittest.TestCase):
 
         self.assertFalse(replacement_thread.is_alive())
         self.assertFalse(replacement_failures)
+        self.assertEqual(self.runtime.status(), before_status)
+        self.assertEqual(self.runtime.evidence.records(), before_records)
+
+    def test_internal_stop_rejects_requests_from_preaccepted_connections(
+        self,
+    ) -> None:
+        service = WitnessService(self.home)
+        failures: list[BaseException] = []
+
+        def serve() -> None:
+            try:
+                service.serve_forever()
+            except BaseException as exc:
+                failures.append(exc)
+
+        service_thread = threading.Thread(target=serve, daemon=True)
+        service_thread.start()
+        client = SurfaceClient(self.home)
+        deadline = time.monotonic() + 5.0
+        while True:
+            if failures:
+                self.fail(f"Witness service failed before ready: {failures[0]!r}")
+            try:
+                client.status()
+                break
+            except ServiceUnavailableError:
+                if time.monotonic() >= deadline:
+                    self.fail("Witness service did not become ready")
+                time.sleep(0.02)
+
+        public_context = open_public_connection(
+            service_endpoint(self.home),
+            native_windows=True,
+        )
+        control_context = open_public_connection(control_endpoint(self.home))
+        public_connection = public_context.__enter__()
+        control_connection = control_context.__enter__()
+        before_status = self.runtime.status()
+        before_records = self.runtime.evidence.records()
+
+        def rejected_after_stop(
+            connection: object,
+            request: dict[str, object],
+        ) -> None:
+            try:
+                send_public_message(connection, request)
+                response = receive_public_message(
+                    connection,
+                    timeout_seconds=0.5,
+                )
+            except (EOFError, InvalidPublicFrame, OSError, ValueError):
+                return
+            self.assertFalse(response["ok"])
+
+        try:
+            service.request_stop()
+            rejected_after_stop(
+                public_connection,
+                {
+                    "protocol": PUBLIC_PROTOCOL,
+                    "request_id": "late-public",
+                    "operation": "observe",
+                    "params": {
+                        "event_kind": "must_not_commit",
+                        "payload": {"outcome": "late"},
+                    },
+                },
+            )
+            rejected_after_stop(
+                control_connection,
+                {
+                    "protocol": CONTROL_PROTOCOL,
+                    "request_id": "late-control",
+                    "operation": "off",
+                    "params": {},
+                },
+            )
+        finally:
+            public_context.__exit__(None, None, None)
+            control_context.__exit__(None, None, None)
+            service.request_stop()
+            service_thread.join(timeout=5.0)
+
+        self.assertFalse(service_thread.is_alive())
+        self.assertFalse(failures)
         self.assertEqual(self.runtime.status(), before_status)
         self.assertEqual(self.runtime.evidence.records(), before_records)
 
