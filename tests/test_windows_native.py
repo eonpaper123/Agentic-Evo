@@ -89,8 +89,13 @@ class WindowsJobObjectTests(unittest.TestCase):
             wintypes.DWORD,
         ]
         kernel32.SetHandleInformation.restype = wintypes.BOOL
+        kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        kernel32.WaitForSingleObject.restype = wintypes.DWORD
         kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
         kernel32.CloseHandle.restype = wintypes.BOOL
+        included_event = kernel32.CreateEventW(None, True, False, None)
+        self.assertTrue(included_event)
+        self.assertTrue(kernel32.SetHandleInformation(included_event, 1, 1))
         decoy = kernel32.CreateEventW(None, True, False, None)
         self.assertTrue(decoy)
         self.assertTrue(kernel32.SetHandleInformation(decoy, 1, 1))
@@ -99,15 +104,14 @@ class WindowsJobObjectTests(unittest.TestCase):
             "import ctypes,json,msvcrt,os,sys;"
             "from ctypes import wintypes;"
             "k=ctypes.WinDLL('kernel32',use_last_error=True);"
-            "k.GetHandleInformation.argtypes=[wintypes.HANDLE,"
-            "ctypes.POINTER(wintypes.DWORD)];"
-            "k.GetHandleInformation.restype=wintypes.BOOL;"
-            "flags=wintypes.DWORD();"
-            "decoy_valid=bool(k.GetHandleInformation(int(sys.argv[2]),"
-            "ctypes.byref(flags)));"
+            "k.SetEvent.argtypes=[wintypes.HANDLE];"
+            "k.SetEvent.restype=wintypes.BOOL;"
+            "included_set=bool(k.SetEvent(int(sys.argv[2])));"
+            "decoy_set=bool(k.SetEvent(int(sys.argv[3])));"
             "stream=os.fdopen(msvcrt.open_osfhandle(int(sys.argv[1]),"
             "os.O_WRONLY),'wb',buffering=0);"
-            "stream.write((json.dumps({'decoy_valid':decoy_valid})+'\\n').encode());"
+            "stream.write((json.dumps({'included_set':included_set,"
+            "'decoy_set':decoy_set})+'\\n').encode());"
             "stream.close()"
         )
         environment = {
@@ -126,9 +130,10 @@ class WindowsJobObjectTests(unittest.TestCase):
                     "-c",
                     helper,
                     str(child_write_handle),
+                    str(included_event),
                     str(decoy),
                 ),
-                inherited_handles=(child_write_handle,),
+                inherited_handles=(child_write_handle, int(included_event)),
                 cwd=Path(sys.executable).resolve().parent,
                 environment=environment,
             )
@@ -149,7 +154,10 @@ class WindowsJobObjectTests(unittest.TestCase):
             process.resume()
 
             report = json.loads(read_stream.readline())
-            self.assertFalse(report["decoy_valid"])
+            self.assertTrue(report["included_set"])
+            self.assertFalse(report["decoy_set"])
+            self.assertEqual(kernel32.WaitForSingleObject(included_event, 0), 0)
+            self.assertEqual(kernel32.WaitForSingleObject(decoy, 0), 258)
             self.assertEqual(process.wait(timeout=5.0), 0)
         finally:
             job.close()
@@ -161,6 +169,7 @@ class WindowsJobObjectTests(unittest.TestCase):
             if not write_closed:
                 os.close(write_fd)
             read_stream.close()
+            kernel32.CloseHandle(included_event)
             kernel32.CloseHandle(decoy)
 
 
