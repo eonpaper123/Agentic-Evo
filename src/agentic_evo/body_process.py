@@ -564,24 +564,17 @@ class SpawnedBodyProcess:
                         ),
                     ) from exc
                 if isinstance(outcome, BaseException):
-                    if (
-                        self._pending_lineage_request
-                        == self._pending_rehearsal
-                    ):
-                        raise BodyLineageOutcomeUnknown(
-                            operation=operation,
-                            candidate_head=(
-                                str(command["candidate_head"])
-                                if operation == "advance_head"
-                                and isinstance(
-                                    command.get("candidate_head"),
-                                    str,
-                                )
-                                else None
-                            ),
-                        ) from outcome
-                    raise BodyBootError(
-                        "private Body lineage channel failed"
+                    raise BodyLineageOutcomeUnknown(
+                        operation=operation,
+                        candidate_head=(
+                            str(command["candidate_head"])
+                            if operation == "advance_head"
+                            and isinstance(
+                                command.get("candidate_head"),
+                                str,
+                            )
+                            else None
+                        ),
                     ) from outcome
                 return outcome
             finally:
