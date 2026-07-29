@@ -8,6 +8,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 
 from agentic_evo.ipc import (
     CONTROL_PROTOCOL,
@@ -395,6 +396,31 @@ class WitnessServiceTests(unittest.TestCase):
         self.assertTrue(runtime.rehearsed)
         self.assertEqual(result["authority"], runtime.authority)
         self.assertEqual(result["authority"], "off")
+
+    def test_control_receive_deadline_does_not_abort_slow_body_shutdown(
+        self,
+    ) -> None:
+        class FakeConnection:
+            def __init__(self) -> None:
+                self.closed = False
+
+            def close(self) -> None:
+                self.closed = True
+
+        connection = FakeConnection()
+        observed_during_shutdown: list[bool] = []
+        service = WitnessService.__new__(WitnessService)
+
+        def slow_control_work(_: object) -> None:
+            time.sleep(0.05)
+            observed_during_shutdown.append(connection.closed)
+
+        service._serve_control_connection = slow_control_work
+        with patch("agentic_evo.service.PUBLIC_IO_TIMEOUT_SECONDS", 0.01):
+            service._serve_control_connection_with_deadline(connection)
+
+        self.assertEqual(observed_during_shutdown, [False])
+        self.assertTrue(connection.closed)
 
     def test_malformed_and_oversize_frames_fail_closed(self) -> None:
         process = self._spawn()
