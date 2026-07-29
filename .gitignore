@@ -5,10 +5,20 @@
 *.log
 *.tmp
 
+__pycache__/
+*.py[cod]
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+
 raw-data/
 recordings/
 artifacts/
 outputs/
+runtime-data/
+.agentic-evo/
 
 .idea/
 .vscode/

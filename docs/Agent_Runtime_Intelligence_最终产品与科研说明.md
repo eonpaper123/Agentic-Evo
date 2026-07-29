@@ -19,7 +19,7 @@
 - 产品名称：**Agent Runtime Intelligence**
 - 科研对象：**Autonomous Agent Evolution System（自主 Agent 进化系统）**
 
-Codex 只是目前用于研发和运行早期实验的工具及宿主之一。最终成果必须与 Codex、ChatGPT、Claude、任何单一模型提供商或现有 Agent 产品解耦。
+唯一宿主是安装并拥有开启、关闭权的用户本人。Codex 只是目前用于研发和运行早期实验的工具及执行表面之一。最终成果必须与 Codex、ChatGPT、Claude、任何单一模型提供商、coding-agent 执行表面或具体项目解耦。
 
 最终产品形态不是一个需要用户一直打开的传统 App，而是：
 
@@ -95,7 +95,7 @@ C_t = F(M,\ K_t,\ R_t,\ P_t,\ A_t,\ E_t)
 - \(A_t\) 是 Agent 架构、编排代码与可执行模块；
 - \(E_t\) 是任务、工具、代码库和外部环境。
 
-即使基础模型 \(M\) 暂时固定，系统仍可通过自主改变 \(K_t、R_t、P_t、A_t\) 使实际能力 \(C_t\) 增长。最终形态还允许在开放宿主中把可训练模块、adapter 和模型权重纳入变化范围。
+即使基础模型 \(M\) 暂时固定，系统仍可通过自主改变 \(K_t、R_t、P_t、A_t\) 使实际能力 \(C_t\) 增长。最终形态还允许在开放模型与开放认知器官中把可训练模块、adapter 和模型权重纳入变化范围。
 
 进一步需要区分 Agent 已经形成的能力与当前认知状态能够表达的表现：
 
@@ -135,8 +135,8 @@ Codex 与本研究的三层关系必须始终保持清楚：
 实验工具
 Codex：帮助我们编写、调试和推进研究
 
-实验宿主
-Codex：承载第一批真实开发任务和纵向实验
+实验执行表面
+Codex：让同一机器级 Agent 接触第一批真实开发任务和纵向实验
 
 科研对象
 与 Codex 无关的 Autonomous Agent Evolution System
@@ -145,19 +145,27 @@ Codex：承载第一批真实开发任务和纵向实验
 Codex 当前可以承担三个角色：
 
 1. 研究工程工具：帮助实现和调试系统；
-2. 实验宿主之一：提供真实、长期、高复杂度的开发任务流；
+2. 实验执行表面之一：提供真实、长期、高复杂度的开发任务流；
 3. 被观察对象之一：验证进化机制能否改变一个强工具 Agent 的长期表现。
 
 Codex不能成为：
 
 - 系统本体；
-- 唯一宿主；
+- 宿主或身份根；
 - 唯一评价器；
 - 不可替换的 runtime；
 - 论文复现的必要条件；
 - 科研命题的一部分。
 
-最终核心必须满足宿主独立性：
+术语必须固定为：
+
+- 用户 \(U\) 是唯一宿主；
+- 当前机器是连续性承载环境；
+- Codex 与其他 coding agent 是执行表面；
+- 模型、工具、GPU、上下文和子 Agent 是可替换器官；
+- Nira、Agentic-Evo 和其他仓库是项目环境。
+
+最终核心必须满足执行表面与认知器官独立性：
 
 \[
 \mathcal{L}(B^{Codex}) \uparrow
@@ -171,9 +179,9 @@ Codex不能成为：
 \mathcal{L}(B^{OtherAgent}) \uparrow
 \]
 
-不同宿主不必学到相同内容，但必须表现出同一种持续学习与进化现象。
+不同执行表面或认知器官不必产生相同表达，但必须允许同一持续 Agent 保持身份、历史和发展因果连续。
 
-如果替换宿主后进化机制失效，成果只能被解释为 Codex 特定优化，不能被解释为一般性的 Agent 自我学习机制。
+如果替换 coding-agent 执行表面或基础模型后机制失效，成果只能被解释为 Codex 或特定模型优化，不能被解释为一般性的 Agent 自我学习机制。跨用户复现则由多个独立 Genesis、多个宿主绑定谱系完成，不表示同一个 Agent 更换宿主。
 
 ## 4. 最终用户体验
 
@@ -1033,7 +1041,7 @@ MCP、CLI、SDK、原生 API、启动器或新的 Agent 协议都只是可能的
 
 ```text
 Codex / 其他 Agent
-        ↓ 宿主协议（MCP 只是可能实现之一）
+        ↓ 执行表面适配协议（MCP 只是可能实现之一）
 Evolvable Host-Bound Body
         ↓
 记忆、能力、器官、实验、选择、继承与元进化
@@ -1372,7 +1380,7 @@ User C → Agent Lineage C
 - 进化收益可以通过消融实验归因；
 - 候选不能通过修改评价器或历史伪造成功；
 - 每个结果可以追溯到具体代际和因果证据；
-- 系统在多个基础模型和 Agent 宿主上复现；
+- 系统在多个基础模型和 coding-agent 执行表面上复现；
 - 至少存在一条完全开放、可冻结、可复现的实验路径。
 
 ---
@@ -1765,7 +1773,7 @@ test on task_t
 
 至少需要：
 
-- 一个当前强闭源 Agent 宿主；
+- 一个当前强闭源 coding-agent 执行表面；
 - 一个可以冻结版本的开放 Agent；
 - 一个与 coding 不同的任务领域；
 - 多个独立任务序列；
@@ -1808,7 +1816,7 @@ FCG_t =
 - 新代码库；
 - 新环境；
 - 新模型；
-- 新 Agent 宿主；
+- 新 coding-agent 执行表面；
 - 新任务领域。
 
 ### 24.4 Autonomous Improvement Yield
@@ -1872,7 +1880,7 @@ AIY =
 - 元进化不能产生更好的学习算法；
 - 必须持续依赖研究人员选择候选；
 - 多次独立运行无法复现；
-- 只有 Codex 有效，其他宿主无效。
+- 只有 Codex 有效，其他 coding-agent 执行表面无效。
 
 这些不是需要隐藏的负面结果，而是研究结论的一部分。
 
@@ -1905,7 +1913,7 @@ AIY =
 
 可接受的核心论文结论形式是：
 
-> 在给定任务流和资源条件下，某自主学习与进化机制使多个异构 Agent 宿主在无人参与学习循环的情况下，对未来未知任务产生了可保持、可迁移、可因果归因的能力增长。
+> 在给定任务流和资源条件下，某自主学习与进化机制使多个独立用户绑定谱系能够跨异构 coding-agent 执行表面，在无人参与学习循环的情况下，对未来未知任务产生可保持、可迁移、可因果归因的能力增长。
 
 在证据不足前，不应声称：
 
@@ -1927,26 +1935,27 @@ AIY =
 6. 现实后果中的选择与谱系延续；
 7. 能力保持、迁移和累积；
 8. 学习算法的元进化；
-9. 跨宿主、跨个体和跨模型复现。
+9. 跨用户绑定谱系、跨执行表面、跨个体和跨模型复现。
 
 Common Event Protocol、trace、MCP、CLI、数据库、sandbox、worktree、模型 adapter 和可视化界面都应服务于这些研究系统，而不能反过来决定研究方向。
 
 ## 29. 与现有工程计划的关系
 
-已有的 Agent Runtime Intelligence Phase 0–7 可以继续提供：
+旧 Agent Runtime Intelligence 计划曾提出 Phase 0–7；其中 Nira 内已真实实现并验证的是 Phase 0–2 的部分观测基础设施。可吸收的祖先技术包括：
 
 - runtime evidence；
 - common event protocol；
 - trace explorer；
-- incident 与 episode；
-- candidate registry；
-- replay 与 eval；
-- rollout 与 rollback；
-- Codex Desktop adapter。
+- content-safe event adapter；
+- correlation / causation / evidence reference；
+- failure-isolated ingestion；
+- 事实、推断与未知的分离。
 
-但这些只能视为实验基础设施。
+incident、episode、candidate registry、replay、eval、rollout、rollback 和 Codex adapter 则属于旧计划或待重建能力，不能被写成已经实现的事实。无论已实现还是待实现，它们都只能视为实验基础设施或单次实验条件。
 
 原计划中依赖人工批准 promotion、把学习对象限制为 skills/rules/tests/tool routing 的部分，不再代表最终产品定义。它们可以作为受控实验条件，但最终科研目标要求系统自主完成学习目标、候选生成、评价、继承和元进化。
+
+旧 Phase 不能按串行路线继续。工具、真实使用和实验必须从第一条机器级生命循环开始同步推进；详见[《工具与实验共生开发计划》](engineering/工具与实验共生开发计划.md)。
 
 ## 30. 当前最关键的研究问题
 
@@ -1963,6 +1972,18 @@ Common Event Protocol、trace、MCP、CLI、数据库、sandbox、worktree、模
 5. 怎样把零人工学习介入、模型切换、用户—环境共同适应和真实 coding 结果纳入对照；
 6. 怎样在实验失败时定位应重新打开哪个理论专题；
 7. 怎样形成可发表、可复现、允许负结果的阶段性研究计划。
+
+跨模块假设矩阵、工具—实验双螺旋计划和实验 001 现已形成；首条 `Kernel + Body + Evidence Ledger + Machine Runtime + Codex Adapter` 纵切面也已进入 Pre-Genesis 代码状态。它们不是串行交付，且当前测试 Genesis 不构成正式生命史。
+
+Genesis 前的当前硬问题已经进一步收敛为：
+
+1. 怎样让微核 authority、Root custody 与科研 witness 真正脱离身体普通文件权限；
+2. 怎样让任何证据全量重写都留下可检测的签名失败或外部缺口；
+3. 怎样对账 Head 与 evidence 跨存储变化中的崩溃中间态；
+4. 怎样形成项目无关的机器级 service、IPC、On / Off 与多 coding-agent adapter；
+5. 怎样在临时安装中验证崩溃恢复、覆盖缺口、Off 和卸载后，再冻结 `I_0 / Protocol_0` 并由用户明确 Genesis。
+
+具体状态见[《实现状态：Pre-Genesis》](engineering/实现状态_Pre-Genesis.md)。工具一旦完成正式 Genesis 并进入真实使用，正式纵向数据生成即已经开始。
 
 ---
 
@@ -2026,7 +2047,7 @@ Common Event Protocol、trace、MCP、CLI、数据库、sandbox、worktree、模
 
 将本文件提供给新对话后，可使用：
 
-> 请完整阅读《Agent Runtime Intelligence：最终产品与科研说明》。我们研究的不是 Codex 插件，也不是记忆或 prompt 优化工具，而是与宿主无关的自主 Agent 进化系统。Codex 只是当前研发工具和实验宿主之一。最终系统应一次安装，以不可替换的微型生命核启动专属的可进化身体，把模型、工具和算力当作可更换器官，跨会话维持同一 Agent 的因果连续性，在正常任务流中零人工学习介入地形成经验、自主发现问题、实验、吸收现实后果、重组身体并延续后继身体，最终改进学习与进化方法本身。请保持最终科研目标，不要因为现有 MCP、CLI、App 或近期工程条件而缩小问题。
+> 请完整阅读《Agent Runtime Intelligence：最终产品与科研说明》。我们研究的不是 Codex 插件，也不是记忆或 prompt 优化工具，而是绑定唯一用户宿主、同时独立于具体 coding agent、模型和项目的自主 Agent 进化系统。Codex 只是当前研发工具和执行表面之一。最终系统应一次安装，以不可替换的微型生命核启动专属的可进化身体，把 coding agent、模型、工具和算力当作可更换端口与器官，跨对话、跨项目和跨执行表面维持同一 Agent 的因果连续性，在正常任务流中零人工学习介入地形成经验、自主发现问题、实验、吸收现实后果、重组身体并延续后继身体，最终改进学习与进化方法本身。请保持最终科研目标，不要因为现有 MCP、CLI、App 或近期工程条件而缩小问题。
 
 ## 36. 配套研究文件
 

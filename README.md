@@ -2,7 +2,13 @@
 
 Private research repository for Agent Runtime Intelligence and the study of autonomous, continual Agent self-evolution.
 
-The project is not a Codex plugin or a Codex-specific optimization system. Codex is currently a research tool and one possible experimental host; the research target is a host-independent Autonomous Agent Evolution System.
+The project is not a Codex plugin or a Codex-specific optimization system. The user is the only host; Codex is currently a research tool and one possible execution surface. The research target is a coding-agent-, model-, and project-independent Autonomous Agent Evolution System bound to one user lineage.
+
+## Current status
+
+**Pre-Genesis.** The first machine-level `Kernel + Body + Evidence + Runtime + Codex Adapter` vertical slice now exists and is tested, but it is not installed globally and no real Root has been created. Authority/witness isolation, crash reconciliation, and a single machine service remain hard blockers before the one formal Genesis.
+
+See [实现状态：Pre-Genesis](docs/engineering/实现状态_Pre-Genesis.md).
 
 ## Canonical specification
 
@@ -11,6 +17,14 @@ The project is not a Codex plugin or a Codex-specific optimization system. Codex
 [文档索引](docs/README.md)
 
 [开发框架：让 Agent 成为最终实验者](docs/开发框架.md)
+
+[工具与实验共生开发计划](docs/engineering/工具与实验共生开发计划.md)
+
+[实现状态：Pre-Genesis](docs/engineering/实现状态_Pre-Genesis.md)
+
+[跨模块科研假设矩阵](docs/research/跨模块科研假设矩阵.md)
+
+[实验 001：机器级连续生命循环](experiments/001_机器级连续生命循环.md)
 
 [记忆与能力形成：从保存过去到产生未来能力](docs/topics/记忆与能力形成.md)
 
