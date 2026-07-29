@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import ctypes
 import json
-import msvcrt
 import os
 from pathlib import Path
 import subprocess
@@ -64,6 +63,7 @@ class WindowsJobObjectTests(unittest.TestCase):
         self,
     ) -> None:
         import _winapi
+        import msvcrt
 
         from agentic_evo.windows_native import (
             KillOnCloseJob,
@@ -141,6 +141,17 @@ class WindowsJobObjectTests(unittest.TestCase):
             self.assertTrue(process.token_profile.is_restricted)
             self.assertEqual(process.token_profile.integrity_rid, 4096)
             self.assertLessEqual(process.token_profile.privilege_count, 1)
+            actual_token = _query_process_token_contract(process.process_handle)
+            self.assertTrue(actual_token[0])
+            self.assertEqual(actual_token[1], 4096)
+            self.assertEqual(
+                process.token_profile.privilege_count,
+                len(actual_token[2]),
+            )
+            self.assertLessEqual(
+                actual_token[2],
+                {_lookup_privilege_luid("SeChangeNotifyPrivilege")},
+            )
             self.assertIsNone(process.poll())
             self.assertFalse(os.get_handle_inheritable(child_write_handle))
             self.assertFalse(os.get_handle_inheritable(int(included_event)))
@@ -155,14 +166,13 @@ class WindowsJobObjectTests(unittest.TestCase):
             job.assign_handle(process.process_handle)
             os.close(write_fd)
             write_closed = True
-            process.resume()
+            self.assertEqual(process.resume(), 1)
 
+            self.assertEqual(process.wait(timeout=5.0), 0)
             report = json.loads(read_stream.readline())
             self.assertTrue(report["included_set"])
-            self.assertFalse(report["decoy_set"])
             self.assertEqual(kernel32.WaitForSingleObject(included_event, 0), 0)
             self.assertEqual(kernel32.WaitForSingleObject(decoy, 0), 258)
-            self.assertEqual(process.wait(timeout=5.0), 0)
         finally:
             job.close()
             if process is not None:
@@ -197,3 +207,142 @@ def _wait_for_process_exit(pid: int, *, timeout_ms: int) -> bool:
         return kernel32.WaitForSingleObject(handle, timeout_ms) == 0
     finally:
         kernel32.CloseHandle(handle)
+
+
+def _query_process_token_contract(
+    process_handle: int,
+) -> tuple[bool, int, set[tuple[int, int]]]:
+    class _Luid(ctypes.Structure):
+        _fields_ = [
+            ("LowPart", wintypes.DWORD),
+            ("HighPart", wintypes.LONG),
+        ]
+
+    class _LuidAndAttributes(ctypes.Structure):
+        _fields_ = [
+            ("Luid", _Luid),
+            ("Attributes", wintypes.DWORD),
+        ]
+
+    class _TokenPrivileges(ctypes.Structure):
+        _fields_ = [
+            ("PrivilegeCount", wintypes.DWORD),
+            ("Privileges", _LuidAndAttributes * 1),
+        ]
+
+    class _SidAndAttributes(ctypes.Structure):
+        _fields_ = [
+            ("Sid", ctypes.c_void_p),
+            ("Attributes", wintypes.DWORD),
+        ]
+
+    class _TokenMandatoryLabel(ctypes.Structure):
+        _fields_ = [("Label", _SidAndAttributes)]
+
+    advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    advapi32.OpenProcessToken.argtypes = [
+        wintypes.HANDLE,
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.HANDLE),
+    ]
+    advapi32.OpenProcessToken.restype = wintypes.BOOL
+    advapi32.GetTokenInformation.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_int,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+    ]
+    advapi32.GetTokenInformation.restype = wintypes.BOOL
+    advapi32.IsTokenRestricted.argtypes = [wintypes.HANDLE]
+    advapi32.IsTokenRestricted.restype = wintypes.BOOL
+    advapi32.GetSidSubAuthorityCount.argtypes = [ctypes.c_void_p]
+    advapi32.GetSidSubAuthorityCount.restype = ctypes.POINTER(wintypes.BYTE)
+    advapi32.GetSidSubAuthority.argtypes = [ctypes.c_void_p, wintypes.DWORD]
+    advapi32.GetSidSubAuthority.restype = ctypes.POINTER(wintypes.DWORD)
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+
+    def token_information(token: int, information_class: int) -> ctypes.Array:
+        required = wintypes.DWORD()
+        if advapi32.GetTokenInformation(
+            token,
+            information_class,
+            None,
+            0,
+            ctypes.byref(required),
+        ):
+            raise AssertionError("token information unexpectedly required no buffer")
+        if ctypes.get_last_error() != 122:
+            raise ctypes.WinError(ctypes.get_last_error())
+        buffer = ctypes.create_string_buffer(required.value)
+        if not advapi32.GetTokenInformation(
+            token,
+            information_class,
+            buffer,
+            required,
+            ctypes.byref(required),
+        ):
+            raise ctypes.WinError(ctypes.get_last_error())
+        return buffer
+
+    token = wintypes.HANDLE()
+    if not advapi32.OpenProcessToken(process_handle, 0x0008, ctypes.byref(token)):
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        integrity_buffer = token_information(token, 25)
+        label = ctypes.cast(
+            integrity_buffer,
+            ctypes.POINTER(_TokenMandatoryLabel),
+        ).contents
+        count_pointer = advapi32.GetSidSubAuthorityCount(label.Label.Sid)
+        if not count_pointer or not count_pointer[0]:
+            raise AssertionError("child token has no integrity RID")
+        integrity_rid = int(
+            advapi32.GetSidSubAuthority(
+                label.Label.Sid,
+                int(count_pointer[0]) - 1,
+            )[0]
+        )
+
+        privileges_buffer = token_information(token, 3)
+        privileges = ctypes.cast(
+            privileges_buffer,
+            ctypes.POINTER(_TokenPrivileges),
+        ).contents
+        privilege_array = ctypes.cast(
+            ctypes.addressof(privileges_buffer) + _TokenPrivileges.Privileges.offset,
+            ctypes.POINTER(_LuidAndAttributes * privileges.PrivilegeCount),
+        ).contents
+        privilege_luids = {
+            (int(item.Luid.LowPart), int(item.Luid.HighPart))
+            for item in privilege_array
+        }
+        return (
+            bool(advapi32.IsTokenRestricted(token)),
+            integrity_rid,
+            privilege_luids,
+        )
+    finally:
+        kernel32.CloseHandle(token)
+
+
+def _lookup_privilege_luid(name: str) -> tuple[int, int]:
+    class _Luid(ctypes.Structure):
+        _fields_ = [
+            ("LowPart", wintypes.DWORD),
+            ("HighPart", wintypes.LONG),
+        ]
+
+    advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+    advapi32.LookupPrivilegeValueW.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.LPCWSTR,
+        ctypes.POINTER(_Luid),
+    ]
+    advapi32.LookupPrivilegeValueW.restype = wintypes.BOOL
+    luid = _Luid()
+    if not advapi32.LookupPrivilegeValueW(None, name, ctypes.byref(luid)):
+        raise ctypes.WinError(ctypes.get_last_error())
+    return int(luid.LowPart), int(luid.HighPart)
