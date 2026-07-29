@@ -421,8 +421,26 @@ def spawn_restricted_suspended_process(
 ) -> RestrictedWindowsProcess:
     """Create one Low-IL restricted child with only explicit inherited handles."""
 
-    normalized_command = _validate_command(command)
     normalized_handles = _validate_inherited_handles(inherited_handles)
+    try:
+        return _spawn_restricted_suspended_process(
+            command,
+            inherited_handles=normalized_handles,
+            cwd=cwd,
+            environment=environment,
+        )
+    finally:
+        _best_effort_clear_handle_inheritance(normalized_handles)
+
+
+def _spawn_restricted_suspended_process(
+    command: tuple[str, ...],
+    *,
+    inherited_handles: tuple[int, ...],
+    cwd: Path,
+    environment: Mapping[str, str],
+) -> RestrictedWindowsProcess:
+    normalized_command = _validate_command(command)
     cwd_text = str(cwd)
     if "\0" in cwd_text:
         raise ValueError("working directory contains NUL")
@@ -430,8 +448,8 @@ def spawn_restricted_suspended_process(
     command_buffer = ctypes.create_unicode_buffer(
         subprocess.list2cmdline(normalized_command)
     )
-    handle_array = (wintypes.HANDLE * len(normalized_handles))(
-        *normalized_handles
+    handle_array = (wintypes.HANDLE * len(inherited_handles))(
+        *inherited_handles
     )
     attribute_size = ctypes.c_size_t()
     _kernel32.InitializeProcThreadAttributeList(
@@ -490,7 +508,7 @@ def spawn_restricted_suspended_process(
             ctypes.byref(process_info),
         )
         create_error = ctypes.get_last_error()
-        _clear_handle_inheritance(normalized_handles)
+        _clear_handle_inheritance(inherited_handles)
         if not created:
             raise ctypes.WinError(create_error)
 
@@ -513,7 +531,6 @@ def spawn_restricted_suspended_process(
         transferred = True
         return process
     finally:
-        _best_effort_clear_handle_inheritance(normalized_handles)
         if restricted_token is not None:
             _kernel32.CloseHandle(restricted_token)
         _kernel32.DeleteProcThreadAttributeList(attribute_list)
