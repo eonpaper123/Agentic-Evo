@@ -6,6 +6,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
+import sys
 
 from agentic_evo._util import sha256_hex
 from agentic_evo.body_process import (
@@ -178,6 +179,15 @@ class BodyProcessTests(unittest.TestCase):
         self.assertNotIn(
             "agent_self_authored",
             {record.author_kind for record in self.runtime.evidence.records()},
+        )
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows native contract")
+    def test_windows_body_worker_is_kernel_fenced(self) -> None:
+        body = self._spawn()
+
+        self.assertEqual(
+            body.describe()["process_fencing"],
+            "windows_job_object_kill_on_close",
         )
 
     def test_worker_does_not_inherit_the_host_process_environment(self) -> None:
