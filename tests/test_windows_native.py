@@ -186,6 +186,153 @@ class WindowsJobObjectTests(unittest.TestCase):
             kernel32.CloseHandle(included_event)
             kernel32.CloseHandle(decoy)
 
+    def test_launcher_failure_seals_but_does_not_close_caller_handle(self) -> None:
+        from agentic_evo.windows_native import (
+            spawn_restricted_suspended_process,
+        )
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateEventW.argtypes = [
+            ctypes.c_void_p,
+            wintypes.BOOL,
+            wintypes.BOOL,
+            wintypes.LPCWSTR,
+        ]
+        kernel32.CreateEventW.restype = wintypes.HANDLE
+        kernel32.SetEvent.argtypes = [wintypes.HANDLE]
+        kernel32.SetEvent.restype = wintypes.BOOL
+        kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        kernel32.WaitForSingleObject.restype = wintypes.DWORD
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+
+        caller_handle = kernel32.CreateEventW(None, True, False, None)
+        self.assertTrue(caller_handle)
+        os.set_handle_inheritable(int(caller_handle), True)
+        try:
+            with self.assertRaises(ValueError):
+                spawn_restricted_suspended_process(
+                    (sys.executable, "-P", "-c", "pass"),
+                    inherited_handles=(int(caller_handle),),
+                    cwd=Path(sys.executable).resolve().parent,
+                    environment={"INVALID": "contains\0nul"},
+                )
+
+            self.assertFalse(os.get_handle_inheritable(int(caller_handle)))
+            self.assertTrue(kernel32.SetEvent(caller_handle))
+            self.assertEqual(kernel32.WaitForSingleObject(caller_handle, 0), 0)
+        finally:
+            kernel32.CloseHandle(caller_handle)
+
+    def test_close_reaps_a_restricted_process_that_was_never_resumed(self) -> None:
+        from agentic_evo.windows_native import (
+            spawn_restricted_suspended_process,
+        )
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateEventW.argtypes = [
+            ctypes.c_void_p,
+            wintypes.BOOL,
+            wintypes.BOOL,
+            wintypes.LPCWSTR,
+        ]
+        kernel32.CreateEventW.restype = wintypes.HANDLE
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+        caller_handle = kernel32.CreateEventW(None, True, False, None)
+        self.assertTrue(caller_handle)
+        os.set_handle_inheritable(int(caller_handle), True)
+        process = None
+        try:
+            process = spawn_restricted_suspended_process(
+                (sys.executable, "-P", "-c", "import time;time.sleep(60)"),
+                inherited_handles=(int(caller_handle),),
+                cwd=Path(sys.executable).resolve().parent,
+                environment={
+                    key: os.environ[key]
+                    for key in ("SystemRoot", "WINDIR")
+                    if key in os.environ
+                },
+            )
+            pid = process.pid
+            process.close()
+            process.close()
+            self.assertTrue(_wait_for_process_exit(pid, timeout_ms=5_000))
+        finally:
+            if process is not None:
+                process.close()
+            kernel32.CloseHandle(caller_handle)
+
+    def test_restricted_child_receives_only_the_explicit_environment(self) -> None:
+        import msvcrt
+
+        from agentic_evo.windows_native import (
+            KillOnCloseJob,
+            spawn_restricted_suspended_process,
+        )
+
+        read_fd, write_fd = os.pipe()
+        read_stream = os.fdopen(read_fd, "rb", buffering=0)
+        child_write_handle = msvcrt.get_osfhandle(write_fd)
+        os.set_handle_inheritable(child_write_handle, True)
+        marker_name = "AGENTIC_EVO_EXPLICIT_CHILD_MARKER"
+        omitted_name = "AGENTIC_EVO_PARENT_ONLY_MARKER"
+        previous_omitted = os.environ.get(omitted_name)
+        os.environ[omitted_name] = "must-not-cross"
+        helper = (
+            "import json,msvcrt,os,sys;"
+            "stream=os.fdopen(msvcrt.open_osfhandle(int(sys.argv[1]),"
+            "os.O_WRONLY),'wb',buffering=0);"
+            f"report={{'marker':os.getenv('{marker_name}'),"
+            f"'omitted':os.getenv('{omitted_name}')}};"
+            "stream.write((json.dumps(report)+'\\n').encode());"
+            "stream.close()"
+        )
+        environment = {
+            key: os.environ[key]
+            for key in ("SystemRoot", "WINDIR")
+            if key in os.environ
+        }
+        environment[marker_name] = "explicit"
+        process = None
+        job = KillOnCloseJob()
+        write_closed = False
+        try:
+            process = spawn_restricted_suspended_process(
+                (
+                    sys.executable,
+                    "-P",
+                    "-c",
+                    helper,
+                    str(child_write_handle),
+                ),
+                inherited_handles=(child_write_handle,),
+                cwd=Path(sys.executable).resolve().parent,
+                environment=environment,
+            )
+            job.assign_handle(process.process_handle)
+            os.close(write_fd)
+            write_closed = True
+            self.assertEqual(process.resume(), 1)
+            self.assertEqual(process.wait(timeout=5.0), 0)
+            report = json.loads(read_stream.readline())
+            self.assertEqual(report["marker"], "explicit")
+            self.assertIsNone(report["omitted"])
+        finally:
+            job.close()
+            if process is not None:
+                if process.poll() is None:
+                    process.kill()
+                    process.wait(timeout=5.0)
+                process.close()
+            if not write_closed:
+                os.close(write_fd)
+            read_stream.close()
+            if previous_omitted is None:
+                os.environ.pop(omitted_name, None)
+            else:
+                os.environ[omitted_name] = previous_omitted
+
 
 def _wait_for_process_exit(pid: int, *, timeout_ms: int) -> bool:
     synchronize = 0x00100000
