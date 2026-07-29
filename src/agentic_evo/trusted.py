@@ -31,6 +31,7 @@ from .kernel import KernelSnapshot
 
 TRUSTED_SCHEMA_VERSION = "agentic-evo-trusted-v1"
 CHECKPOINT_SCHEMA_VERSION = "agentic-evo-checkpoint-v1"
+_AUTHORITY_OFF_EVENT_KINDS = frozenset({"host_off", "control_rehearsal_off"})
 
 
 class TrustedState:
@@ -212,7 +213,7 @@ class TrustedState:
             (
                 record.sequence
                 for record in self.records()
-                if record.event_kind == "host_off"
+                if record.event_kind in _AUTHORITY_OFF_EVENT_KINDS
             ),
             default=0,
         )
