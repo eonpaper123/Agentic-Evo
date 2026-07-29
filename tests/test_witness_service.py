@@ -419,6 +419,96 @@ class WitnessServiceTests(unittest.TestCase):
         self.assertEqual(self.runtime.status(), before_status)
         self.assertEqual(self.runtime.evidence.records(), before_records)
 
+    def test_internal_stop_releases_the_service_without_turning_the_runtime_off(
+        self,
+    ) -> None:
+        service = WitnessService(self.home)
+        failures: list[BaseException] = []
+
+        def serve() -> None:
+            try:
+                service.serve_forever()
+            except BaseException as exc:
+                failures.append(exc)
+
+        service_thread = threading.Thread(target=serve, daemon=True)
+        service_thread.start()
+        client = SurfaceClient(self.home)
+        deadline = time.monotonic() + 5.0
+        while True:
+            if failures:
+                self.fail(f"Witness service failed before ready: {failures[0]!r}")
+            try:
+                live_status = client.status()
+                break
+            except ServiceUnavailableError:
+                if time.monotonic() >= deadline:
+                    self.fail("Witness service did not become ready")
+                time.sleep(0.02)
+
+        with service._body_guard:
+            body = service._body
+        self.assertIsNotNone(body)
+        assert body is not None
+        self.assertEqual(live_status["body_rehearsal"]["pid"], body.pid)
+        before_status = self.runtime.status()
+        before_records = self.runtime.evidence.records()
+
+        service.request_stop()
+        service.request_stop()
+        service_thread.join(timeout=5.0)
+
+        self.assertFalse(service_thread.is_alive())
+        self.assertFalse(failures)
+        self.assertTrue(body.wait_closed(timeout_seconds=5.0))
+        self.assertFalse(body.is_alive())
+        with self.assertRaises(ServiceUnavailableError):
+            client.status()
+        self.assertEqual(self.runtime.status(), before_status)
+        self.assertEqual(self.runtime.evidence.records(), before_records)
+
+        replacement = WitnessService(self.home)
+        replacement_failures: list[BaseException] = []
+
+        def serve_replacement() -> None:
+            try:
+                replacement.serve_forever()
+            except BaseException as exc:
+                replacement_failures.append(exc)
+
+        replacement_thread = threading.Thread(
+            target=serve_replacement,
+            daemon=True,
+        )
+        replacement_thread.start()
+        replacement_client = SurfaceClient(self.home)
+        deadline = time.monotonic() + 5.0
+        try:
+            while True:
+                if replacement_failures:
+                    self.fail(
+                        "replacement Witness service failed before ready: "
+                        f"{replacement_failures[0]!r}"
+                    )
+                try:
+                    replacement_status = replacement_client.status()
+                    break
+                except ServiceUnavailableError:
+                    if time.monotonic() >= deadline:
+                        self.fail("replacement Witness service did not become ready")
+                    time.sleep(0.02)
+            self.assertEqual(replacement_status["root"], before_status.root)
+            self.assertEqual(replacement_status["head"], before_status.head)
+            self.assertEqual(replacement_status["authority"], before_status.authority)
+        finally:
+            replacement.request_stop()
+            replacement_thread.join(timeout=5.0)
+
+        self.assertFalse(replacement_thread.is_alive())
+        self.assertFalse(replacement_failures)
+        self.assertEqual(self.runtime.status(), before_status)
+        self.assertEqual(self.runtime.evidence.records(), before_records)
+
     def test_external_off_on_cycle_replaces_the_subprocess_binding(self) -> None:
         process = self._spawn()
         client = self._wait_until_ready(process)
