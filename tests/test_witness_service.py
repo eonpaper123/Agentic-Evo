@@ -163,6 +163,15 @@ class WitnessServiceTests(unittest.TestCase):
         self.assertEqual(record.source_kind, "execution_surface")
         self.assertEqual(record.author_kind, "surface_unverified")
         self.assertEqual(record.execution_surface, "codex")
+        session_records = [
+            item
+            for item in self.runtime.evidence.records()
+            if item.event_kind in {"session_start", "session_end"}
+        ]
+        self.assertEqual(
+            [item.author_kind for item in session_records],
+            ["surface_unverified", "surface_unverified"],
+        )
 
         before = self.runtime.evidence.records()
         with self.assertRaises(ServiceRejectedError) as caught:
