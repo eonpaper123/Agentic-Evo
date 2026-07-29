@@ -1,6 +1,6 @@
 # 受限 Body 与私有谱系能力演练
 
-更新时间：2026-07-30  
+更新时间：2026-07-30
 状态：Windows foreground 已形成 restricted Low-Integrity Body、显式继承私有双管道与 Body 发起的谱系往返演练；仍未形成独立 service principal、受保护可信状态、HostPresence、安装态 native security 或正式 Genesis
 
 对应实现：
@@ -422,7 +422,7 @@ Agent 的连续性不属于 Windows API、launchd 或 systemd；这些只是同�
 
 ### 9.2 当前可运行状态
 
-当前 Python fallback 在 macOS / Linux 仍可通过普通 `Popen` stdio 运行相同 Boot 和 lineage rehearsal。它证明可移植协议路径，不证明原生 principal：
+当前代码为 macOS / Linux 保留普通 `Popen` stdio 的相同 Boot 和 lineage rehearsal 路径；该路径尚未在对应平台实机验证。即使未来通过，它也只证明可移植协议路径，不证明原生 principal：
 
 \[
 \boxed{
