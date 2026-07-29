@@ -148,6 +148,25 @@ class BodyProcessTests(unittest.TestCase):
             crashed.boot.boot_session,
         )
 
+    def test_valid_large_current_head_is_streamed_without_a_boot_size_cliff(
+        self,
+    ) -> None:
+        session = self.witness.open_current_body_session(
+            expected_head=self.runtime.status().head
+        )
+        large_activation = b"x" * (6 * 1024 * 1024)
+        candidate = session.prepare_successor(
+            files={"entrypoint.md": large_activation}
+        )
+        session.advance_head(candidate_head=candidate)
+
+        body = self._spawn()
+        self.assertTrue(body.is_alive())
+        self.assertEqual(
+            body.boot.activation_digest,
+            sha256_hex(large_activation),
+        )
+
     def test_invalid_ready_echo_is_not_accepted_as_a_live_body(self) -> None:
         body = self._spawn()
         forged = ReadyEcho(
