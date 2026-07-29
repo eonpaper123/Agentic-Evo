@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 
@@ -75,14 +76,17 @@ class WitnessServiceTests(unittest.TestCase):
 
     @staticmethod
     def _terminate(process: subprocess.Popen[str]) -> None:
-        if process.poll() is not None:
-            return
-        process.terminate()
-        try:
-            process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait(timeout=5)
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+        if process.stdout is not None:
+            process.stdout.close()
+        if process.stderr is not None:
+            process.stderr.close()
 
     def _wait_until_ready(
         self,
@@ -183,6 +187,30 @@ class WitnessServiceTests(unittest.TestCase):
         self.assertFalse((empty_home / "trusted" / "state.sqlite3").exists())
         self.assertFalse((empty_home / "body").exists())
 
+    def test_process_crash_releases_singleton_and_preserves_committed_state(
+        self,
+    ) -> None:
+        first = self._spawn()
+        client = self._wait_until_ready(first)
+        client.observe(
+            event_kind="committed_before_service_crash",
+            payload={"result": "durable"},
+            execution_surface="codex",
+        )
+        before_status = self.runtime.status()
+        before_records = self.runtime.evidence.records()
+
+        first.kill()
+        first.wait(timeout=5)
+        with self.assertRaises(ServiceUnavailableError):
+            client.status()
+
+        replacement = self._spawn()
+        replacement_client = self._wait_until_ready(replacement)
+        self.assertEqual(replacement_client.status()["head"], before_status.head)
+        self.assertEqual(self.runtime.status(), before_status)
+        self.assertEqual(self.runtime.evidence.records(), before_records)
+
     def test_endpoint_is_deterministic_platform_specific_and_bounded(
         self,
     ) -> None:
@@ -236,6 +264,37 @@ class WitnessServiceTests(unittest.TestCase):
             )
             response = receive_public_message(connection)
         self.assertTrue(response["ok"])
+
+    def test_silent_connection_cannot_block_other_surface_requests(self) -> None:
+        process = self._spawn()
+        client = self._wait_until_ready(process)
+        endpoint = service_endpoint(self.home)
+        context = open_public_connection(endpoint)
+        silent_connection = context.__enter__()
+        result: list[dict[str, object]] = []
+        errors: list[BaseException] = []
+
+        def read_status() -> None:
+            try:
+                result.append(client.status())
+            except BaseException as exc:
+                errors.append(exc)
+
+        reader = threading.Thread(target=read_status)
+        try:
+            reader.start()
+            reader.join(timeout=0.75)
+            responsive_while_silent = not reader.is_alive()
+        finally:
+            context.__exit__(None, None, None)
+            reader.join(timeout=5)
+
+        self.assertTrue(
+            responsive_while_silent,
+            "one silent public connection blocked the whole Witness service",
+        )
+        self.assertFalse(errors)
+        self.assertEqual(result[0]["head"], self.runtime.status().head)
 
 
 if __name__ == "__main__":
