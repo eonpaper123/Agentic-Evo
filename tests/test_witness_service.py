@@ -22,7 +22,8 @@ from agentic_evo.ipc import (
     send_public_message,
     service_endpoint,
 )
-from agentic_evo.runtime import DevelopmentalRuntime
+from agentic_evo.runtime import DevelopmentalRuntime, RuntimeStatus
+from agentic_evo.service import WitnessService
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -351,6 +352,49 @@ class WitnessServiceTests(unittest.TestCase):
         self.assertEqual(again["authority"], "off")
         self.assertEqual(again["body_rehearsal"]["state"], "absent")
         self.assertEqual(self.runtime.evidence.records(), after_first)
+
+    def test_off_control_does_not_skip_the_atomic_off_when_a_writer_races(
+        self,
+    ) -> None:
+        class RacingRuntime:
+            def __init__(self) -> None:
+                self.authority = "off"
+                self.rehearsed = False
+
+            def _snapshot(self) -> RuntimeStatus:
+                return RuntimeStatus(
+                    root="root",
+                    head="head",
+                    generation=0,
+                    authority=self.authority,
+                    lifecycle_state="off" if self.authority == "off" else "waiting",
+                    active_sessions=(),
+                    instrument_version="instrument-test-v1",
+                    protocol_version="protocol-test-v1",
+                )
+
+            def status(self) -> RuntimeStatus:
+                snapshot = self._snapshot()
+                if not self.rehearsed:
+                    self.authority = "on"
+                return snapshot
+
+            def rehearse_turn_off(self) -> RuntimeStatus:
+                self.rehearsed = True
+                self.authority = "off"
+                return self._snapshot()
+
+        runtime = RacingRuntime()
+        service = WitnessService.__new__(WitnessService)
+        service.runtime = runtime
+        service._body_guard = threading.RLock()
+        service._body = None
+
+        result = service._turn_off_rehearsal()
+
+        self.assertTrue(runtime.rehearsed)
+        self.assertEqual(result["authority"], runtime.authority)
+        self.assertEqual(result["authority"], "off")
 
     def test_malformed_and_oversize_frames_fail_closed(self) -> None:
         process = self._spawn()
