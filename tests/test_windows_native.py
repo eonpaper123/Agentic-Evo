@@ -33,7 +33,7 @@ class WindowsJobObjectTests(unittest.TestCase):
         )
         child_pid: int | None = None
         try:
-            job.assign(parent.pid)
+            job.assign_handle(int(parent._handle))
             assert parent.stdin is not None
             assert parent.stdout is not None
             parent.stdin.write(b"1")
