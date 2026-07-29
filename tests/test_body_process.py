@@ -171,7 +171,12 @@ class BodyProcessTests(unittest.TestCase):
         )
         session.advance_head(candidate_head=candidate)
 
-        body = self._spawn()
+        body = BodyProcessSupervisor(
+            self.runtime,
+            self.witness,
+            ready_timeout_seconds=10.0,
+        ).spawn_current()
+        self.bodies.append(body)
         self.assertTrue(body.is_alive())
         self.assertEqual(
             body.boot.activation_digest,
@@ -494,6 +499,18 @@ class BodyProcessTests(unittest.TestCase):
 
         self.assertEqual(bytes(writer.value), expected)
         self.assertTrue(writer.flushed)
+
+    def test_cleanup_tolerates_a_process_that_was_already_aborted(self) -> None:
+        process = MagicMock()
+        process.poll.return_value = None
+        process.terminate.side_effect = PermissionError("already terminating")
+        process.wait.return_value = 1
+
+        body_process_module._terminate_process(process)
+
+        process.terminate.assert_called_once_with()
+        process.wait.assert_called_once_with(timeout=1.0)
+        process.close.assert_called_once_with()
 
     def test_forged_rehearsal_result_cannot_skip_the_lineage_request(
         self,
