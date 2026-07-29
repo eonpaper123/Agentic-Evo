@@ -18,7 +18,8 @@ def build_install_plan() -> dict[str, Any]:
         },
         "claims": {
             "implemented_native_components": [
-                "win32_job_object_process_tree_fencing"
+                "win32_job_object_process_tree_fencing",
+                "win32_public_named_pipe_dacl_peer_authentication",
             ],
             "native_security_verified": False,
             "portable_protocol_complete": True,
