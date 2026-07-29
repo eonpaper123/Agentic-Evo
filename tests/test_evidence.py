@@ -168,6 +168,18 @@ class EvidenceLedgerTests(unittest.TestCase):
                 author_kind="research_instrument",
             )
 
+    def test_body_logical_path_has_a_portable_byte_bound(self) -> None:
+        store = BodyStore(Path(self.tempdir.name) / "body")
+        oversized_path = f"{'nested/' * 80}file.md"
+
+        with self.assertRaises(InvalidBodyError):
+            store.commit(
+                root="root-a",
+                parent_head=None,
+                files={oversized_path: "invalid"},
+                author_kind="research_instrument",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

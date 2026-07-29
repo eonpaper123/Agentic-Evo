@@ -207,6 +207,136 @@ class WitnessServiceTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "invalid_parameters")
         self.assertEqual(self.runtime.evidence.records(), before)
 
+    def test_many_file_head_has_a_bounded_public_wake_projection(self) -> None:
+        many_home = Path(self.tempdir.name) / "many-file-runtime"
+        files = {
+            "entrypoint.md": "Body zero",
+            **{
+                f"skills/{index:04d}-{'x' * 32}.md": "shared"
+                for index in range(1200)
+            },
+        }
+        DevelopmentalRuntime.genesis(
+            many_home,
+            host_binding=self.host_binding,
+            purpose_anchor="Improve the future of the one bound host.",
+            initial_body=files,
+            instrument_version="instrument-test-v1",
+            protocol_version="protocol-test-v1",
+        )
+        process = self._spawn(many_home)
+        client = self._wait_until_ready(process, home=many_home)
+
+        wake = client.wake(
+            execution_surface="codex",
+            session_id="many-file-session",
+            project_environment="project-a",
+        )
+
+        self.assertEqual(wake["body_file_count"], len(files))
+        self.assertTrue(wake["body_files_truncated"])
+        self.assertEqual(wake["body_files"], sorted(files)[:16])
+
+    def test_public_status_bounds_active_session_projection(self) -> None:
+        service = WitnessService(self.home)
+        self.addCleanup(service.witness.close)
+        sessions = tuple(f"session-{index:04d}-{'x' * 500}" for index in range(100))
+        status = RuntimeStatus(
+            root="r" * 64,
+            head="h" * 64,
+            generation=0,
+            authority="on",
+            lifecycle_state="awake",
+            active_sessions=sessions,
+            instrument_version="instrument-test-v1",
+            protocol_version="protocol-test-v1",
+        )
+        request = {
+            "protocol": "agentic-evo-public-v1",
+            "request_id": "bounded-status",
+            "operation": "status",
+            "params": {},
+        }
+
+        with (
+            patch.object(service, "_ensure_body"),
+            patch.object(service.runtime, "status", return_value=status),
+        ):
+            result = service.dispatch_public(request)
+
+        self.assertEqual(result["active_session_count"], len(sessions))
+        self.assertTrue(result["active_sessions_truncated"])
+        self.assertEqual(result["active_sessions"], list(sessions[:32]))
+
+    def test_public_string_parameters_have_an_explicit_byte_bound(self) -> None:
+        process = self._spawn()
+        client = self._wait_until_ready(process)
+
+        with self.assertRaises(ServiceRejectedError) as caught:
+            client.wake(
+                execution_surface="codex",
+                session_id="s" * 1025,
+                project_environment="project-a",
+            )
+
+        self.assertEqual(caught.exception.code, "invalid_parameters")
+
+    def test_off_client_does_not_hang_on_a_partial_response_frame(self) -> None:
+        class PartialResponseConnection:
+            def __init__(self) -> None:
+                self.closed = threading.Event()
+
+            def send_bytes(self, raw: bytes) -> None:
+                pass
+
+            def poll(self, timeout: float) -> bool:
+                return True
+
+            def recv_bytes(self, maximum: int) -> bytes:
+                self.closed.wait()
+                raise EOFError
+
+            def close(self) -> None:
+                self.closed.set()
+
+        connection = PartialResponseConnection()
+
+        @contextmanager
+        def open_partial_response(endpoint):
+            try:
+                yield connection
+            finally:
+                connection.close()
+
+        failures: list[Exception] = []
+
+        def request_off() -> None:
+            try:
+                OffRehearsalClient(self.home).off()
+            except Exception as exc:
+                failures.append(exc)
+
+        with (
+            patch(
+                "agentic_evo.ipc.open_public_connection",
+                open_partial_response,
+            ),
+            patch(
+                "agentic_evo.ipc.CONTROL_RESPONSE_TIMEOUT_SECONDS",
+                0.05,
+            ),
+        ):
+            worker = threading.Thread(target=request_off, daemon=True)
+            worker.start()
+            worker.join(timeout=0.5)
+            completed_within_deadline = not worker.is_alive()
+            connection.close()
+            worker.join(timeout=1)
+
+        self.assertTrue(completed_within_deadline)
+        self.assertEqual(len(failures), 1)
+        self.assertIsInstance(failures[0], ServiceUnavailableError)
+
     def test_service_never_performs_genesis_for_an_empty_home(self) -> None:
         empty_home = Path(self.tempdir.name) / "empty"
         process = self._spawn(empty_home)
