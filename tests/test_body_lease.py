@@ -169,6 +169,22 @@ class CurrentBodyLeaseTests(unittest.TestCase):
         replacement = self._open()
         replacement.close()
 
+    def test_control_rehearsal_off_advances_epoch_and_fences_old_lease(
+        self,
+    ) -> None:
+        session = self._open()
+        epoch_before = self.runtime.trusted.authority_epoch()
+
+        self.runtime.rehearse_turn_off()
+        epoch_after = self.runtime.trusted.authority_epoch()
+        self.runtime.turn_on(host_binding=self.host_binding)
+
+        self.assertGreater(epoch_after, epoch_before)
+        with self.assertRaises(BodyLeaseError):
+            session.prepare_successor(
+                files={"entrypoint.md": "survived control Off"}
+            )
+
     def test_successful_head_transition_consumes_the_old_lease(self) -> None:
         session = self._open()
         before = self.runtime.status()
