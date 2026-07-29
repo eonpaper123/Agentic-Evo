@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+from contextlib import closing
 import json
+import os
 from pathlib import Path
 import sqlite3
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 
-from agentic_evo.errors import IntegrityError
+from agentic_evo.errors import IntegrityError, RuntimeOffError
 from agentic_evo.runtime import DevelopmentalRuntime
 from agentic_evo.trusted import TrustedState
 
@@ -34,7 +38,7 @@ class TrustedTransactionTests(unittest.TestCase):
         )
 
     def _fail_event(self, event_kind: str) -> None:
-        with sqlite3.connect(self.db_path) as connection:
+        with closing(sqlite3.connect(self.db_path)) as connection:
             connection.execute(
                 f"""
                 CREATE TRIGGER fail_{event_kind}
@@ -47,7 +51,7 @@ class TrustedTransactionTests(unittest.TestCase):
             )
 
     def _trusted_counts(self) -> tuple[int, int, int]:
-        with sqlite3.connect(self.db_path) as connection:
+        with closing(sqlite3.connect(self.db_path)) as connection:
             events = connection.execute("SELECT COUNT(*) FROM events").fetchone()[0]
             checkpoints = connection.execute(
                 "SELECT COUNT(*) FROM checkpoints"
@@ -63,7 +67,7 @@ class TrustedTransactionTests(unittest.TestCase):
         self.assertFalse((self.home / "runtime" / "state.json").exists())
         self.assertFalse((self.home / "evidence" / "events.jsonl").exists())
 
-        with sqlite3.connect(self.db_path) as connection:
+        with closing(sqlite3.connect(self.db_path)) as connection:
             tables = {
                 row[0]
                 for row in connection.execute(
@@ -99,6 +103,45 @@ class TrustedTransactionTests(unittest.TestCase):
                 project_environment="project-a",
             )
 
+        reloaded = DevelopmentalRuntime.load(self.home)
+        self.assertEqual(reloaded.status(), before_status)
+        self.assertEqual(reloaded.evidence.records(), before_records)
+        self.assertEqual(self._trusted_counts(), before_counts)
+
+    def test_process_crash_before_checkpoint_rolls_back_the_whole_wake(self) -> None:
+        before_status = self.runtime.status()
+        before_records = self.runtime.evidence.records()
+        before_counts = self._trusted_counts()
+        script = """
+import os
+from pathlib import Path
+import sys
+from unittest.mock import patch
+
+from agentic_evo.runtime import DevelopmentalRuntime
+from agentic_evo.trusted import TrustedState
+
+runtime = DevelopmentalRuntime.load(Path(sys.argv[1]))
+with patch.object(TrustedState, "_insert_checkpoint", side_effect=lambda *a, **k: os._exit(73)):
+    runtime.wake(
+        execution_surface="codex",
+        session_id="crashed-session",
+        project_environment="project-a",
+    )
+"""
+        environment = dict(os.environ)
+        source_path = str(Path(__file__).resolve().parents[1] / "src")
+        environment["PYTHONPATH"] = source_path
+        completed = subprocess.run(
+            [sys.executable, "-c", script, str(self.home)],
+            env=environment,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+
+        self.assertEqual(completed.returncode, 73, completed.stderr)
         reloaded = DevelopmentalRuntime.load(self.home)
         self.assertEqual(reloaded.status(), before_status)
         self.assertEqual(reloaded.evidence.records(), before_records)
@@ -149,6 +192,25 @@ class TrustedTransactionTests(unittest.TestCase):
         self.assertEqual(reloaded.evidence.records(), before_records)
         self.assertEqual(self._trusted_counts(), before_counts)
 
+    def test_off_rejects_a_delayed_session_end_without_new_history(self) -> None:
+        self.runtime.wake(
+            execution_surface="codex",
+            session_id="late-session",
+            project_environment="project-a",
+        )
+        self.runtime.turn_off()
+        before_status = self.runtime.status()
+        before_records = self.runtime.evidence.records()
+        before_counts = self._trusted_counts()
+
+        with self.assertRaises(RuntimeOffError):
+            self.runtime.sleep(session_id="late-session")
+
+        reloaded = DevelopmentalRuntime.load(self.home)
+        self.assertEqual(reloaded.status(), before_status)
+        self.assertEqual(reloaded.evidence.records(), before_records)
+        self.assertEqual(self._trusted_counts(), before_counts)
+
     def test_failed_genesis_has_no_birth_and_can_retry(self) -> None:
         genesis_home = self.home / "failed-genesis"
 
@@ -172,6 +234,16 @@ class TrustedTransactionTests(unittest.TestCase):
         self.assertEqual(len(genesis_events), 1)
         self.assertEqual(retry.status().generation, 0)
 
+    def test_checkpoint_binds_the_identity_anchor(self) -> None:
+        with closing(sqlite3.connect(self.db_path)) as connection, connection:
+            connection.execute(
+                "UPDATE state SET who = ? WHERE id = 1",
+                ("forged-host-identity",),
+            )
+
+        with self.assertRaises(IntegrityError):
+            DevelopmentalRuntime.load(self.home)
+
     def test_checkpoint_chain_matches_state_and_detects_tampering(self) -> None:
         before = self.runtime.status()
         candidate = self.runtime.prepare_successor(
@@ -185,7 +257,7 @@ class TrustedTransactionTests(unittest.TestCase):
         )
         self.runtime.turn_off()
 
-        with sqlite3.connect(self.db_path) as connection:
+        with closing(sqlite3.connect(self.db_path)) as connection:
             state = connection.execute(
                 """
                 SELECT root, head, authority, revision,
@@ -227,7 +299,7 @@ class TrustedTransactionTests(unittest.TestCase):
             state,
         )
 
-        with sqlite3.connect(self.db_path) as connection:
+        with closing(sqlite3.connect(self.db_path)) as connection, connection:
             connection.execute(
                 "UPDATE checkpoints SET record_json = ? WHERE sequence = 1",
                 (b"{}",),

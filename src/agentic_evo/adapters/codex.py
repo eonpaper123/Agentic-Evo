@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sqlite3
 from typing import Any, Mapping
 
 from .._util import canonical_json_bytes, sha256_hex
@@ -16,7 +17,7 @@ def handle_codex_hook(
 
     try:
         runtime = DevelopmentalRuntime.load(Path(home))
-    except (AgenticEvoError, OSError):
+    except (AgenticEvoError, OSError, sqlite3.DatabaseError):
         return None
 
     event_name = str(payload.get("hook_event_name") or "")
@@ -72,7 +73,14 @@ def handle_codex_hook(
                 **event_payload,
             },
         )
-    except (AgenticEvoError, OSError, TimeoutError, TypeError, ValueError):
+    except (
+        AgenticEvoError,
+        OSError,
+        sqlite3.DatabaseError,
+        TimeoutError,
+        TypeError,
+        ValueError,
+    ):
         return None
     return None
 

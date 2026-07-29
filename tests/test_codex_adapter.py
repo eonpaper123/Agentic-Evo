@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import json
+from contextlib import closing
 from pathlib import Path
+import sqlite3
 import tempfile
 import unittest
 
@@ -123,13 +124,15 @@ class CodexAdapterTests(unittest.TestCase):
         self.assertNotIn("transcript_path", last.payload)
 
     def test_observatory_failure_does_not_block_the_coding_agent_hook(self) -> None:
-        log_path = self.home / "evidence" / "events.jsonl"
-        record = json.loads(log_path.read_text(encoding="utf-8"))
-        record["event_kind"] = "tampered-genesis"
-        log_path.write_text(
-            json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
+        db_path = self.home / "trusted" / "state.sqlite3"
+        with closing(sqlite3.connect(db_path)) as connection, connection:
+            before = connection.execute(
+                "SELECT COUNT(*) FROM events"
+            ).fetchone()[0]
+            connection.execute(
+                "UPDATE checkpoints SET record_json = ? WHERE sequence = 1",
+                (b"{}",),
+            )
 
         result = handle_codex_hook(
             self.home,
@@ -144,7 +147,11 @@ class CodexAdapterTests(unittest.TestCase):
         )
 
         self.assertIsNone(result)
-        self.assertEqual(len(log_path.read_text(encoding="utf-8").splitlines()), 1)
+        with closing(sqlite3.connect(db_path)) as connection:
+            after = connection.execute(
+                "SELECT COUNT(*) FROM events"
+            ).fetchone()[0]
+        self.assertEqual(after, before)
 
 
 if __name__ == "__main__":

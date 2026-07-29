@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from contextlib import closing
 import json
 from pathlib import Path
+import sqlite3
 import tempfile
 import threading
 import unittest
@@ -17,9 +19,8 @@ from agentic_evo.errors import (
     RootBindingError,
     RuntimeOffError,
 )
-from agentic_evo.kernel import MicroLifeKernel
-from agentic_evo.evidence import EvidenceLedger
 from agentic_evo.runtime import DevelopmentalRuntime
+from agentic_evo.trusted import TrustedState
 
 
 class MachineLifecycleTests(unittest.TestCase):
@@ -215,7 +216,7 @@ class MachineLifecycleTests(unittest.TestCase):
         def advance(candidate: str) -> None:
             barrier.wait()
             try:
-                self.runtime.advance_head(
+                DevelopmentalRuntime.load(self.home).advance_head(
                     expected_head=before.head,
                     candidate_head=candidate,
                 )
@@ -240,7 +241,7 @@ class MachineLifecycleTests(unittest.TestCase):
     def test_concurrent_genesis_has_exactly_one_origin(self) -> None:
         genesis_home = self.home / "concurrent-genesis"
         rendezvous = threading.Barrier(2)
-        original_generate_root = MicroLifeKernel.generate_root
+        original_generate_root = TrustedState.generate_root
         successes: list[DevelopmentalRuntime] = []
         failures: list[Exception] = []
 
@@ -267,7 +268,7 @@ class MachineLifecycleTests(unittest.TestCase):
                 failures.append(exc)
 
         with patch.object(
-            MicroLifeKernel,
+            TrustedState,
             "generate_root",
             side_effect=synchronized_root,
         ):
@@ -304,7 +305,9 @@ class MachineLifecycleTests(unittest.TestCase):
             )
 
         self.assertFalse((genesis_home / "body").exists())
-        self.assertFalse((genesis_home / "kernel" / "state.json").exists())
+        self.assertFalse(
+            (genesis_home / "trusted" / "state.sqlite3").exists()
+        )
         retry = DevelopmentalRuntime.genesis(
             genesis_home,
             host_binding=self.host_binding,
@@ -318,13 +321,12 @@ class MachineLifecycleTests(unittest.TestCase):
     def test_off_is_ordered_after_a_concurrent_wake(self) -> None:
         entered_binding = threading.Event()
         release_binding = threading.Event()
-        original_bind = MicroLifeKernel.bind
+        original_start_session = TrustedState.start_session
 
-        def paused_bind(kernel: MicroLifeKernel, *, root: str, head: str):
-            snapshot = original_bind(kernel, root=root, head=head)
+        def paused_start_session(trusted: TrustedState, **kwargs):
             entered_binding.set()
             release_binding.wait(timeout=5)
-            return snapshot
+            return original_start_session(trusted, **kwargs)
 
         wake_failures: list[Exception] = []
         off_completed = threading.Event()
@@ -343,7 +345,7 @@ class MachineLifecycleTests(unittest.TestCase):
             self.runtime.turn_off()
             off_completed.set()
 
-        with patch.object(MicroLifeKernel, "bind", paused_bind):
+        with patch.object(TrustedState, "start_session", paused_start_session):
             wake_thread = threading.Thread(target=wake)
             wake_thread.start()
             self.assertTrue(entered_binding.wait(timeout=2))
@@ -452,21 +454,29 @@ class MachineLifecycleTests(unittest.TestCase):
 
         self.assertEqual(self.runtime.status().head, before.head)
 
-    def test_kernel_state_tampering_is_detected(self) -> None:
-        state_path = self.home / "kernel" / "state.json"
-        state = json.loads(state_path.read_text(encoding="utf-8"))
-        state["head"] = "0" * 64
-        state_path.write_text(
-            json.dumps(state, ensure_ascii=False, sort_keys=True),
-            encoding="utf-8",
-        )
+    def test_trusted_state_tampering_is_detected(self) -> None:
+        db_path = self.home / "trusted" / "state.sqlite3"
+        with closing(sqlite3.connect(db_path)) as connection, connection:
+            connection.execute(
+                "UPDATE state SET head = ? WHERE id = 1",
+                ("0" * 64,),
+            )
 
         with self.assertRaises(IntegrityError):
             DevelopmentalRuntime.load(self.home)
 
-    def test_replaying_an_old_valid_kernel_state_is_detected_against_evidence(self) -> None:
-        state_path = self.home / "kernel" / "state.json"
-        old_signed_state = state_path.read_bytes()
+    def test_replaying_an_old_state_row_is_detected_against_current_history(self) -> None:
+        db_path = self.home / "trusted" / "state.sqlite3"
+        with closing(sqlite3.connect(db_path)) as connection:
+            old_state = connection.execute(
+                """
+                SELECT authority, head, revision,
+                       last_event_sequence, last_event_hash,
+                       checkpoint_sequence, checkpoint_hash, sessions_hash
+                FROM state
+                WHERE id = 1
+                """
+            ).fetchone()
         before = self.runtime.status()
         candidate = self.runtime.prepare_successor(
             expected_parent=before.head,
@@ -477,7 +487,18 @@ class MachineLifecycleTests(unittest.TestCase):
             expected_head=before.head,
             candidate_head=candidate,
         )
-        state_path.write_bytes(old_signed_state)
+        with closing(sqlite3.connect(db_path)) as connection, connection:
+            connection.execute(
+                """
+                UPDATE state
+                SET authority = ?, head = ?, revision = ?,
+                    last_event_sequence = ?, last_event_hash = ?,
+                    checkpoint_sequence = ?, checkpoint_hash = ?,
+                    sessions_hash = ?
+                WHERE id = 1
+                """,
+                old_state,
+            )
 
         with self.assertRaises(IntegrityError):
             DevelopmentalRuntime.load(self.home)
@@ -494,13 +515,23 @@ class MachineLifecycleTests(unittest.TestCase):
         load_completed = threading.Event()
         load_results: list[DevelopmentalRuntime] = []
         load_failures: list[Exception] = []
-        original_append = EvidenceLedger.append
+        original_insert_checkpoint = TrustedState._insert_checkpoint
 
-        def paused_append(ledger: EvidenceLedger, **kwargs):
-            if kwargs.get("event_kind") == "head_advanced":
+        def paused_insert_checkpoint(
+            trusted: TrustedState,
+            connection: sqlite3.Connection,
+            state,
+            event,
+        ):
+            if event.event_kind == "head_advanced":
                 entered_completion.set()
                 release_completion.wait(timeout=5)
-            return original_append(ledger, **kwargs)
+            return original_insert_checkpoint(
+                trusted,
+                connection,
+                state,
+                event,
+            )
 
         def advance() -> None:
             self.runtime.advance_head(
@@ -516,7 +547,11 @@ class MachineLifecycleTests(unittest.TestCase):
             finally:
                 load_completed.set()
 
-        with patch.object(EvidenceLedger, "append", paused_append):
+        with patch.object(
+            TrustedState,
+            "_insert_checkpoint",
+            paused_insert_checkpoint,
+        ):
             advance_thread = threading.Thread(target=advance)
             advance_thread.start()
             self.assertTrue(entered_completion.wait(timeout=2))
@@ -532,14 +567,18 @@ class MachineLifecycleTests(unittest.TestCase):
         self.assertEqual(len(load_results), 1)
         self.assertEqual(load_results[0].status().head, candidate)
 
-    def test_runtime_state_corruption_is_an_integrity_failure(self) -> None:
-        state_path = self.home / "runtime" / "state.json"
-        state = json.loads(state_path.read_text(encoding="utf-8"))
-        state["schema_version"] = "corrupted-runtime-schema"
-        state_path.write_text(
-            json.dumps(state, ensure_ascii=False, sort_keys=True),
-            encoding="utf-8",
+    def test_session_state_corruption_is_an_integrity_failure(self) -> None:
+        self.runtime.wake(
+            execution_surface="codex",
+            session_id="session-corrupt",
+            project_environment="project-a",
         )
+        db_path = self.home / "trusted" / "state.sqlite3"
+        with closing(sqlite3.connect(db_path)) as connection, connection:
+            connection.execute(
+                "UPDATE sessions SET value_json = ? WHERE session_id = ?",
+                (b"not-json", "session-corrupt"),
+            )
 
         with self.assertRaises(IntegrityError):
             DevelopmentalRuntime.load(self.home)
