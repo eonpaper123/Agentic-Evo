@@ -8,6 +8,7 @@ from typing import Any, Mapping
 
 from .adapters.codex import handle_codex_hook
 from .errors import AgenticEvoError
+from .install_plan import build_install_plan
 from .ipc import OffRehearsalClient, SurfaceClient
 from .service import main as service_main
 
@@ -109,6 +110,10 @@ def _parser() -> argparse.ArgumentParser:
             required=True,
             help="Existing disposable runtime home; never performs Genesis.",
         )
+    commands.add_parser(
+        "plan-install",
+        help="Print a deterministic zero-effect native installation target plan.",
+    )
     return parser
 
 
@@ -122,6 +127,9 @@ def main(argv: list[str] | None = None) -> int:
         return _off_rehearsal(arguments.dev_home)
     if arguments.command == "hook":
         return _codex_hook(arguments.dev_home)
+    if arguments.command == "plan-install":
+        _write_json(build_install_plan())
+        return 0
     raise AssertionError("argparse accepted an unknown command")
 
 
