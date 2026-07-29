@@ -9,7 +9,7 @@ import sys
 import threading
 from typing import Any, Mapping
 
-from ._util import ExclusiveFileLock
+from ._util import ExclusiveFileLock, canonical_json_bytes
 from .body_process import BodyProcessSupervisor, SpawnedBodyProcess
 from .errors import AgenticEvoError, IntegrityError, RuntimeOffError
 from .ipc import (
@@ -29,6 +29,10 @@ from .witness import WitnessCore
 _MAX_PUBLIC_TEXT_BYTES = 1024
 _MAX_PUBLIC_BODY_FILES = 16
 _MAX_PUBLIC_ACTIVE_SESSIONS = 32
+_MAX_PUBLIC_BODY_FILE_LIST_BYTES = 8 * 1024
+_MAX_PUBLIC_SESSION_LIST_BYTES = 24 * 1024
+_MAX_PUBLIC_CONTEXT_JSON_BYTES = 24 * 1024
+_MAX_PUBLIC_METADATA_JSON_BYTES = 1024
 
 
 class PublicRequestError(AgenticEvoError):
@@ -309,21 +313,77 @@ class WitnessService:
     def _project_status(status: RuntimeStatus) -> dict[str, Any]:
         result = asdict(status)
         sessions = list(status.active_sessions)
-        result["active_sessions"] = sessions[:_MAX_PUBLIC_ACTIVE_SESSIONS]
+        projected_sessions = WitnessService._bounded_json_list(
+            sessions,
+            max_items=_MAX_PUBLIC_ACTIVE_SESSIONS,
+            max_bytes=_MAX_PUBLIC_SESSION_LIST_BYTES,
+        )
+        result["active_sessions"] = projected_sessions
         result["active_session_count"] = len(sessions)
         result["active_sessions_truncated"] = (
-            len(sessions) > _MAX_PUBLIC_ACTIVE_SESSIONS
+            len(projected_sessions) < len(sessions)
         )
+        for field in ("instrument_version", "protocol_version"):
+            value = str(result[field])
+            projected, truncated = WitnessService._bounded_json_text(
+                value,
+                max_bytes=_MAX_PUBLIC_METADATA_JSON_BYTES,
+            )
+            result[field] = projected
+            result[f"{field}_char_count"] = len(value)
+            result[f"{field}_truncated"] = truncated
         return result
 
     @staticmethod
     def _project_wake(wake: WakeState) -> dict[str, Any]:
         result = asdict(wake)
         body_files = list(wake.body_files)
-        result["body_files"] = body_files[:_MAX_PUBLIC_BODY_FILES]
+        projected_files = WitnessService._bounded_json_list(
+            body_files,
+            max_items=_MAX_PUBLIC_BODY_FILES,
+            max_bytes=_MAX_PUBLIC_BODY_FILE_LIST_BYTES,
+        )
+        result["body_files"] = projected_files
         result["body_file_count"] = len(body_files)
-        result["body_files_truncated"] = len(body_files) > _MAX_PUBLIC_BODY_FILES
+        result["body_files_truncated"] = len(projected_files) < len(body_files)
+        context = wake.activation_context
+        projected_context, context_truncated = WitnessService._bounded_json_text(
+            context,
+            max_bytes=_MAX_PUBLIC_CONTEXT_JSON_BYTES,
+        )
+        result["activation_context"] = projected_context
+        result["activation_context_char_count"] = len(context)
+        result["activation_context_truncated"] = context_truncated
         return result
+
+    @staticmethod
+    def _bounded_json_list(
+        values: list[str],
+        *,
+        max_items: int,
+        max_bytes: int,
+    ) -> list[str]:
+        projected: list[str] = []
+        for value in values[:max_items]:
+            candidate = [*projected, value]
+            if len(canonical_json_bytes(candidate)) > max_bytes:
+                break
+            projected.append(value)
+        return projected
+
+    @staticmethod
+    def _bounded_json_text(value: str, *, max_bytes: int) -> tuple[str, bool]:
+        if len(canonical_json_bytes(value)) <= max_bytes:
+            return value, False
+        lower = 0
+        upper = len(value)
+        while lower < upper:
+            middle = (lower + upper + 1) // 2
+            if len(canonical_json_bytes(value[:middle])) <= max_bytes:
+                lower = middle
+            else:
+                upper = middle - 1
+        return value[:lower], True
 
     @staticmethod
     def _error_response(

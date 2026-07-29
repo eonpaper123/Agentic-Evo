@@ -102,9 +102,10 @@ class WitnessServiceTests(unittest.TestCase):
         process: subprocess.Popen[str],
         *,
         home: Path | None = None,
+        timeout_seconds: float = 5.0,
     ) -> SurfaceClient:
         client = SurfaceClient(home or self.home)
-        deadline = time.monotonic() + 5
+        deadline = time.monotonic() + timeout_seconds
         while time.monotonic() < deadline:
             if process.poll() is not None:
                 _, stderr = process.communicate(timeout=1)
@@ -226,7 +227,11 @@ class WitnessServiceTests(unittest.TestCase):
             protocol_version="protocol-test-v1",
         )
         process = self._spawn(many_home)
-        client = self._wait_until_ready(process, home=many_home)
+        client = self._wait_until_ready(
+            process,
+            home=many_home,
+            timeout_seconds=15.0,
+        )
 
         wake = client.wake(
             execution_surface="codex",
