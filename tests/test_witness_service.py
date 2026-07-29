@@ -10,10 +10,13 @@ import time
 import unittest
 
 from agentic_evo.ipc import (
+    CONTROL_PROTOCOL,
     MAX_PUBLIC_FRAME_BYTES,
+    OffRehearsalClient,
     ServiceRejectedError,
     ServiceUnavailableError,
     SurfaceClient,
+    control_endpoint,
     open_public_connection,
     receive_public_message,
     send_public_message,
@@ -258,15 +261,96 @@ class WitnessServiceTests(unittest.TestCase):
         )
         macos = service_endpoint(self.home, platform="darwin")
         linux = service_endpoint(self.home, platform="linux")
+        windows_control = control_endpoint(self.home, platform="win32")
+        macos_control = control_endpoint(self.home, platform="darwin")
+        linux_control = control_endpoint(self.home, platform="linux")
 
         self.assertEqual(windows, windows_again)
         self.assertNotEqual(windows, other_windows)
+        self.assertNotEqual(windows, windows_control)
+        self.assertNotEqual(macos, macos_control)
+        self.assertNotEqual(linux, linux_control)
         self.assertEqual(windows.family, "AF_PIPE")
         self.assertTrue(windows.address.startswith("\\\\.\\pipe\\agentic-evo-dev-"))
+        self.assertEqual(windows_control.family, "AF_PIPE")
         self.assertEqual(macos.family, "AF_UNIX")
         self.assertEqual(linux.family, "AF_UNIX")
         self.assertLess(len(os.fsencode(macos.address)), 104)
         self.assertLess(len(os.fsencode(linux.address)), 108)
+        self.assertLess(len(os.fsencode(macos_control.address)), 104)
+        self.assertLess(len(os.fsencode(linux_control.address)), 108)
+
+    def test_off_control_is_separate_bounded_idempotent_and_unverified(
+        self,
+    ) -> None:
+        process = self._spawn()
+        public = self._wait_until_ready(process)
+        public.wake(
+            execution_surface="codex",
+            session_id="session-before-control-off",
+            project_environment="project-a",
+        )
+        endpoint = control_endpoint(self.home)
+        before_status = self.runtime.status()
+        before_records = self.runtime.evidence.records()
+
+        invalid_requests = (
+            {
+                "protocol": "wrong-protocol",
+                "request_id": "wrong-protocol",
+                "operation": "off",
+                "params": {},
+            },
+            {
+                "protocol": CONTROL_PROTOCOL,
+                "request_id": "turn-on",
+                "operation": "on",
+                "params": {},
+            },
+            {
+                "protocol": CONTROL_PROTOCOL,
+                "request_id": "forged-provenance",
+                "operation": "off",
+                "params": {"author_kind": "normal_host_interaction"},
+            },
+        )
+        for request in invalid_requests:
+            with self.subTest(request_id=request["request_id"]):
+                with open_public_connection(endpoint) as connection:
+                    send_public_message(connection, request)
+                    response = receive_public_message(connection)
+                self.assertFalse(response["ok"])
+        self.assertEqual(self.runtime.status(), before_status)
+        self.assertEqual(self.runtime.evidence.records(), before_records)
+
+        with open_public_connection(endpoint) as connection:
+            connection.send_bytes(b"{not-json")
+            malformed = receive_public_message(connection)
+        self.assertFalse(malformed["ok"])
+        self.assertEqual(self.runtime.status(), before_status)
+
+        with open_public_connection(endpoint) as connection:
+            connection.send_bytes(b"x" * (MAX_PUBLIC_FRAME_BYTES + 1))
+        self.assertEqual(self.runtime.status(), before_status)
+
+        control = OffRehearsalClient(self.home)
+        result = control.off()
+        after_first = self.runtime.evidence.records()
+        self.assertEqual(result["authority"], "off")
+        self.assertEqual(result["body_rehearsal"]["state"], "absent")
+        self.assertEqual(result["root"], before_status.root)
+        self.assertEqual(result["head"], before_status.head)
+        self.assertEqual(result["active_sessions"], [])
+        self.assertEqual(len(after_first), len(before_records) + 1)
+        record = after_first[-1]
+        self.assertEqual(record.event_kind, "control_rehearsal_off")
+        self.assertEqual(record.source_kind, "host_control_rehearsal")
+        self.assertEqual(record.author_kind, "control_unverified")
+
+        again = control.off()
+        self.assertEqual(again["authority"], "off")
+        self.assertEqual(again["body_rehearsal"]["state"], "absent")
+        self.assertEqual(self.runtime.evidence.records(), after_first)
 
     def test_malformed_and_oversize_frames_fail_closed(self) -> None:
         process = self._spawn()

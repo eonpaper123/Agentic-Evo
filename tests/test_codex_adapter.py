@@ -1,13 +1,22 @@
 from __future__ import annotations
 
 from contextlib import closing
+import os
 from pathlib import Path
 import sqlite3
+import subprocess
+import sys
 import tempfile
+import time
 import unittest
 
 from agentic_evo.adapters.codex import handle_codex_hook
+from agentic_evo.ipc import ServiceUnavailableError, SurfaceClient
 from agentic_evo.runtime import DevelopmentalRuntime
+
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+SOURCE_ROOT = REPOSITORY_ROOT / "src"
 
 
 class CodexAdapterTests(unittest.TestCase):
@@ -22,9 +31,64 @@ class CodexAdapterTests(unittest.TestCase):
             instrument_version="instrument-test-v1",
             protocol_version="protocol-test-v1",
         )
+        environment = os.environ.copy()
+        prior = environment.get("PYTHONPATH")
+        environment["PYTHONPATH"] = (
+            str(SOURCE_ROOT)
+            if not prior
+            else os.pathsep.join((str(SOURCE_ROOT), prior))
+        )
+        self.service = subprocess.Popen(
+            [
+                sys.executable,
+                "-P",
+                "-m",
+                "agentic_evo.service",
+                "--dev-home",
+                str(self.home),
+            ],
+            cwd=REPOSITORY_ROOT,
+            env=environment,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self._wait_until_ready()
 
     def tearDown(self) -> None:
+        self._terminate_service()
         self.tempdir.cleanup()
+
+    def _wait_until_ready(self) -> None:
+        client = SurfaceClient(self.home)
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if self.service.poll() is not None:
+                _, stderr = self.service.communicate(timeout=1)
+                self.fail(
+                    "Witness service exited before adapter tests became ready "
+                    f"(code={self.service.returncode}): {stderr}"
+                )
+            try:
+                client.status()
+                return
+            except ServiceUnavailableError:
+                time.sleep(0.02)
+        self.fail("Witness service did not become ready for adapter tests")
+
+    def _terminate_service(self) -> None:
+        if self.service.poll() is None:
+            self.service.terminate()
+            try:
+                self.service.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.service.kill()
+                self.service.wait(timeout=5)
+        if self.service.stdout is not None:
+            self.service.stdout.close()
+        if self.service.stderr is not None:
+            self.service.stderr.close()
 
     def test_session_start_wakes_same_body_and_returns_bounded_context(self) -> None:
         result = handle_codex_hook(
@@ -52,6 +116,7 @@ class CodexAdapterTests(unittest.TestCase):
         self.assertEqual(last.event_kind, "session_start")
         self.assertEqual(last.execution_surface, "codex")
         self.assertEqual(last.session_id, "session-a")
+        self.assertEqual(last.author_kind, "surface_unverified")
 
     def test_prompt_and_tool_payloads_store_hashes_not_raw_content(self) -> None:
         prompt = "private task text that must not be copied"
@@ -152,6 +217,26 @@ class CodexAdapterTests(unittest.TestCase):
                 "SELECT COUNT(*) FROM events"
             ).fetchone()[0]
         self.assertEqual(after, before)
+
+    def test_unavailable_surface_fails_open_without_direct_database_fallback(
+        self,
+    ) -> None:
+        self._terminate_service()
+        before = self.runtime.evidence.records()
+
+        result = handle_codex_hook(
+            self.home,
+            {
+                "session_id": "surface-missing",
+                "cwd": "C:/work/project-a",
+                "hook_event_name": "SessionStart",
+                "model": "model-a",
+                "source": "startup",
+            },
+        )
+
+        self.assertIsNone(result)
+        self.assertEqual(self.runtime.evidence.records(), before)
 
 
 if __name__ == "__main__":
