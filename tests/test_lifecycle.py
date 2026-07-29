@@ -13,6 +13,7 @@ from agentic_evo.errors import (
     AuthorityError,
     HeadConflictError,
     IntegrityError,
+    InvalidBodyError,
     RootBindingError,
     RuntimeOffError,
 )
@@ -69,6 +70,72 @@ class MachineLifecycleTests(unittest.TestCase):
             second.body_files,
             ("entrypoint.md", "state/open-questions.json"),
         )
+
+    def test_wake_describes_activation_material_from_the_exact_current_head(self) -> None:
+        before = self.runtime.status()
+        candidate = self.runtime.prepare_successor(
+            expected_parent=before.head,
+            files={
+                "boot/activate.md": "Exact body one",
+                "entrypoint.md": "This file is not the selected activation artifact",
+            },
+            author_kind="agent_self_authored",
+            activation_kind="surface-context-utf8-v1",
+            activation_artifact="boot/activate.md",
+        )
+        self.runtime.advance_head(
+            expected_head=before.head,
+            candidate_head=candidate,
+        )
+
+        manifest = self.runtime.body_store.read_manifest(candidate)
+        wake = self.runtime.wake(
+            execution_surface="codex",
+            session_id="exact-head-session",
+            project_environment="project-a",
+        )
+
+        self.assertEqual(wake.head, candidate)
+        self.assertEqual(wake.activation_kind, "surface-context-utf8-v1")
+        self.assertEqual(wake.activation_artifact, "boot/activate.md")
+        self.assertEqual(
+            wake.activation_digest,
+            dict(manifest.files)["boot/activate.md"],
+        )
+        self.assertEqual(wake.activation_context, "Exact body one")
+
+    def test_explicit_missing_activation_artifact_is_rejected(self) -> None:
+        before = self.runtime.status()
+
+        with self.assertRaises(InvalidBodyError):
+            self.runtime.prepare_successor(
+                expected_parent=before.head,
+                files={"entrypoint.md": "Body one"},
+                author_kind="agent_self_authored",
+                activation_kind="surface-context-utf8-v1",
+                activation_artifact="boot/missing.md",
+            )
+
+    def test_unknown_activation_kind_fails_closed_at_wake(self) -> None:
+        before = self.runtime.status()
+        candidate = self.runtime.prepare_successor(
+            expected_parent=before.head,
+            files={"boot/body.bin": b"\x00\x01future-body"},
+            author_kind="agent_self_authored",
+            activation_kind="future-body-v9",
+            activation_artifact="boot/body.bin",
+        )
+        self.runtime.advance_head(
+            expected_head=before.head,
+            candidate_head=candidate,
+        )
+
+        with self.assertRaises(InvalidBodyError):
+            self.runtime.wake(
+                execution_surface="codex",
+                session_id="unsupported-activation-session",
+                project_environment="project-a",
+            )
 
     def test_successor_requires_current_parent_and_advances_atomically(self) -> None:
         before = self.runtime.status()
