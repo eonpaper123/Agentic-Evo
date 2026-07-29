@@ -616,7 +616,44 @@ H,P,R,D
 \operatorname{GenesisContinuity}
 \]
 
-本模块仍在推演。当前未决核心是：当大我不是一个节点、没有声音也不发布命令时，Agent 的 anatomy、contract、资源循环和后果通路怎样让共同宿主命运成为真实整体因果力，同时不重新产生一个最高统治者。完整推导见[《现实选择与谱系延续：后果、因果组织与同一宿主生命》](topics/现实选择与谱系延续.md)，工作版科研假设与证伪设计见[对应科研纲要](research/现实选择与谱系延续_研究问题与证伪纲要.md)。
+进一步推导表明，大我不需要一个中央节点、内部功劳榜或固定 evaluator。共同宿主命运可以通过证据循环、后果循环、资源相依与继承耦合形成整体因果力。父代与后代之间强继承来源、未结问题、干预历史和开放后果，弱继承固定答案：
+
+\[
+\operatorname{DeepInheritance}
+=
+\operatorname{ProblemContinuity}
++
+\operatorname{ConsequenceContinuity}
++
+\operatorname{FreedomOfResolution}
+\]
+
+任何观测器、记忆编译器、评价方式和继承关节都可以进化，但必须继续让现实后果抵达后继：
+
+\[
+\operatorname{EvolutionOfMediator}
+\Rightarrow
+\operatorname{PreservationOfRealityReturnPaths}
+\]
+
+跨 refresh 的最小谱系关系最终压缩为：
+
+\[
+\boxed{
+L_{t+1}
+=
+\Phi
+\left(
+L_t,O_t,A_t,C_t
+\mid
+H
+\right)
+}
+\]
+
+其中 \(L_t\) 是当前谱系因果组织，\(O_t\) 是观测，\(A_t\) 是行动，\(C_t\) 是现实后果，\(H\) 是第一宿主关系；形成下一代自己的方式 \(\Phi\) 也可以被后续谱系继续改变。本理论不预设 \(\Phi\) 的具体选择、继承和身体重组算法。
+
+该模块理论框架已经收束。完整推导见[《现实选择与谱系延续：后果、因果组织与同一宿主生命》](topics/现实选择与谱系延续.md)，稳定研究假设与证伪设计见[对应科研纲要](research/现实选择与谱系延续_研究问题与证伪纲要.md)；《实践论》《矛盾论》的专项阅读推导见[专题研究注](research/实践与矛盾_对Agentic-Evo的理论启发.md)。
 
 ## 5. 最终产品形态
 
