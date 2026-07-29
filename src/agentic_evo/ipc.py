@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import threading
 from typing import Any, Iterator, Mapping
 from uuid import uuid4
 
@@ -136,6 +137,11 @@ def receive_public_message(
     *,
     timeout_seconds: float | None = None,
 ) -> dict[str, Any]:
+    deadline: threading.Timer | None = None
+    if timeout_seconds is not None:
+        deadline = threading.Timer(timeout_seconds, connection.close)
+        deadline.daemon = True
+        deadline.start()
     try:
         if timeout_seconds is not None and not connection.poll(timeout_seconds):
             raise InvalidPublicFrame("public IPC frame timed out")
@@ -144,6 +150,9 @@ def receive_public_message(
         raise
     except (EOFError, OSError, ValueError) as exc:
         raise InvalidPublicFrame("cannot receive a bounded public IPC frame") from exc
+    finally:
+        if deadline is not None:
+            deadline.cancel()
     try:
         value = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:

@@ -22,8 +22,13 @@ from .ipc import (
     send_public_message,
     service_endpoint,
 )
-from .runtime import DevelopmentalRuntime
+from .runtime import DevelopmentalRuntime, RuntimeStatus, WakeState
 from .witness import WitnessCore
+
+
+_MAX_PUBLIC_TEXT_BYTES = 1024
+_MAX_PUBLIC_BODY_FILES = 16
+_MAX_PUBLIC_ACTIVE_SESSIONS = 32
 
 
 class PublicRequestError(AgenticEvoError):
@@ -135,13 +140,13 @@ class WitnessService:
         self._ensure_body()
 
         if operation == "status":
-            result = asdict(self.runtime.status())
+            result = self._project_status(self.runtime.status())
             result["body_rehearsal"] = self._body_description()
             return result
         if operation == "wake":
-            return asdict(self.runtime.wake(**params))
+            return self._project_wake(self.runtime.wake(**params))
         if operation == "sleep":
-            return asdict(self.runtime.sleep(**params))
+            return self._project_status(self.runtime.sleep(**params))
         if operation == "observe":
             record = self.runtime.observe(**params)
             return {
@@ -289,6 +294,36 @@ class WitnessService:
                 "invalid_parameters",
                 "payload must be one JSON object",
             )
+        for field in keys - {"payload"}:
+            value = params[field]
+            if (
+                isinstance(value, str)
+                and len(value.encode("utf-8")) > _MAX_PUBLIC_TEXT_BYTES
+            ):
+                raise PublicRequestError(
+                    "invalid_parameters",
+                    f"{field} exceeds the public text byte bound",
+                )
+
+    @staticmethod
+    def _project_status(status: RuntimeStatus) -> dict[str, Any]:
+        result = asdict(status)
+        sessions = list(status.active_sessions)
+        result["active_sessions"] = sessions[:_MAX_PUBLIC_ACTIVE_SESSIONS]
+        result["active_session_count"] = len(sessions)
+        result["active_sessions_truncated"] = (
+            len(sessions) > _MAX_PUBLIC_ACTIVE_SESSIONS
+        )
+        return result
+
+    @staticmethod
+    def _project_wake(wake: WakeState) -> dict[str, Any]:
+        result = asdict(wake)
+        body_files = list(wake.body_files)
+        result["body_files"] = body_files[:_MAX_PUBLIC_BODY_FILES]
+        result["body_file_count"] = len(body_files)
+        result["body_files_truncated"] = len(body_files) > _MAX_PUBLIC_BODY_FILES
+        return result
 
     @staticmethod
     def _error_response(
@@ -430,7 +465,7 @@ class WitnessService:
             self.runtime.rehearse_turn_off()
             self._close_body()
             status = self.runtime.status()
-            result = asdict(status)
+            result = self._project_status(status)
             result["body_rehearsal"] = self._body_description()
             result["control_provenance"] = "control_unverified"
             return result

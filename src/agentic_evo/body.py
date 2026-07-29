@@ -11,6 +11,7 @@ from .errors import BodyNotFoundError, IntegrityError, InvalidBodyError
 
 
 BODY_SCHEMA_VERSION = "agentic-evo-body-v2"
+MAX_BODY_LOGICAL_PATH_BYTES = 512
 
 
 @dataclass(frozen=True)
@@ -265,4 +266,6 @@ class BodyStore:
         normalized = pure.as_posix()
         if normalized.startswith("/") or ":" in pure.parts[0]:
             raise InvalidBodyError(f"unsafe body file path: {raw_path}")
+        if len(normalized.encode("utf-8")) > MAX_BODY_LOGICAL_PATH_BYTES:
+            raise InvalidBodyError("body file path exceeds its portable byte bound")
         return normalized
