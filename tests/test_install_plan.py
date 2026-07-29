@@ -130,8 +130,11 @@ class InstallPlanTests(unittest.TestCase):
         self.assertEqual(
             plan["claims"],
             {
+                "implemented_native_components": [
+                    "win32_job_object_process_tree_fencing"
+                ],
                 "native_security_verified": False,
-                "portable_protocol_only": True,
+                "portable_protocol_complete": True,
                 "ready_to_install": False,
             },
         )
@@ -212,6 +215,7 @@ class InstallPlanTests(unittest.TestCase):
             "native_service_artifacts_and_reversible_uninstall",
             plan["blockers"],
         )
+        self.assertIn("authenticated_host_presence", plan["blockers"])
 
     def test_hook_plan_is_observation_only_public_surface_and_fail_open(
         self,
