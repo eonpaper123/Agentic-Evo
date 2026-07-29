@@ -105,7 +105,10 @@ class WindowsPublicPipeTests(unittest.TestCase):
     def test_listener_discards_a_client_that_disconnects_before_authentication(
         self,
     ) -> None:
+        import _winapi
+
         from agentic_evo.windows_pipe import (
+            WINDOWS_PUBLIC_PIPE_CLIENT_ACCESS,
             WindowsPublicPipeListener,
             connect_windows_public_pipe,
             current_process_sid,
@@ -116,13 +119,92 @@ class WindowsPublicPipeTests(unittest.TestCase):
             address,
             expected_sid=current_process_sid(),
         )
-        stale = connect_windows_public_pipe(address)
-        stale.close()
+        stale = _winapi.CreateFile(
+            address,
+            WINDOWS_PUBLIC_PIPE_CLIENT_ACCESS,
+            0,
+            _winapi.NULL,
+            _winapi.OPEN_EXISTING,
+            _winapi.FILE_FLAG_OVERLAPPED,
+            _winapi.NULL,
+        )
+        _winapi.CloseHandle(stale)
         result: Queue[object] = Queue()
 
         def valid_client() -> None:
             try:
                 time.sleep(0.1)
+                connection = connect_windows_public_pipe(address)
+                try:
+                    send_public_message(connection, {"kind": "ping"})
+                    result.put(receive_public_message(connection))
+                finally:
+                    connection.close()
+            except Exception as exc:
+                result.put(exc)
+
+        thread = threading.Thread(target=valid_client, daemon=True)
+        thread.start()
+        accepted = None
+        try:
+            accepted = listener.accept()
+            self.assertEqual(
+                receive_public_message(accepted.connection),
+                {"kind": "ping"},
+            )
+            send_public_message(accepted.connection, {"ok": True})
+            thread.join(timeout=5.0)
+            self.assertFalse(thread.is_alive())
+            self.assertEqual(result.get_nowait(), {"ok": True})
+        finally:
+            if accepted is not None:
+                accepted.connection.close()
+            listener.close()
+
+    def test_missing_pipe_honors_the_connection_timeout(self) -> None:
+        from agentic_evo.windows_pipe import connect_windows_public_pipe
+
+        address = rf"\\.\pipe\agentic-evo-missing-{uuid4().hex}"
+        started = time.monotonic()
+        with self.assertRaises(OSError):
+            connect_windows_public_pipe(address, timeout_seconds=0.1)
+        elapsed = time.monotonic() - started
+        self.assertGreaterEqual(elapsed, 0.08)
+        self.assertLess(elapsed, 1.0)
+
+    def test_listener_times_out_a_client_that_never_sends_authentication(
+        self,
+    ) -> None:
+        import _winapi
+
+        from agentic_evo.windows_pipe import (
+            WINDOWS_PUBLIC_PIPE_CLIENT_ACCESS,
+            WindowsPublicPipeListener,
+            connect_windows_public_pipe,
+            current_process_sid,
+        )
+
+        address = rf"\\.\pipe\agentic-evo-test-{uuid4().hex}"
+        listener = WindowsPublicPipeListener(
+            address,
+            expected_sid=current_process_sid(),
+            authentication_timeout_seconds=0.1,
+        )
+        silent = _winapi.CreateFile(
+            address,
+            WINDOWS_PUBLIC_PIPE_CLIENT_ACCESS,
+            0,
+            _winapi.NULL,
+            _winapi.OPEN_EXISTING,
+            _winapi.FILE_FLAG_OVERLAPPED,
+            _winapi.NULL,
+        )
+        result: Queue[object] = Queue()
+
+        def valid_client() -> None:
+            try:
+                time.sleep(0.2)
+                _winapi.CloseHandle(silent)
                 connection = connect_windows_public_pipe(address)
                 try:
                     send_public_message(connection, {"kind": "ping"})
