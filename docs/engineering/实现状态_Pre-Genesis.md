@@ -1,7 +1,7 @@
 # Agentic-Evo 实现状态：Pre-Genesis
 
 更新时间：2026-07-30
-状态：本地可信事务、Current Body lease、前台 Witness 服务与 exact-Head 子进程演练已形成代码，尚未安装，尚未 Genesis
+状态：Pre-Genesis Python 可移植层已到停止点；可信事务、Body lease、前台 Witness、exact-Head 子进程、CLI、Off 控制与三平台零安装副作用计划已形成代码，尚未原生安装，尚未 Genesis
 适用范围：当前仓库中的真实实现、已验证性质、未成立性质和 Genesis 前阻断项
 
 ---
@@ -18,6 +18,7 @@ Trusted State（身份锚 + Head + session + evidence + checkpoint）
 + Machine Runtime
 + WitnessCore（Current Body lease 逻辑演练）
 + Foreground Witness service / exact-Head subprocess rehearsal
++ CLI / Off-only control / zero-install-effect native plan
 + Codex Adapter
 ```
 
@@ -37,9 +38,13 @@ Genesis
 → public Surface allowlist
 → exact Head package 经匿名 pipe 交给 diagnostic subprocess
 → ReadyEcho 后重新校验 Head / authority epoch
+→ Codex Hook 只经 public Surface
+→ 独立 unauthenticated Off-only control rehearsal
+→ Off / crash / restart / tracked-service cleanup
+→ deterministic Windows / macOS / Linux plan-install
 ```
 
-但这里的“模拟 Genesis”只是自动化测试夹具，不是正式 Genesis。仓库没有写入用户级 Codex hook，没有常驻后台进程，没有创建机器级唯一 Root，也没有开始正式纵向实验。
+但这里的“模拟 Genesis”只是自动化测试夹具，不是正式 Genesis。仓库没有写入用户级 Codex hook，没有安装原生后台服务，没有创建机器级唯一 Root，也没有开始正式纵向实验。`plan-install` 只输出 `ready_to_install=false` 的 canonical JSON，不执行安装。
 
 ---
 
@@ -101,8 +106,11 @@ Nira 不拥有 Root，不产生独立 Agent，也不是本工具的安装范围�
 | 证据与本地见证 | SQLite 内连续 evidence hash chain；每次可信变化一个 checkpoint；checkpoint 承诺 `Who / Why / Root / Head / Authority / sessions_hash / evidence tail` | evidence、状态与 checkpoint 数量和尾部必须一致；人工仪器变化与 Human Learning Intervention 仍可分类；当前 MAC 不是独立数字签名 |
 | Runtime | Genesis 单写者锁、生命周期串行锁、跨会话状态、wake/wait、后继准备、事务内 Head CAS、On/Off | 同一测试安装可跨项目与接入面保持一个 Root 和 Head；并发 Genesis 只有一个成功；独立 Runtime 竞争旧 Head 只有一个赢家；真实进程退出不留半提交历史 |
 | Current Body lease 演练 | volatile `CurrentBodySession`、exact Root / Head、authority epoch、单调 deadline、lease-local candidate set、跨平台 OS 文件锁 | 正常谱系路径不能由 Surface 直接调用；Off→On、旧 Head、过期、其他 lease 候选和伪造 rehearsal 标签不能复用推进权；当前仍不认证 OS Body principal |
-| 前台 Witness / 子进程演练 | 固定 dev-home、singleton service lock、AF_PIPE/AF_UNIX 公共 bytes/JSON、public allowlist、exact-Head package、匿名 stdin/stdout、Boot challenge / ReadyEcho、sanitized environment | 公共 Surface 没有 lineage API；子进程能重建 exact Head；崩溃与 authority epoch 会撤销逻辑绑定；只证明 `subprocess_rehearsal`，lease 仍在父进程 |
-| Codex adapter | `SessionStart / SessionEnd / prompt / tool / compact / subagent / stop / permission` 映射；原文哈希化；失败隔离 | Codex 可作为端口而不成为身份；观测失败不阻断 coding-agent 主任务 |
+| 前台 Witness / 子进程演练 | 固定 dev-home、cooperative-singleton service lock、AF_PIPE/AF_UNIX 公共 bytes/JSON、public allowlist、exact-Head package、匿名 stdin/stdout、Boot challenge / ReadyEcho、sanitized environment | 公共 Surface 没有 lineage API；子进程能重建 exact Head；崩溃与 authority epoch 会撤销逻辑绑定；只证明 `subprocess_rehearsal`，lease 仍在父进程 |
+| CLI / Off 控制演练 | `serve / status / hook / off / plan-install`；独立未认证 Off endpoint；事务内原子幂等；Body 退出后回包；receive Timer 与 response Timer 分离 | 未认证控制协议只提供 Off，不提供 On 或谱系操作；Off 与 crash/restart 因果可区分；不证明 HostPresence、远端拒绝或真实 transport partial-frame / response-frame 取消 |
+| Codex adapter | `SessionStart / SessionEnd / prompt / tool / compact / subagent / stop / permission` 映射；实现路径只经 `SurfaceClient`；原文哈希化；失败隔离 | Codex 可作为端口而不成为身份；当前 adapter 没有 trusted-state 或 Off 操作，观测失败不阻断 coding-agent 主任务；同 OS 用户下的实际读取/调用能力尚未隔离 |
+| 有界公共投影 | string parameter 1024 UTF-8 bytes、Body path 512 bytes；wake body files 最多 16 项/8 KiB、activation context 24 KiB；status active sessions 最多 32 项/24 KiB；按 canonical JSON bytes 预算并返回 total/truncated | 合法大 Head、增长中的 session 集合和 escape-heavy 文本不再必然撑破 64 KiB 响应；内部事实没有被截断，只有公共投影有界 |
+| 三平台安装计划 | canonical、无时间/随机/home/env 的 Windows/macOS/Linux target contract；macOS 明确 Witness UID 与 dedicated Body UID；installation effects 全 false；Hook 映射为 planned/not installed/not integration tested | 可移植协议的原生目标可审查；代码签名不冒充权限主体；不证明任何平台已安装或通过 native security test |
 
 当前实现没有规定记忆 schema、信号、学习算法、候选评分、Better 函数或 evaluator。这些开放空间仍属于身体。
 
@@ -155,7 +163,19 @@ Nira 不拥有 Root，不产生独立 Agent，也不是本工具的安装范围�
 - worker argv 与继承环境不含 Root、Head、challenge、boot session 或调用进程的任意 secret；
 - public status 不公开 boot session 或 challenge，boot 演练不产生 evidence；
 - Off 后延迟到达的 session end 被拒绝，不再增长 revision、evidence 或 checkpoint；
-- adapter 的科研仪器失败不会阻断 coding-agent hook。
+- adapter 的科研仪器失败不会阻断 coding-agent hook；
+- Codex adapter 服务缺席时 fail-open，且不再 fallback 到直接打开 SQLite；
+- CLI Hook 对 malformed、oversize 和深层递归 JSON fail-open，不回显原始输入；
+- public endpoint 继续拒绝 Off；独立 control endpoint 只接受无参数 Off，调用者不能自报 provenance；
+- control Off 在 `BEGIN IMMEDIATE` 内原子幂等，第二次 Off 不新增 evidence；
+- Off 回包前 Body 已退出且 logical lease 已释放；Off 后 Root / Head 不变、sessions 清空；
+- fake connection 上的 partial control frame 与 partial response frame Timer 编排有界，public/control client 的 12 秒 response Timer 与 2 秒 request receive Timer 分离，慢 public dispatch 与 Body shutdown 不被 receive Timer 中止；真实 AF_PIPE / AF_UNIX 取消行为尚未实测；
+- Off 后强杀并重启 service，Authority 仍为 Off，Body 不重生；
+- `control_rehearsal_off` 推进 authority epoch，旧 lease 不能跨该 Off→On 复活；
+- public string parameter 与 Body logical path 有明确 byte bound；含 1201 个文件的合法 Head 可以 wake，body-files、activation-context 与 active-sessions 按 canonical JSON bytes 返回有界投影及 count/truncated；
+- `plan-install` 跨 cwd、环境和伪 home 逐字节确定，不创建 Agent 文件或状态、不安装服务或 Hook、不启动受管 Agent 进程，也不执行 Genesis；
+- Windows、macOS、Linux 目标均保持 `native_test_status=not_run`；
+- 当前全仓 90 项测试在 `ResourceWarning` 作为错误时通过。
 
 这些结果证明的是代码契约，不是长期学习、自我进化或独立科研证据已经成立。
 
@@ -220,8 +240,15 @@ Root、Head、Authority、session、revision、evidence 与 checkpoint 现已进
 - 当前 `surface-context-utf8-v1` 只形成 exact activation reference，不是受保护 Body principal 的真实 boot；
 - 当前 diagnostic worker 能重建 exact Head package 并返回 ReadyEcho，但不执行 activation 语义；logical lease 仍由 service 父进程持有，worker 没有 lineage dispatcher；
 - 当前 foreground service、worker、SQLite 和 key 仍处于同一普通用户权限域；AF_PIPE/AF_UNIX 与匿名 pipe 还没有 DACL、peer credential、service SID、专用 UID 或 code-signing 身份；
+- Windows AF_PIPE 当前没有显式 DACL 或已验证的 remote-client rejection；“使用 named-pipe 地址”本身不能证明只允许本机或第一宿主调用；
+- receive/response Timer 只通过 fake connection 验证了编排；真实 AF_PIPE / AF_UNIX 上跨线程 `close()` 能否可靠中断阻塞 `recv` 仍需平台测试或原生取消 I/O；
+- 12 秒 response Timer 约束客户端等待，不会强杀卡在业务处理中的 Python worker；原生 service 仍需可取消工作、进程级隔离或 supervisor fencing；
 - Windows 尚无 Job Object，service crash 后旧 worker 到 pipe EOF 退出之间可能与重启 worker 短暂重叠；旧 worker 没有可用 Head writer，但物理单进程不变量尚未证明；
 - 敏感信息过滤主要检查 evidence payload key，尚不能替代完整的值分类与 artifact policy。
+
+### 5.8 Off 控制与三平台计划不等于原生宿主权
+
+当前 Off endpoint 没有 DACL、peer credential、remote-client rejection 或 HostPresence，因此只记录 `control_unverified`。它故意不提供 On：任何能访问该 endpoint 的未认证进程可以造成拒绝服务，不应获得在用户关闭后重新唤醒 Agent 的权力。SID/UID 未来只能证明进程账户，正式 On 还需要普通 Surface 无法模拟的用户在场或显式授权通路。`plan-install` 也只列出 Windows/macOS/Linux 必须兑现的 service principal、protected state、host SID/UID、private lineage 与 process fencing；所有 installation effects 为 false，所有 native test 为 `not_run`。
 
 这些问题不要求人类规定 Agent 应怎样记忆或学习；它们属于研究世界能否可信存在的工程条件。
 
@@ -274,7 +301,7 @@ Body candidate 可在事务前完整落盘；未被已提交 Head 引用的 cand
 
 ### G3：形成真实机器生命周期
 
-G3 的前两步已经完成：Current Body lease 的逻辑状态机、一次性推进、authority epoch 与候选归属；以及 fixed-home foreground service、公共 allowlist、exact-Head package 与 diagnostic subprocess ReadyEcho。它没有持久化 lease 表或 bearer token，也没有把 `subprocess_rehearsal` 冒充为真实 Body 来源。
+G3 的 Python 可移植层已经完成：Current Body lease 的逻辑状态机、一次性推进、authority epoch 与候选归属；fixed-home foreground service、公共 allowlist、exact-Head package 与 diagnostic subprocess ReadyEcho；最小 CLI、Codex public-Surface adapter、Off-only control；以及 Off/crash/restart/tracked-service cleanup 和三平台零安装副作用 plan。它没有持久化 lease 表或 bearer token，也没有把 `subprocess_rehearsal`、`control_unverified` 或 rendered plan 冒充为真实 Body / Host / native 来源。
 
 需要一个机器级、项目无关的安装与运行边界：
 
@@ -323,8 +350,9 @@ Authority
 [已完成] 建立 Current Body lineage lease 的逻辑协议与进程内演练
 [已完成] 建立固定 dev-home 的 cooperative-singleton foreground service 与公共 Surface IPC
 [已完成] 建立 exact-Head package / anonymous pipe / ReadyEcho 子进程演练
-→ 增加最小 CLI、Host control rehearsal 与三平台 service / hook dry-run
-→ 在临时目录完成 Off / crash / restart / cleanup 演练
+[已完成] 增加最小 CLI、Codex public-Surface adapter 与 Off-only control rehearsal
+[已完成] 在临时目录完成 Off / crash / restart / tracked-service cleanup 演练
+[已完成] 形成 deterministic、zero-install-effect、not-run 的三平台 install plan
 → 用原生 OS service / principal / 私有 lineage IPC 兑现真实 Current Body 来源
 → 隔离 Authority、Witness、Current Body 与 probation principal
 → 冻结 I₀ 与 Protocol₀
@@ -344,3 +372,5 @@ Head 的最小出生信封、解释器不可消除性、exact activation / exact
 Current Body lease 的公式、状态机、authority epoch、候选归属、已验证性质与惰性 TTL / OS principal 上限，见[《Current Body 私有会话租约》](CurrentBody私有会话租约.md)。
 
 固定 dev-home 服务、公共 IPC、exact-Head package、匿名子进程 Boot/ReadyEcho、崩溃与 epoch fencing 的公式、关系图、验证结果和证明上限，见[《机器 Witness 服务与 exact-Head 子进程演练》](机器Witness服务与exact-Head子进程演练.md)。
+
+最小 CLI、Codex Surface-only adapter、Off 原子顺序、partial-frame / response Timer、Off/crash/restart/tracked-service cleanup 与三平台 zero-install-effect plan，见[《跨平台 CLI、Off 控制与零安装副作用计划》](跨平台CLI与Off控制演练.md)。

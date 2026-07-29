@@ -185,12 +185,13 @@ author_kind = surface_unverified
 服务还具有：
 
 ```text
-2 秒 I/O deadline
+2 秒完整请求帧 receive Timer
++ 12 秒 public client response Timer
 + 最多 16 个并发连接 worker
 + malformed / oversize / EOF fail closed
 ```
 
-静默连接在独立 worker 中等待并被 deadline 关闭，不再阻塞整个服务的 `accept` 循环。
+静默连接在独立 worker 中等待并被 receive Timer 关闭，不再阻塞整个服务的 `accept` 循环。response Timer 只约束客户端等待，不会强制终止卡在业务处理中的 Python worker；这一点仍要由原生可取消 I/O、进程隔离或 supervisor fencing 兑现。
 
 这些机制限制普通故障和低成本阻塞，不等于具备正式 DACL、peer credential 或抗本机恶意 DoS 能力。
 
@@ -388,7 +389,7 @@ LeaseReleased
 
 外部代码绕过服务直接执行 Off→On 时，旧进程在下一次服务请求中被 authority epoch 检查发现、终止并重新实例化。它是**惰性 fencing**，不是 deadline 或 Off 到达瞬间的 OS 强制终止。
 
-服务自己的 Host Off 控制面尚未在本轮公开；下一轮 CLI/control rehearsal 会让服务按：
+后续 CLI/control rehearsal 已经增加独立、未认证、只允许 Off 的控制通路；服务按：
 
 ```text
 commit Authority=Off
@@ -496,7 +497,7 @@ public Surface allowlist
 | 平台 | 尚需兑现的真实边界 |
 |---|---|
 | Windows | SCM service、restricted service SID、ProgramData ACL、显式 named-pipe DACL、受限 worker token、Job Object |
-| macOS | LaunchDaemon、专用 UID、daemon-owned state、XPC endpoint、code-signing requirement、process supervision |
+| macOS | LaunchDaemon、独立 Witness/Body UID、daemon-owned state、XPC audit token + Body UID + code-signing requirement、process supervision |
 | Linux | systemd system service、专用/DynamicUser、StateDirectory、pathname AF_UNIX、SO_PEERCRED、独立 Body UID/cgroup |
 
 三平台不是三种 Agent。相同协议不变量由三个薄的 OS 实现分别通过攻击测试。
@@ -525,6 +526,6 @@ public Surface allowlist
 5. OS 级进程树原子终止；
 6. `agent_self_authored`。
 
-下一项是：
+该下一项现已完成，见[《跨平台 CLI、Off 控制与零安装副作用计划》](跨平台CLI与Off控制演练.md)。新的下一项是：
 
-> 增加最小 CLI、Host control rehearsal、三平台 service 安装计划与 Codex hook dry-run；在临时目录完成 status / Off / crash / restart / cleanup 演练。所有工件只生成和验证，不自动安装。完成后，Python 可移植层到达 Pre-Genesis 停止点，下一道边界直接进入平台原生 service/principal，而不再扩张模拟安全层。
+> 冻结并审计 Python 可移植层，然后直接进入平台原生 service/principal、protected state、peer credential 与 process-tree fencing；不再扩张模拟安全层。

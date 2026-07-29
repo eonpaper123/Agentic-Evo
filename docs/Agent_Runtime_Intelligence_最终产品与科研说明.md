@@ -1089,6 +1089,17 @@ Agent 工作
 
 最终产品体验应当是：一次安装，之后无需用户管理其运行生命周期。
 
+这个“一次安装”是同一产品语义在三个原生宿主上的分别兑现，不是假设一段普通用户权限 Python 代码天然拥有跨平台安全边界：
+
+```text
+同一可移植生命协议
+├── Windows：SCM / service SID / DACL / Job Object
+├── macOS：LaunchDaemon / dedicated UID / XPC audit token / code requirement
+└── Linux：systemd system service / dedicated UID / SO_PEERCRED / cgroup
+```
+
+CLI、MCP 或 Hook 仍只是 Surface；每个平台的原生 Witness service、受保护状态、第一宿主 SID/UID、私有 Body lineage 与进程树 fencing 才承载机器级连续生命。某个平台能渲染安装计划不等于该平台已经原生验证。
+
 ## 7. 三种运行状态
 
 ### 7.1 醒来态
@@ -1973,7 +1984,7 @@ incident、episode、candidate registry、replay、eval、rollout、rollback 和
 6. 怎样在实验失败时定位应重新打开哪个理论专题；
 7. 怎样形成可发表、可复现、允许负结果的阶段性研究计划。
 
-跨模块假设矩阵、工具—实验双螺旋计划和实验 001 现已形成；首条 `Trusted State + Content-addressed Body + Machine Runtime + Witness service/process rehearsal + Codex Adapter` 纵切面也已进入 Pre-Genesis 代码状态。身份锚、Head、Authority、session、evidence 与本地 checkpoint 已进入一个 SQLite 原子事务；Current Body lease 的 exact-Head / authority-epoch 绑定、候选归属和一次性推进也已形成可重复测试。固定 dev-home 的 foreground service 已经实现 lineage-free 公共 allowlist，并把 exact Head 的 manifest 与全部 blobs 经匿名 pipe 交给 diagnostic subprocess 重建、接受 challenge-bound ReadyEcho 后重查 authority epoch。它们不是串行交付；当前测试 Genesis 不构成正式生命史，`subprocess_rehearsal` 也不构成自主进化来源。
+跨模块假设矩阵、工具—实验双螺旋计划和实验 001 现已形成；首条 `Trusted State + Content-addressed Body + Machine Runtime + Witness service/process rehearsal + Codex Adapter` 纵切面也已进入 Pre-Genesis 代码状态。身份锚、Head、Authority、session、evidence 与本地 checkpoint 已进入一个 SQLite 原子事务；Current Body lease 的 exact-Head / authority-epoch 绑定、候选归属和一次性推进也已形成可重复测试。固定 dev-home 的 cooperative-singleton foreground service 已经实现 lineage-free 公共 allowlist，并把 exact Head 的 manifest 与全部 blobs 经匿名 pipe 交给 diagnostic subprocess 重建、接受 challenge-bound ReadyEcho 后重查 authority epoch。公共 wake/status 使用带 total/truncated 的有界投影，不把完整大 Head 或无界 session 集合复制进 64 KiB frame。最小 CLI 已覆盖 `serve / status / hook / off / plan-install`；Codex adapter 的实现路径只经公共 Surface；独立未认证控制协议只提供 Off；确定性三平台计划不执行安装写入，在三个目标上均区分 Witness 与 Body principal，并保持 `ready_to_install=false`。它们不是串行交付；当前测试 Genesis 不构成正式生命史，`subprocess_rehearsal`、`control_unverified` 与 rendered plan 也不构成自主进化或原生来源。
 
 Genesis 前的当前硬问题已经进一步收敛为：
 
@@ -1983,7 +1994,7 @@ Genesis 前的当前硬问题已经进一步收敛为：
 4. 怎样把已经演练的 foreground service / IPC 升级为项目无关、独立 OS principal、service-owned state、真实 On / Off 与多 coding-agent adapter；
 5. 怎样在临时安装中验证崩溃恢复、覆盖缺口、Off 和卸载后，再冻结 `I_0 / Protocol_0` 并由用户明确 Genesis。
 
-Head 与 evidence 的本地崩溃中间态问题已经由单一可信事务域收束；Current Body lease 的逻辑语义、foreground singleton、public allowlist 与 exact-Head diagnostic boot 也已收束，但尚未获得 OS 来源证明，worker 也尚无 lineage dispatcher。其证明和上限分别见[《单一可信事务域》](engineering/单一可信事务域.md)、[《Current Body 私有会话租约》](engineering/CurrentBody私有会话租约.md)与[《机器 Witness 服务与 exact-Head 子进程演练》](engineering/机器Witness服务与exact-Head子进程演练.md)。具体总状态见[《实现状态：Pre-Genesis》](engineering/实现状态_Pre-Genesis.md)。工具一旦完成正式 Genesis 并进入真实使用，正式纵向数据生成即已经开始。
+Head 与 evidence 的本地崩溃中间态问题已经由单一可信事务域收束；Current Body lease 的逻辑语义、cooperative-singleton foreground service、public allowlist、exact-Head diagnostic boot、CLI / Surface-only adapter / Off-only rehearsal 与零安装副作用三平台计划也已收束，但尚未获得 OS principal、protected state、HostPresence、remote-client rejection、真实 private-lineage 或 process-tree fencing 证明，worker 也尚无 lineage dispatcher。其证明和上限分别见[《单一可信事务域》](engineering/单一可信事务域.md)、[《Current Body 私有会话租约》](engineering/CurrentBody私有会话租约.md)、[《机器 Witness 服务与 exact-Head 子进程演练》](engineering/机器Witness服务与exact-Head子进程演练.md)与[《跨平台 CLI、Off 控制与零安装副作用计划》](engineering/跨平台CLI与Off控制演练.md)。具体总状态见[《实现状态：Pre-Genesis》](engineering/实现状态_Pre-Genesis.md)。工具一旦完成正式 Genesis 并进入真实使用，正式纵向数据生成即已经开始。
 
 ---
 

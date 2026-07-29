@@ -24,7 +24,9 @@
 - [Current Body 私有会话租约](engineering/CurrentBody私有会话租约.md)
   给出 exact-Head 短期 lease、authority epoch、候选归属、一次性推进、失败重试与来源降级的公式、状态机和测试；明确当前只是进程内协议演练与合作式互斥，不是 OS Body principal 身份证明。
 - [机器 Witness 服务与 exact-Head 子进程演练](engineering/机器Witness服务与exact-Head子进程演练.md)
-  记录固定 dev-home 的 singleton 前台服务、公共 Surface allowlist、exact-Head 全 package、匿名子进程 Boot/ReadyEcho、authority-epoch fencing、崩溃语义、三平台映射与严格证明上限；当前只成立 `subprocess_rehearsal`，不成立独立 principal、真实 lineage capability 或 `agent_self_authored`。
+  记录固定 dev-home 的 cooperative-singleton 前台服务、公共 Surface allowlist、exact-Head 全 package、匿名子进程 Boot/ReadyEcho、authority-epoch fencing、崩溃语义、三平台映射与严格证明上限；当前只成立 `subprocess_rehearsal`，不成立独立 principal、真实 lineage capability 或 `agent_self_authored`。
+- [跨平台 CLI、Off 控制与零安装副作用计划](engineering/跨平台CLI与Off控制演练.md)
+  记录 `serve/status/hook/off/plan-install`、Codex adapter 实现只经公共 Surface、未认证控制只允许 Off、原子幂等、输入/输出投影与 Timer 边界、Off/crash/restart/tracked-service cleanup 实验，以及 Windows/macOS/Linux 原生目标合同；计划不安装任何服务或 Hook，三平台均保持 `not_run`。
 
 ## 专题
 

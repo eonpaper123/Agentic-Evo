@@ -4,7 +4,7 @@ from typing import Any
 
 
 def build_install_plan() -> dict[str, Any]:
-    """Return the deterministic, zero-effect native installation target contract."""
+    """Return a deterministic target contract that performs no installation writes."""
 
     return {
         "schema": "agentic-evo.install-dry-run.v1",

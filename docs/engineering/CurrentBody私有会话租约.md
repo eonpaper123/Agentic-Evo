@@ -119,7 +119,7 @@ object identity
 | OS lock | 两个合作式 Witness 同时发放活动 lease |
 | object identity | 同进程内复制字段后伪造另一个会话对象 |
 
-其中 authority epoch 不新增数据库列。它定义为当前已验证 evidence 历史中最后一个 `host_off` 的 sequence：
+其中 authority epoch 不新增数据库列。它定义为当前已验证 evidence 历史中最后一个已提交 Off 事件的 sequence；当前 Off 事件集合为 `host_off` 与 `control_rehearsal_off`：
 
 \[
 \boxed{
@@ -127,7 +127,8 @@ E_A(H)
 =
 \max
 \left(
-\{seq(e)\mid e\in H\land kind(e)=host\_off\}
+\{seq(e)\mid e\in H\land kind(e)\in
+\{host\_off,\ control\_rehearsal\_off\}\}
 \cup
 \{0\}
 \right)
@@ -337,15 +338,18 @@ Authority=Off
 + release lease
 ```
 
-### 10.5 尚未出现的能力
+### 10.5 本 lease 层与后续 subprocess rehearsal 的边界
 
-当前还没有：
+本 lease 层形成时，还没有 Witness-spawned exact-Head Body process、父进程创建的匿名 pipe，以及用于启动握手的 Boot challenge / `ReadyEcho`。后续 subprocess rehearsal 已经补上这三项，用于验证 exact-Head 诊断子进程及其启动关系。
+
+但这只建立了 `subprocess_rehearsal`，不等于独立安全主体、可信私有 lineage 通道或可复用的 RPC 防重放协议。尤其 Boot challenge 只是本次启动握手的私有 challenge，不是 lineage RPC 的 nonce / replay protection。
+
+截至当前仍然没有：
 
 - 独立 Witness service principal；
-- Witness-spawned exact-Head Body process；
-- inherited private pipe、socketpair、XPC endpoint 或等价连接；
-- peer credential / code-signing requirement；
-- private nonce 与 RPC replay protection；
+- 绑定独立 Body principal 的 authenticated private lineage endpoint；
+- peer credential / code-signing enforcement；
+- 可复用的 private lineage RPC nonce / replay protection；
 - probation principal；
 - 机器级唯一安装和正式 Root；
 - `agent_self_authored` 的可信派生。
@@ -363,8 +367,9 @@ Windows
 → private inherited handle / ACL-limited IPC
 
 macOS
-→ root or dedicated principal LaunchDaemon
-→ code-signing requirement
+→ machine LaunchDaemon under dedicated Witness UID
+→ launchd-managed signed Body job under a distinct dedicated Body UID
+→ Body UID + code-signing requirement
 → private XPC endpoint / socketpair
 
 Linux
@@ -372,6 +377,8 @@ Linux
 → service-owned StateDirectory
 → pathname Unix socket / inherited socketpair + peer credentials
 ```
+
+这里列出的是理论候选；当前 v1 三平台目标已经进一步选择 macOS dedicated Witness UID + dedicated Body UID，以及 Linux dedicated Witness UID + dedicated Body UID，不把 code signing 或 `DynamicUser` 单独当成 Body 权限分离。
 
 平台载体可以不同，不得改变以下不变量：
 
@@ -397,20 +404,22 @@ PrivateSource
 
 后续 foreground service 已经完成了 fixed-home singleton、公共 allowlist、exact-Head package 与 diagnostic subprocess ReadyEcho；详见[《机器 Witness 服务与 exact-Head 子进程演练》](机器Witness服务与exact-Head子进程演练.md)。该子进程的 lease 仍由父进程持有，所以只叫 `subprocess_rehearsal`。
 
-下一项仍不是继续扩张进程内 lease，而是先补齐 CLI、Host control 与 dry-run 工件，然后把同一协议放进真正的 OS 边界：
+CLI、Off-only control 与三平台 dry-run 工件现已完成；下一项仍不是继续扩张进程内 lease，而是把同一协议放进真正的 OS 边界：
 
 ```text
 [已演练] fixed-home cooperative-singleton foreground service
 + [已演练] exact-Head diagnostic spawner / ReadyEcho
-+ cross-platform CLI / Host control rehearsal
-+ service / hook dry-run
-+ 临时目录 Off / crash / cleanup 演练
-+ native machine-level Witness service
++ [已演练] cross-platform CLI / Off-only control
++ [已完成] zero-install-effect service / hook plan
++ [已演练] 临时目录 Off / crash / restart / tracked-service cleanup
+→ native machine-level Witness service
 + service-owned trusted state / key
 + Current Body 独立 principal
 + private inherited IPC
 + probation 无谱系 dispatcher
 + 平台临时安装 / 权限攻击 / uninstall 演练
 ```
+
+CLI/control/install-plan 的公式、因果顺序、三平台合同与证明上限见[《跨平台 CLI、Off 控制与零安装副作用计划》](跨平台CLI与Off控制演练.md)。
 
 在该边界真实形成前，不安装正式服务，不启动正式 Genesis，也不产生 `agent_self_authored` 科研主张。

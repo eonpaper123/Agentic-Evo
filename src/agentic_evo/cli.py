@@ -100,7 +100,7 @@ def _parser() -> argparse.ArgumentParser:
     for name, help_text in (
         ("serve", "Run the fixed-home foreground Witness rehearsal."),
         ("status", "Read status through the public Surface."),
-        ("off", "Request unauthenticated local Off through the control rehearsal."),
+        ("off", "Request Off through the unauthenticated control rehearsal."),
         ("hook", "Handle one bounded Codex lifecycle hook from stdin."),
     ):
         command = commands.add_parser(name, help=help_text)
@@ -112,7 +112,7 @@ def _parser() -> argparse.ArgumentParser:
         )
     commands.add_parser(
         "plan-install",
-        help="Print a deterministic zero-effect native installation target plan.",
+        help="Print a deterministic plan that performs no installation writes.",
     )
     return parser
 
