@@ -191,6 +191,26 @@ class BodyProcessTests(unittest.TestCase):
         )
 
     @unittest.skipUnless(sys.platform == "win32", "Windows native contract")
+    def test_windows_exact_head_boot_uses_the_restricted_private_channel(
+        self,
+    ) -> None:
+        body = self._spawn()
+
+        self.assertTrue(body._process.token_profile.is_restricted)
+        self.assertEqual(body._process.token_profile.integrity_rid, 4096)
+        self.assertLessEqual(body._process.token_profile.privilege_count, 1)
+        self.assertEqual(
+            body.describe()["process_token"],
+            "windows_restricted_low_integrity",
+        )
+        self.assertEqual(
+            body.describe()["body_channel"],
+            "windows_explicit_handle_list_pipe_pair",
+        )
+        self.assertEqual(body.ready.head, body.boot.head)
+        self.assertTrue(body.is_alive())
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows native contract")
     def test_windows_fence_failure_aborts_before_sending_boot(self) -> None:
         with (
             patch("agentic_evo.body_process.KillOnCloseJob") as job_type,
