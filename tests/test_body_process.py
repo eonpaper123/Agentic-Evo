@@ -12,7 +12,8 @@ import unittest
 from unittest.mock import MagicMock, patch
 import sys
 
-from agentic_evo._util import sha256_hex
+from agentic_evo import body_process as body_process_module
+from agentic_evo._util import canonical_json_bytes, sha256_hex
 from agentic_evo.body_process import (
     BODY_BOOT_PROTOCOL,
     BodyBootError,
@@ -21,6 +22,7 @@ from agentic_evo.body_process import (
     _body_worker_environment,
     read_private_frame,
     validate_ready_echo,
+    write_private_frame,
 )
 from agentic_evo.runtime import DevelopmentalRuntime
 from agentic_evo.witness import WitnessCore
@@ -308,13 +310,22 @@ class BodyProcessTests(unittest.TestCase):
             ready_timeout_seconds=0.05,
         )
         entered = threading.Event()
-        release = threading.Event()
         finished = threading.Event()
         outcome: Queue[object] = Queue(maxsize=1)
+        spawned_processes: list[object] = []
 
         def stalled_write(*args, **kwargs) -> None:
             entered.set()
-            release.wait(2.0)
+            deadline = time.monotonic() + 2.0
+            while time.monotonic() < deadline:
+                if spawned_processes:
+                    try:
+                        if spawned_processes[0].poll() is not None:
+                            raise BrokenPipeError("Body was killed")
+                    except OSError:
+                        raise BrokenPipeError("Body handle was closed")
+                time.sleep(0.005)
+            raise RuntimeError("test Body was never aborted")
 
         def spawn() -> None:
             try:
@@ -324,11 +335,30 @@ class BodyProcessTests(unittest.TestCase):
             finally:
                 finished.set()
 
+        if sys.platform == "win32":
+            spawn_name = (
+                "agentic_evo.body_process.spawn_restricted_suspended_process"
+            )
+            native_spawn = (
+                body_process_module.spawn_restricted_suspended_process
+            )
+        else:
+            spawn_name = "agentic_evo.body_process.subprocess.Popen"
+            native_spawn = body_process_module.subprocess.Popen
+
+        def recording_spawn(*args, **kwargs):
+            process = native_spawn(*args, **kwargs)
+            spawned_processes.append(process)
+            return process
+
         worker = threading.Thread(target=spawn, daemon=True)
         try:
-            with patch(
-                "agentic_evo.body_process.write_private_frame",
-                side_effect=stalled_write,
+            with (
+                patch(spawn_name, side_effect=recording_spawn),
+                patch(
+                    "agentic_evo.body_process.write_private_frame",
+                    side_effect=stalled_write,
+                ),
             ):
                 worker.start()
                 self.assertTrue(entered.wait(0.5))
@@ -337,7 +367,12 @@ class BodyProcessTests(unittest.TestCase):
                     "boot write ignored the configured ready deadline",
                 )
         finally:
-            release.set()
+            for process in spawned_processes:
+                try:
+                    if process.poll() is None:
+                        process.kill()
+                except OSError:
+                    pass
             worker.join(timeout=1.0)
 
         result = outcome.get_nowait()
@@ -351,13 +386,20 @@ class BodyProcessTests(unittest.TestCase):
         body = self._spawn()
         body._request_timeout_seconds = 0.05
         entered = threading.Event()
-        release = threading.Event()
         finished = threading.Event()
         outcome: Queue[BaseException | None] = Queue(maxsize=1)
 
         def stalled_write(*args, **kwargs) -> None:
             entered.set()
-            release.wait(2.0)
+            deadline = time.monotonic() + 2.0
+            while time.monotonic() < deadline:
+                try:
+                    if body._process.poll() is not None:
+                        raise BrokenPipeError("Body was killed")
+                except OSError:
+                    raise BrokenPipeError("Body handle was closed")
+                time.sleep(0.005)
+            raise RuntimeError("test Body was never aborted")
 
         def prepare() -> None:
             try:
@@ -384,7 +426,11 @@ class BodyProcessTests(unittest.TestCase):
                     "lineage write ignored the configured request deadline",
                 )
         finally:
-            release.set()
+            try:
+                if body._process.poll() is None:
+                    body._process.kill()
+            except OSError:
+                pass
             worker.join(timeout=1.0)
 
         self.assertIsInstance(
@@ -394,6 +440,60 @@ class BodyProcessTests(unittest.TestCase):
         self.assertTrue(body.wait_closed(timeout_seconds=2.0))
         self.assertTrue(body._rehearsal_guard.acquire(timeout=0.1))
         body._rehearsal_guard.release()
+        self.assertTrue(body._write_guard.acquire(timeout=0.1))
+        body._write_guard.release()
+
+    def test_deadline_writer_aborts_and_joins_its_blocked_writer(self) -> None:
+        entered = threading.Event()
+        aborted = threading.Event()
+        writer_finished = threading.Event()
+        process = MagicMock()
+        process.poll.return_value = None
+        process.kill.side_effect = aborted.set
+
+        class KillAwareStream:
+            def write(self, value) -> int:
+                entered.set()
+                aborted.wait(1.0)
+                writer_finished.set()
+                raise BrokenPipeError("reader was killed")
+
+            def flush(self) -> None:
+                pass
+
+        with self.assertRaises(BodyBootError):
+            body_process_module._write_private_frame_with_timeout(
+                KillAwareStream(),
+                {"value": "blocked"},
+                timeout_seconds=0.05,
+                process=process,
+            )
+
+        self.assertTrue(entered.is_set())
+        process.kill.assert_called_once_with()
+        self.assertTrue(writer_finished.is_set())
+
+    def test_private_frame_writer_completes_short_writes(self) -> None:
+        expected = canonical_json_bytes({"value": "short writes"}) + b"\n"
+
+        class ShortWriter:
+            def __init__(self) -> None:
+                self.value = bytearray()
+                self.flushed = False
+
+            def write(self, value) -> int:
+                count = min(3, len(value))
+                self.value.extend(value[:count])
+                return count
+
+            def flush(self) -> None:
+                self.flushed = True
+
+        writer = ShortWriter()
+        write_private_frame(writer, {"value": "short writes"})
+
+        self.assertEqual(bytes(writer.value), expected)
+        self.assertTrue(writer.flushed)
 
     def test_forged_rehearsal_result_cannot_skip_the_lineage_request(
         self,
