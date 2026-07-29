@@ -8,7 +8,7 @@ from pathlib import Path
 import sys
 import tempfile
 import threading
-from typing import Any, Iterator, Mapping
+from typing import Any, Callable, Iterator, Mapping
 from uuid import uuid4
 
 from multiprocessing.connection import Client, Connection
@@ -137,10 +137,14 @@ def receive_public_message(
     connection: Connection,
     *,
     timeout_seconds: float | None = None,
+    close_on_timeout: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     deadline: threading.Timer | None = None
     if timeout_seconds is not None:
-        deadline = threading.Timer(timeout_seconds, connection.close)
+        deadline = threading.Timer(
+            timeout_seconds,
+            close_on_timeout if close_on_timeout is not None else connection.close,
+        )
         deadline.daemon = True
         deadline.start()
     try:

@@ -191,10 +191,11 @@ class WitnessService:
                         connection.close()
                         break
                     if native_windows:
+                        managed_connection = self._managed_connection(connection)
                         try:
-                            self._serve_connection(connection)
+                            self._serve_connection(connection, managed_connection)
                         finally:
-                            self._managed_connection(connection).close()
+                            managed_connection.close()
                             self._unregister_connection(connection)
                         continue
                     if not self._connection_slots.acquire(blocking=False):
@@ -278,12 +279,21 @@ class WitnessService:
             }
         raise AssertionError("validated public operation has no dispatcher")
 
-    def _serve_connection(self, connection: Connection) -> None:
+    def _serve_connection(
+        self,
+        connection: Connection,
+        managed_connection: _ManagedConnection | None = None,
+    ) -> None:
         request_id: str | None = None
         try:
             request = receive_public_message(
                 connection,
                 timeout_seconds=PUBLIC_IO_TIMEOUT_SECONDS,
+                close_on_timeout=(
+                    managed_connection.close
+                    if managed_connection is not None
+                    else connection.close
+                ),
             )
             possible_id = request.get("request_id")
             if isinstance(possible_id, str):
@@ -330,7 +340,7 @@ class WitnessService:
     def _serve_connection_with_deadline(self, connection: Connection) -> None:
         managed_connection = self._managed_connection(connection)
         try:
-            self._serve_connection(connection)
+            self._serve_connection(connection, managed_connection)
         finally:
             managed_connection.close()
             self._unregister_connection(connection)
@@ -592,24 +602,15 @@ class WitnessService:
     ) -> None:
         request_id: str | None = None
         try:
-            close_connection = (
-                managed_connection.close
-                if managed_connection is not None
-                else connection.close
+            request = receive_public_message(
+                connection,
+                timeout_seconds=PUBLIC_IO_TIMEOUT_SECONDS,
+                close_on_timeout=(
+                    managed_connection.close
+                    if managed_connection is not None
+                    else connection.close
+                ),
             )
-            receive_deadline = threading.Timer(
-                PUBLIC_IO_TIMEOUT_SECONDS,
-                close_connection,
-            )
-            receive_deadline.daemon = True
-            receive_deadline.start()
-            try:
-                request = receive_public_message(
-                    connection,
-                    timeout_seconds=PUBLIC_IO_TIMEOUT_SECONDS,
-                )
-            finally:
-                receive_deadline.cancel()
             possible_id = request.get("request_id")
             if isinstance(possible_id, str):
                 request_id = possible_id

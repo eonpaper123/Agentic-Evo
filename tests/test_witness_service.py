@@ -624,7 +624,10 @@ class WitnessServiceTests(unittest.TestCase):
         owner_failures: list[BaseException] = []
         stop_failures: list[BaseException] = []
 
-        def serve_connection(_: object) -> None:
+        def serve_connection(
+            _: object,
+            __: object | None = None,
+        ) -> None:
             owner_started.set()
             owner_may_close.wait(timeout=1.0)
 
@@ -1048,7 +1051,10 @@ class WitnessServiceTests(unittest.TestCase):
         service._connection_slots = threading.BoundedSemaphore(1)
         service._connection_slots.acquire()
 
-        def slow_public_work(_: object) -> None:
+        def slow_public_work(
+            _: object,
+            __: object | None = None,
+        ) -> None:
             time.sleep(0.05)
             observed_during_dispatch.append(connection.closed)
 
