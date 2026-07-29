@@ -16,6 +16,7 @@ from agentic_evo._util import canonical_json_bytes
 from agentic_evo.ipc import (
     CONTROL_PROTOCOL,
     MAX_PUBLIC_FRAME_BYTES,
+    PUBLIC_PROTOCOL,
     OffRehearsalClient,
     ServiceRejectedError,
     ServiceUnavailableError,
@@ -690,6 +691,56 @@ class WitnessServiceTests(unittest.TestCase):
             result = OffRehearsalClient(self.home).off()
 
         self.assertEqual(result["authority"], "off")
+        self.assertEqual(connection.poll_timeout, 0.1)
+
+    def test_public_client_has_a_distinct_response_window(self) -> None:
+        class DelayedPublicResponse:
+            def __init__(self) -> None:
+                self.request: dict[str, object] | None = None
+                self.poll_timeout: float | None = None
+
+            def send_bytes(self, raw: bytes) -> None:
+                self.request = json.loads(raw.decode("utf-8"))
+
+            def poll(self, timeout: float) -> bool:
+                self.poll_timeout = timeout
+                return timeout >= 0.05
+
+            def recv_bytes(self, _: int) -> bytes:
+                assert self.request is not None
+                return json.dumps(
+                    {
+                        "protocol": PUBLIC_PROTOCOL,
+                        "request_id": self.request["request_id"],
+                        "ok": True,
+                        "result": {"authority": "on"},
+                    }
+                ).encode("utf-8")
+
+            def close(self) -> None:
+                pass
+
+        connection = DelayedPublicResponse()
+
+        @contextmanager
+        def open_fake_connection(_: object) -> object:
+            yield connection
+
+        with (
+            patch(
+                "agentic_evo.ipc.open_public_connection",
+                open_fake_connection,
+            ),
+            patch("agentic_evo.ipc.PUBLIC_IO_TIMEOUT_SECONDS", 0.01),
+            patch(
+                "agentic_evo.ipc.PUBLIC_RESPONSE_TIMEOUT_SECONDS",
+                0.1,
+                create=True,
+            ),
+        ):
+            result = SurfaceClient(self.home).status()
+
+        self.assertEqual(result["authority"], "on")
         self.assertEqual(connection.poll_timeout, 0.1)
 
     def test_malformed_and_oversize_frames_fail_closed(self) -> None:
