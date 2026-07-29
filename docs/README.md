@@ -13,6 +13,8 @@
   规定工具、真实使用与实验同步推进的双螺旋；统一唯一用户宿主、机器栖息地、coding-agent 执行表面、器官和项目环境；划分微核、身体、独立科研仪器与适配器的信任边界。
 - [实现状态：Pre-Genesis](engineering/实现状态_Pre-Genesis.md)
   记录首条机器级纵切面的真实代码、已验证性质、尚不能成立的主张、最小可信计算基与 Genesis 前四个硬阻断项；当前尚未安装、尚未产生唯一 Root。
+- [最小可信边界与来源证明](engineering/最小可信边界与来源证明.md)
+  推导同权限域下作者来源不可区分定理，区分身份、科研见证与自我作者证明，确定 Windows service SID、显式 named-pipe ACL、Body 私有 capability 和单 SQLite 事务域的最小路径。
 
 ## 专题
 

@@ -22,6 +22,8 @@ See [实现状态：Pre-Genesis](docs/engineering/实现状态_Pre-Genesis.md).
 
 [实现状态：Pre-Genesis](docs/engineering/实现状态_Pre-Genesis.md)
 
+[最小可信边界与来源证明](docs/engineering/最小可信边界与来源证明.md)
+
 [跨模块科研假设矩阵](docs/research/跨模块科研假设矩阵.md)
 
 [实验 001：机器级连续生命循环](experiments/001_机器级连续生命循环.md)

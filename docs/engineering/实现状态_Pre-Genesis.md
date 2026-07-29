@@ -166,9 +166,9 @@ Runtime 现在会交叉检查 Kernel、当前 Body 与 evidence 的 Root、Head 
 
 当前只有一个未安装的 Codex 映射函数。其他 coding agent 需要各自经过验证的生命周期入口。没有公开稳定接口的执行表面必须记录覆盖缺口，不能通过全盘监控伪装成全覆盖。
 
-### 5.5 当前 Head 写入与科研事件尚未形成跨存储事务
+### 5.5 当前 Head 写入与科研事件尚未形成同一可信事务
 
-`Head` 与 evidence 是两个独立持久化域。进程可能在“请求已记录、Head 已推进、完成事件尚未落盘”的中间状态崩溃。当前加载时的交叉验证能够拒绝部分不一致状态，但尚无 transition journal 和 reconciliation 去确定性完成、回滚或登记缺口。检测到生命史断裂不等于已经恢复它。
+`Head` 与 evidence 是两个独立持久化域。进程可能在“请求已记录、Head 已推进、完成事件尚未落盘”的中间状态崩溃。当前加载时的交叉验证能够拒绝部分不一致状态，但尚未把 Root、Head、Authority、revision、transition、evidence 与 checkpoint 收入同一可信事务。检测到生命史断裂不等于已经恢复它。
 
 ### 5.6 测试中的 Genesis 不是正式实验数据
 
@@ -221,17 +221,18 @@ Host On / Off authority
 
 ### G2：补全崩溃恢复与状态对账
 
-所有跨域状态变化必须形成：
+单一 Witness 写入的身份状态必须形成一个原子事务：
 
 ```text
-intent
-→ durable transition
-→ completion
+stage content-addressed Body candidate
+→ BEGIN IMMEDIATE
+→ validate Root / Head / private Body session
+→ update Head / revision
+→ append transition / evidence / checkpoint
+→ COMMIT
 ```
 
-启动时若只看到其中一部分，Runtime 必须能够确定性地完成、回滚或记录 coverage gap，不能悄悄选择一个更漂亮的历史。
-
-这同时适用于首次 Genesis。当前锁已经防止同一 home 中两个 Genesis 同时成功，但任一持久化步骤崩溃后仍可能留下半 Genesis；正式实现必须用 intent、完成标记和恢复协议区分“未出生”“出生完成”和“出生过程损坏”。
+Body candidate 可在事务前完整落盘；未被已提交 Head 引用的 candidate 只是 staging artifact。SQLite 负责意外崩溃、原子性和并发；服务权限、checkpoint 与可选机器外锚点负责恶意回放。Genesis 同样必须成为一次原子提交，提交前不算正式出生。
 
 ### G3：形成真实机器生命周期
 
@@ -278,8 +279,9 @@ Authority
 下一步不再新增记忆理论，也不先实现某一种自我学习算法，而是继续同一条终局纵切面：
 
 ```text
-隔离 Authority 与 Witness
-→ 实现 transition journal 和 reconciliation
+隔离 Authority、Witness 与 Current Body principal
+→ 把可信身份状态迁入单一 SQLite 事务域
+→ 建立私有 Body lineage channel 与一次性 session lease
 → 增加机器级 service / IPC / CLI
 → 生成但不安装 Codex hook 配置
 → 在临时安装中完成 crash / Off / uninstall 演练
@@ -288,3 +290,5 @@ Authority
 ```
 
 完成这些条件后，Agentic-Evo 才能第一次真实参与 Agentic-Evo 自身及机器中其他 coding 项目的开发；工具运行和实验 001 的正式纵向数据也从那一刻同时开始。
+
+同权限作者来源不可区分、Windows service boundary、Body 私有 capability 与可信事务域的进一步推导，见[《最小可信边界与来源证明》](最小可信边界与来源证明.md)。
