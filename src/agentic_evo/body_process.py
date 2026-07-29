@@ -10,6 +10,7 @@ import secrets
 import subprocess
 import sys
 import threading
+from time import monotonic
 from typing import Any, BinaryIO, Mapping
 from uuid import uuid4
 
@@ -106,10 +107,68 @@ def write_private_frame(
     if max_bytes is not None and len(raw) > max_bytes:
         raise BodyBootError("private Body frame exceeds its byte bound")
     try:
-        stream.write(raw + b"\n")
+        remaining = memoryview(raw + b"\n")
+        while remaining:
+            written = stream.write(remaining)
+            if (
+                not isinstance(written, int)
+                or isinstance(written, bool)
+                or written <= 0
+                or written > len(remaining)
+            ):
+                raise BodyBootError("private Body pipe made no write progress")
+            remaining = remaining[written:]
         stream.flush()
-    except (BrokenPipeError, OSError, ValueError) as exc:
+    except (BrokenPipeError, OSError, TypeError, ValueError) as exc:
         raise BodyBootError("private Body pipe is unavailable") from exc
+
+
+def _write_private_frame_with_timeout(
+    stream: BinaryIO,
+    value: Mapping[str, Any],
+    *,
+    timeout_seconds: float,
+    process: Any,
+    max_bytes: int | None = MAX_BODY_BOOT_FRAME_BYTES,
+    write_lock: Any | None = None,
+) -> None:
+    if timeout_seconds <= 0:
+        _kill_process_if_alive(process)
+        raise BodyBootError("private Body frame write timed out")
+    outcome: Queue[BaseException | None] = Queue(maxsize=1)
+
+    def write() -> None:
+        try:
+            if write_lock is None:
+                write_private_frame(stream, value, max_bytes=max_bytes)
+            else:
+                with write_lock:
+                    write_private_frame(stream, value, max_bytes=max_bytes)
+        except BaseException as exc:
+            outcome.put_nowait(exc)
+        else:
+            outcome.put_nowait(None)
+
+    writer = threading.Thread(target=write, daemon=True)
+    writer.start()
+    try:
+        failure = outcome.get(timeout=timeout_seconds)
+    except Empty as exc:
+        _kill_process_if_alive(process)
+        writer.join(timeout=0.25)
+        raise BodyBootError("private Body frame write timed out") from exc
+    if isinstance(failure, BaseException):
+        if isinstance(failure, BodyBootError):
+            raise failure
+        raise BodyBootError("private Body frame could not be written") from failure
+
+
+def _kill_process_if_alive(process: Any) -> None:
+    try:
+        if process.poll() is None:
+            process.kill()
+    except OSError:
+        pass
 
 
 def read_private_frame(
@@ -495,7 +554,11 @@ class SpawnedBodyProcess:
                             "protocol": BODY_BOOT_PROTOCOL,
                             "operation": "stop",
                             "boot_session": self.boot.boot_session,
-                        }
+                        },
+                        timeout_seconds=min(
+                            self._request_timeout_seconds,
+                            0.25,
+                        ),
                     )
                 except BodyBootError:
                     pass
@@ -542,18 +605,29 @@ class SpawnedBodyProcess:
             )
             self._pending_lineage_request = None
             self._pending_lineage_response = None
+            deadline = monotonic() + self._request_timeout_seconds
             try:
-                self._write_frame(command)
+                try:
+                    self._write_frame(
+                        command,
+                        timeout_seconds=max(deadline - monotonic(), 0.0),
+                    )
+                except BodyBootError as exc:
+                    raise BodyLineageOutcomeUnknown(
+                        operation=operation,
+                        candidate_head=(
+                            str(command["candidate_head"])
+                            if operation == "advance_head"
+                            and isinstance(command.get("candidate_head"), str)
+                            else None
+                        ),
+                    ) from exc
                 try:
                     outcome = self._rehearsal_outcomes.get(
-                        timeout=self._request_timeout_seconds
+                        timeout=max(deadline - monotonic(), 0.0)
                     )
                 except Empty as exc:
-                    try:
-                        if self._process.poll() is None:
-                            self._process.kill()
-                    except OSError:
-                        pass
+                    _kill_process_if_alive(self._process)
                     raise BodyLineageOutcomeUnknown(
                         operation=operation,
                         candidate_head=(
@@ -594,7 +668,10 @@ class SpawnedBodyProcess:
                         == self._pending_rehearsal
                     ):
                         self._pending_lineage_response = response
-                    self._write_frame(response)
+                    self._write_frame(
+                        response,
+                        timeout_seconds=self._request_timeout_seconds,
+                    )
                     continue
                 if kind == "rehearsal_result":
                     sequence = frame.get("sequence")
@@ -752,9 +829,19 @@ class SpawnedBodyProcess:
         if pending is not None:
             self._pending_lineage_request = (operation, sequence)
 
-    def _write_frame(self, value: Mapping[str, Any]) -> None:
-        with self._write_guard:
-            write_private_frame(self._private_writer, value)
+    def _write_frame(
+        self,
+        value: Mapping[str, Any],
+        *,
+        timeout_seconds: float,
+    ) -> None:
+        _write_private_frame_with_timeout(
+            self._private_writer,
+            value,
+            timeout_seconds=timeout_seconds,
+            process=self._process,
+            write_lock=self._write_guard,
+        )
 
     def _publish_rehearsal_outcome(
         self,
@@ -904,14 +991,17 @@ class BodyProcessSupervisor:
                 process_token = "ordinary_subprocess_rehearsal"
             if private_writer is None or private_reader is None:
                 raise BodyBootError("Body subprocess pipes were not created")
-            write_private_frame(
+            ready_deadline = monotonic() + self.ready_timeout_seconds
+            _write_private_frame_with_timeout(
                 private_writer,
                 asdict(boot),
+                timeout_seconds=max(ready_deadline - monotonic(), 0.0),
+                process=process,
                 max_bytes=None,
             )
             response = _read_private_frame_with_timeout(
                 private_reader,
-                timeout_seconds=self.ready_timeout_seconds,
+                timeout_seconds=max(ready_deadline - monotonic(), 0.0),
             )
             ready = ready_echo_from_mapping(response)
             validate_ready_echo(boot, ready)
@@ -991,20 +1081,42 @@ def _terminate_process(
     private_reader: BinaryIO | None = None,
     private_writer: BinaryIO | None = None,
 ) -> None:
-    if process.poll() is None:
-        process.terminate()
+    try:
+        alive = process.poll() is None
+    except OSError:
+        alive = False
+    if alive:
+        try:
+            process.terminate()
+        except OSError:
+            pass
         try:
             process.wait(timeout=1.0)
         except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait(timeout=1.0)
+            try:
+                process.kill()
+            except OSError:
+                pass
+            try:
+                process.wait(timeout=1.0)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
     if private_writer is not None:
-        private_writer.close()
+        try:
+            private_writer.close()
+        except (OSError, ValueError):
+            pass
     if private_reader is not None:
-        private_reader.close()
+        try:
+            private_reader.close()
+        except (OSError, ValueError):
+            pass
     close_process = getattr(process, "close", None)
     if close_process is not None:
-        close_process()
+        try:
+            close_process()
+        except OSError:
+            pass
 
 
 def _body_worker_environment() -> dict[str, str]:
