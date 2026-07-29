@@ -115,6 +115,19 @@ class WitnessServiceTests(unittest.TestCase):
     ) -> None:
         first = self._spawn()
         client = self._wait_until_ready(first)
+        service_status = client.status()
+        self.assertEqual(
+            service_status["body_rehearsal"]["state"],
+            "ready",
+        )
+        self.assertEqual(
+            service_status["body_rehearsal"]["head"],
+            self.runtime.status().head,
+        )
+        self.assertEqual(
+            service_status["body_rehearsal"]["provenance"],
+            "subprocess_rehearsal",
+        )
         before_status = self.runtime.status()
         before_records = self.runtime.evidence.records()
 
