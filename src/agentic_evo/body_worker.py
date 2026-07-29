@@ -7,6 +7,7 @@ from typing import BinaryIO
 
 from .body_process import (
     BODY_BOOT_PROTOCOL,
+    BODY_LINEAGE_PROTOCOL,
     BodyBootError,
     boot_envelope_from_mapping,
     read_private_frame,
@@ -26,15 +27,29 @@ def main() -> int:
         )
         ready = ready_echo_for_boot(boot)
         write_private_frame(writer, asdict(ready))
+        sequence = 1
         while True:
-            request = read_private_frame(reader)
-            if request == {
+            command = read_private_frame(reader)
+            if command == {
                 "protocol": BODY_BOOT_PROTOCOL,
                 "operation": "stop",
                 "boot_session": boot.boot_session,
             }:
                 return 0
-            return 2
+            result = _run_lineage_rehearsal(
+                command,
+                sequence=sequence,
+                boot_session=boot.boot_session,
+                reader=reader,
+                writer=writer,
+            )
+            write_private_frame(writer, result)
+            sequence += 1
+            if (
+                result.get("operation") == "advance_head"
+                and result.get("ok") is True
+            ):
+                return 0
     except BodyBootError:
         return 2
     finally:
@@ -90,6 +105,125 @@ def _private_streams(
     except (OSError, ValueError) as exc:
         raise BodyBootError("private Body handles could not be sealed") from exc
     return reader, writer, True
+
+
+def _run_lineage_rehearsal(
+    command: dict[str, object],
+    *,
+    sequence: int,
+    boot_session: str,
+    reader: BinaryIO,
+    writer: BinaryIO,
+) -> dict[str, object]:
+    if (
+        command.get("protocol") != BODY_LINEAGE_PROTOCOL
+        or command.get("kind") != "rehearsal_command"
+    ):
+        raise BodyBootError("private lineage rehearsal command is invalid")
+    operation = command.get("operation")
+    if operation == "prepare_successor":
+        if set(command) != {
+            "protocol",
+            "kind",
+            "operation",
+            "files",
+            "activation_kind",
+            "activation_artifact",
+        }:
+            raise BodyBootError("private prepare rehearsal has unexpected fields")
+        request = {
+            "protocol": BODY_LINEAGE_PROTOCOL,
+            "kind": "lineage_request",
+            "boot_session": boot_session,
+            "sequence": sequence,
+            "operation": operation,
+            "files": command["files"],
+            "activation_kind": command["activation_kind"],
+            "activation_artifact": command["activation_artifact"],
+        }
+    elif operation == "advance_head":
+        if set(command) != {
+            "protocol",
+            "kind",
+            "operation",
+            "candidate_head",
+        }:
+            raise BodyBootError("private advance rehearsal has unexpected fields")
+        request = {
+            "protocol": BODY_LINEAGE_PROTOCOL,
+            "kind": "lineage_request",
+            "boot_session": boot_session,
+            "sequence": sequence,
+            "operation": operation,
+            "candidate_head": command["candidate_head"],
+        }
+    else:
+        raise BodyBootError("private lineage rehearsal operation is not allowed")
+
+    write_private_frame(writer, request)
+    response = read_private_frame(reader)
+    expected_common = {
+        "protocol": BODY_LINEAGE_PROTOCOL,
+        "kind": "lineage_response",
+        "boot_session": boot_session,
+        "sequence": sequence,
+        "operation": operation,
+    }
+    if any(response.get(key) != value for key, value in expected_common.items()):
+        raise BodyBootError("private lineage response lost its request binding")
+    if response.get("ok") is False:
+        if set(response) != {*expected_common, "ok", "error"} or response.get(
+            "error"
+        ) != "lineage_request_rejected":
+            raise BodyBootError("private lineage rejection is malformed")
+        return {
+            "protocol": BODY_LINEAGE_PROTOCOL,
+            "kind": "rehearsal_result",
+            "operation": operation,
+            "sequence": sequence,
+            "ok": False,
+            "error": "lineage_request_rejected",
+        }
+    if response.get("ok") is not True:
+        raise BodyBootError("private lineage response has an invalid result")
+
+    if operation == "prepare_successor":
+        if set(response) != {*expected_common, "ok", "candidate_head"} or not isinstance(
+            response.get("candidate_head"),
+            str,
+        ):
+            raise BodyBootError("private prepare response is malformed")
+        return {
+            "protocol": BODY_LINEAGE_PROTOCOL,
+            "kind": "rehearsal_result",
+            "operation": operation,
+            "sequence": sequence,
+            "ok": True,
+            "candidate_head": response["candidate_head"],
+        }
+    if set(response) != {
+        *expected_common,
+        "ok",
+        "head",
+        "generation",
+        "authority",
+    } or (
+        not isinstance(response.get("head"), str)
+        or not isinstance(response.get("generation"), int)
+        or isinstance(response.get("generation"), bool)
+        or not isinstance(response.get("authority"), str)
+    ):
+        raise BodyBootError("private advance response is malformed")
+    return {
+        "protocol": BODY_LINEAGE_PROTOCOL,
+        "kind": "rehearsal_result",
+        "operation": operation,
+        "sequence": sequence,
+        "ok": True,
+        "head": response["head"],
+        "generation": response["generation"],
+        "authority": response["authority"],
+    }
 
 
 if __name__ == "__main__":

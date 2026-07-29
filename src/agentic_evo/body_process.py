@@ -5,7 +5,7 @@ from dataclasses import asdict, dataclass
 import json
 import os
 from pathlib import Path
-from queue import Empty, Queue
+from queue import Empty, Full, Queue
 import secrets
 import subprocess
 import sys
@@ -29,6 +29,7 @@ if sys.platform == "win32":
 
 
 BODY_BOOT_PROTOCOL = "agentic-evo-private-boot-v1"
+BODY_LINEAGE_PROTOCOL = "agentic-evo-private-lineage-v1"
 MAX_BODY_BOOT_FRAME_BYTES = 8 * 1024 * 1024
 
 
@@ -298,6 +299,7 @@ class SpawnedBodyProcess:
         session: CurrentBodySession,
         witness: WitnessCore,
         process_fence: Any | None,
+        request_timeout_seconds: float,
     ) -> None:
         self._process = process
         self._private_reader = private_reader
@@ -310,9 +312,24 @@ class SpawnedBodyProcess:
         self._session = session
         self._witness = witness
         self._process_fence = process_fence
+        self._request_timeout_seconds = request_timeout_seconds
         self._guard = threading.Lock()
+        self._write_guard = threading.Lock()
+        self._rehearsal_guard = threading.Lock()
+        self._rehearsal_outcomes: Queue[
+            dict[str, Any] | BaseException
+        ] = Queue(maxsize=1)
+        self._rehearsal_pending = False
+        self._next_lineage_sequence = 1
+        self._last_lineage_sequence = 0
         self._closed = threading.Event()
+        dispatcher = threading.Thread(
+            target=self._dispatch_private_channel,
+            daemon=True,
+        )
+        dispatcher.start()
         monitor = threading.Thread(target=self._monitor, daemon=True)
+        self._monitor_thread = monitor
         monitor.start()
 
     @property
@@ -350,21 +367,103 @@ class SpawnedBodyProcess:
             ),
         }
 
+    def rehearse_prepare_successor(
+        self,
+        *,
+        files: Mapping[str, str],
+        activation_kind: str | None = None,
+        activation_artifact: str | None = None,
+    ) -> str:
+        normalized_files = dict(files)
+        if not normalized_files or any(
+            not isinstance(path, str)
+            or not path
+            or not isinstance(value, str)
+            for path, value in normalized_files.items()
+        ):
+            raise ValueError("rehearsal files must be non-empty UTF-8 text mappings")
+        for value in (activation_kind, activation_artifact):
+            if value is not None and (not isinstance(value, str) or not value):
+                raise ValueError("activation fields must be non-empty strings")
+        result = self._run_rehearsal(
+            {
+                "protocol": BODY_LINEAGE_PROTOCOL,
+                "kind": "rehearsal_command",
+                "operation": "prepare_successor",
+                "files": normalized_files,
+                "activation_kind": activation_kind,
+                "activation_artifact": activation_artifact,
+            }
+        )
+        if set(result) != {
+            "protocol",
+            "kind",
+            "operation",
+            "sequence",
+            "ok",
+            "candidate_head",
+        } or (
+            result.get("protocol") != BODY_LINEAGE_PROTOCOL
+            or result.get("kind") != "rehearsal_result"
+            or result.get("operation") != "prepare_successor"
+            or result.get("ok") is not True
+            or not isinstance(result.get("candidate_head"), str)
+        ):
+            raise BodyBootError("private prepare rehearsal was rejected")
+        return str(result["candidate_head"])
+
+    def rehearse_advance_head(self, *, candidate_head: str) -> dict[str, Any]:
+        if not isinstance(candidate_head, str) or not candidate_head:
+            raise ValueError("candidate_head must be a non-empty string")
+        result = self._run_rehearsal(
+            {
+                "protocol": BODY_LINEAGE_PROTOCOL,
+                "kind": "rehearsal_command",
+                "operation": "advance_head",
+                "candidate_head": candidate_head,
+            }
+        )
+        if set(result) != {
+            "protocol",
+            "kind",
+            "operation",
+            "sequence",
+            "ok",
+            "head",
+            "generation",
+            "authority",
+        } or (
+            result.get("protocol") != BODY_LINEAGE_PROTOCOL
+            or result.get("kind") != "rehearsal_result"
+            or result.get("operation") != "advance_head"
+            or result.get("ok") is not True
+            or not isinstance(result.get("head"), str)
+            or not isinstance(result.get("generation"), int)
+            or isinstance(result.get("generation"), bool)
+            or not isinstance(result.get("authority"), str)
+        ):
+            raise BodyBootError("private advance rehearsal was rejected")
+        return {
+            "head": result["head"],
+            "generation": result["generation"],
+            "authority": result["authority"],
+        }
+
     def close(self) -> None:
         if self._closed.is_set():
             return
-        if self._process.poll() is None:
-            try:
-                write_private_frame(
-                    self._private_writer,
-                    {
-                        "protocol": BODY_BOOT_PROTOCOL,
-                        "operation": "stop",
-                        "boot_session": self.boot.boot_session,
-                    },
-                )
-            except BodyBootError:
-                pass
+        with self._rehearsal_guard:
+            if self._process.poll() is None:
+                try:
+                    self._write_frame(
+                        {
+                            "protocol": BODY_BOOT_PROTOCOL,
+                            "operation": "stop",
+                            "boot_session": self.boot.boot_session,
+                        }
+                    )
+                except BodyBootError:
+                    pass
         try:
             self._process.wait(timeout=1.0)
         except subprocess.TimeoutExpired:
@@ -374,11 +473,177 @@ class SpawnedBodyProcess:
             except subprocess.TimeoutExpired:
                 self._process.kill()
                 self._process.wait(timeout=1.0)
-        self._retire()
+        self._monitor_thread.join(timeout=1.0)
+        if not self._closed.is_set():
+            self._retire()
 
     def _monitor(self) -> None:
         self._process.wait()
+        self._publish_rehearsal_outcome(
+            BodyBootError("Body subprocess exited during a private request")
+        )
         self._retire()
+
+    def _run_rehearsal(self, command: Mapping[str, Any]) -> dict[str, Any]:
+        with self._rehearsal_guard:
+            if not self.is_alive():
+                raise BodyBootError("Body subprocess is not alive")
+            if self._rehearsal_pending:
+                raise BodyBootError("another private rehearsal is already active")
+            self._rehearsal_pending = True
+            try:
+                self._write_frame(command)
+                try:
+                    outcome = self._rehearsal_outcomes.get(
+                        timeout=self._request_timeout_seconds
+                    )
+                except Empty as exc:
+                    if self._process.poll() is None:
+                        self._process.kill()
+                    raise BodyBootError(
+                        "private Body lineage rehearsal timed out"
+                    ) from exc
+                if isinstance(outcome, BaseException):
+                    raise BodyBootError(
+                        "private Body lineage channel failed"
+                    ) from outcome
+                return outcome
+            finally:
+                self._rehearsal_pending = False
+
+    def _dispatch_private_channel(self) -> None:
+        try:
+            while True:
+                frame = read_private_frame(self._private_reader)
+                kind = frame.get("kind")
+                if kind == "lineage_request":
+                    response = self._handle_lineage_request(frame)
+                    self._write_frame(response)
+                    continue
+                if kind == "rehearsal_result":
+                    if (
+                        not self._rehearsal_pending
+                        or frame.get("sequence") != self._last_lineage_sequence
+                    ):
+                        raise BodyBootError(
+                            "unsolicited private rehearsal result"
+                        )
+                    self._publish_rehearsal_outcome(frame)
+                    continue
+                raise BodyBootError("private Body sent an unknown frame")
+        except BodyBootError as exc:
+            self._publish_rehearsal_outcome(exc)
+            try:
+                if self._process.poll() is None:
+                    self._process.kill()
+            except OSError:
+                pass
+
+    def _handle_lineage_request(
+        self,
+        request: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        operation = request.get("operation")
+        common = {
+            "protocol": BODY_LINEAGE_PROTOCOL,
+            "kind": "lineage_response",
+            "boot_session": self.boot.boot_session,
+            "sequence": request.get("sequence"),
+            "operation": operation,
+        }
+        if (
+            request.get("protocol") != BODY_LINEAGE_PROTOCOL
+            or request.get("kind") != "lineage_request"
+            or request.get("boot_session") != self.boot.boot_session
+            or request.get("sequence") != self._next_lineage_sequence
+        ):
+            raise BodyBootError("private lineage request lost its channel binding")
+        sequence = self._next_lineage_sequence
+        self._next_lineage_sequence += 1
+        self._last_lineage_sequence = sequence
+
+        try:
+            if operation == "prepare_successor":
+                if set(request) != {
+                    "protocol",
+                    "kind",
+                    "boot_session",
+                    "sequence",
+                    "operation",
+                    "files",
+                    "activation_kind",
+                    "activation_artifact",
+                }:
+                    raise BodyBootError(
+                        "private prepare request has unexpected fields"
+                    )
+                files = request.get("files")
+                if not isinstance(files, dict) or any(
+                    not isinstance(path, str)
+                    or not path
+                    or not isinstance(value, str)
+                    for path, value in files.items()
+                ):
+                    raise BodyBootError("private prepare request has invalid files")
+                activation_kind = request.get("activation_kind")
+                activation_artifact = request.get("activation_artifact")
+                for value in (activation_kind, activation_artifact):
+                    if value is not None and (
+                        not isinstance(value, str) or not value
+                    ):
+                        raise BodyBootError(
+                            "private prepare request has invalid activation"
+                        )
+                candidate = self._session.prepare_successor(
+                    files=files,
+                    activation_kind=activation_kind,
+                    activation_artifact=activation_artifact,
+                )
+                return {**common, "ok": True, "candidate_head": candidate}
+
+            if operation == "advance_head":
+                if set(request) != {
+                    "protocol",
+                    "kind",
+                    "boot_session",
+                    "sequence",
+                    "operation",
+                    "candidate_head",
+                }:
+                    raise BodyBootError(
+                        "private advance request has unexpected fields"
+                    )
+                candidate_head = request.get("candidate_head")
+                if not isinstance(candidate_head, str) or not candidate_head:
+                    raise BodyBootError(
+                        "private advance request has an invalid candidate"
+                    )
+                status = self._session.advance_head(
+                    candidate_head=candidate_head
+                )
+                return {
+                    **common,
+                    "ok": True,
+                    "head": status.head,
+                    "generation": status.generation,
+                    "authority": status.authority,
+                }
+            raise BodyBootError("private lineage operation is not allowed")
+        except AgenticEvoError:
+            return {**common, "ok": False, "error": "lineage_request_rejected"}
+
+    def _write_frame(self, value: Mapping[str, Any]) -> None:
+        with self._write_guard:
+            write_private_frame(self._private_writer, value)
+
+    def _publish_rehearsal_outcome(
+        self,
+        outcome: dict[str, Any] | BaseException,
+    ) -> None:
+        try:
+            self._rehearsal_outcomes.put_nowait(outcome)
+        except Full:
+            pass
 
     def _retire(self) -> None:
         with self._guard:
@@ -523,6 +788,7 @@ class BodyProcessSupervisor:
                 session=session,
                 witness=self.witness,
                 process_fence=process_fence,
+                request_timeout_seconds=max(self.ready_timeout_seconds, 5.0),
             )
         except Exception as exc:
             if process is not None:
