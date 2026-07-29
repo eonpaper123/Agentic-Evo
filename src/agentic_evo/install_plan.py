@@ -17,8 +17,11 @@ def build_install_plan() -> dict[str, Any]:
             "start_process": False,
         },
         "claims": {
+            "implemented_native_components": [
+                "win32_job_object_process_tree_fencing"
+            ],
             "native_security_verified": False,
-            "portable_protocol_only": True,
+            "portable_protocol_complete": True,
             "ready_to_install": False,
         },
         "platforms": {
@@ -100,6 +103,7 @@ def build_install_plan() -> dict[str, Any]:
             ],
         },
         "blockers": [
+            "authenticated_host_presence",
             "formal_genesis_authorization",
             "native_witness_and_body_principals",
             "service_owned_trusted_state",
