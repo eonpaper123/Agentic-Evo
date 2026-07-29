@@ -42,11 +42,13 @@ def build_install_plan() -> dict[str, Any]:
                 "service_scope": "machine",
                 "supervisor": "launchd_launchdaemon",
                 "witness_principal": "dedicated_non_login_uid",
-                "body_principal": "signed_current_body_launcher",
+                "body_principal": (
+                    "dedicated_non_login_body_uid_with_signed_launcher"
+                ),
                 "trusted_state": "daemon_owned_mode_0700",
                 "public_surface": "xpc_audit_token_bound_host_uid",
                 "private_lineage": (
-                    "private_xpc_audit_token_and_code_requirement"
+                    "private_xpc_audit_token_body_uid_and_code_requirement"
                 ),
                 "worker_fencing": "launchd_managed_body_job_required",
                 "native_test_status": "not_run",
