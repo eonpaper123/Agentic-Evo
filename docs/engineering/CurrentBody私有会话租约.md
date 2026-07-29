@@ -33,7 +33,7 @@ Head 变化
 | session | 含义 | 是否拥有 lineage authority |
 |---|---|---|
 | Surface session | Codex 或其他 coding agent 的一次执行表面连接 | 否 |
-| Current Body session | exact Current Head 的活动身体与 Witness 之间的谱系通路 | 逻辑正常路径内有；OS 可信来源尚未成立 |
+| Current Body session | 绑定 exact Head 的 `CurrentBodySession` 逻辑会话对象 | 逻辑正常路径内有；OS 可信来源尚未成立 |
 | Probation session | 候选身体的有限实例化与 ReadyEcho | 否 |
 
 关系不是：
@@ -49,7 +49,7 @@ Head 变化
 ```mermaid
 flowchart LR
     S["Execution Surface<br/>Codex / other coding agent"]
-    B["Current Body session<br/>唯一短期 lease"]
+    B["CurrentBodySession object<br/>lease rehearsal"]
     P["Probation session<br/>无谱系权限"]
     W["WitnessCore<br/>当前为进程内演练"]
     R["DevelopmentalRuntime<br/>生命周期串行与准入复核"]
@@ -226,7 +226,8 @@ Lease'=Lease
 读取 On / Root / Head / authority epoch
 → 取得 .body-session.lock
 → 再次在 lifecycle lock 内读取绑定
-→ 若改变则释放锁并拒绝
+→ 若 Off 或 Root / Head 改变则释放锁并拒绝
+→ 否则绑定锁后读到的最新 authority epoch
 → 创建 volatile session
 ```
 
