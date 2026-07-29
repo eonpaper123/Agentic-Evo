@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import ctypes
+import json
+import msvcrt
+import os
+from pathlib import Path
 import subprocess
 import sys
 import unittest
@@ -55,6 +59,109 @@ class WindowsJobObjectTests(unittest.TestCase):
                 parent.stdin.close()
             if parent.stdout is not None:
                 parent.stdout.close()
+
+    def test_restricted_process_is_suspended_and_inherits_only_listed_handles(
+        self,
+    ) -> None:
+        import _winapi
+
+        from agentic_evo.windows_native import (
+            KillOnCloseJob,
+            spawn_restricted_suspended_process,
+        )
+
+        read_fd, write_fd = os.pipe()
+        read_stream = os.fdopen(read_fd, "rb", buffering=0)
+        child_write_handle = msvcrt.get_osfhandle(write_fd)
+        os.set_handle_inheritable(child_write_handle, True)
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateEventW.argtypes = [
+            ctypes.c_void_p,
+            wintypes.BOOL,
+            wintypes.BOOL,
+            wintypes.LPCWSTR,
+        ]
+        kernel32.CreateEventW.restype = wintypes.HANDLE
+        kernel32.SetHandleInformation.argtypes = [
+            wintypes.HANDLE,
+            wintypes.DWORD,
+            wintypes.DWORD,
+        ]
+        kernel32.SetHandleInformation.restype = wintypes.BOOL
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+        decoy = kernel32.CreateEventW(None, True, False, None)
+        self.assertTrue(decoy)
+        self.assertTrue(kernel32.SetHandleInformation(decoy, 1, 1))
+
+        helper = (
+            "import ctypes,json,msvcrt,os,sys;"
+            "from ctypes import wintypes;"
+            "k=ctypes.WinDLL('kernel32',use_last_error=True);"
+            "k.GetHandleInformation.argtypes=[wintypes.HANDLE,"
+            "ctypes.POINTER(wintypes.DWORD)];"
+            "k.GetHandleInformation.restype=wintypes.BOOL;"
+            "flags=wintypes.DWORD();"
+            "decoy_valid=bool(k.GetHandleInformation(int(sys.argv[2]),"
+            "ctypes.byref(flags)));"
+            "stream=os.fdopen(msvcrt.open_osfhandle(int(sys.argv[1]),"
+            "os.O_WRONLY),'wb',buffering=0);"
+            "stream.write((json.dumps({'decoy_valid':decoy_valid})+'\\n').encode());"
+            "stream.close()"
+        )
+        environment = {
+            key: os.environ[key]
+            for key in ("SystemRoot", "WINDIR")
+            if key in os.environ
+        }
+        process = None
+        job = KillOnCloseJob()
+        write_closed = False
+        try:
+            process = spawn_restricted_suspended_process(
+                (
+                    sys.executable,
+                    "-P",
+                    "-c",
+                    helper,
+                    str(child_write_handle),
+                    str(decoy),
+                ),
+                inherited_handles=(child_write_handle,),
+                cwd=Path(sys.executable).resolve().parent,
+                environment=environment,
+            )
+
+            self.assertTrue(process.token_profile.is_restricted)
+            self.assertEqual(process.token_profile.integrity_rid, 4096)
+            self.assertLessEqual(process.token_profile.privilege_count, 1)
+            self.assertEqual(
+                _winapi.PeekNamedPipe(
+                    msvcrt.get_osfhandle(read_stream.fileno())
+                )[0],
+                0,
+            )
+
+            job.assign_handle(process.process_handle)
+            os.close(write_fd)
+            write_closed = True
+            process.resume()
+
+            report = json.loads(read_stream.readline())
+            self.assertFalse(report["decoy_valid"])
+            self.assertEqual(process.wait(timeout=5.0), 0)
+        finally:
+            job.close()
+            if process is not None:
+                if process.poll() is None:
+                    process.kill()
+                    process.wait(timeout=5.0)
+                process.close()
+            if not write_closed:
+                os.close(write_fd)
+            read_stream.close()
+            kernel32.CloseHandle(decoy)
 
 
 def _wait_for_process_exit(pid: int, *, timeout_ms: int) -> bool:
