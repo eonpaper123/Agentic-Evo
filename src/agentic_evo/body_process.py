@@ -453,7 +453,11 @@ class SpawnedBodyProcess:
         if self._closed.is_set():
             return
         with self._rehearsal_guard:
-            if self._process.poll() is None:
+            try:
+                alive = self._process.poll() is None
+            except OSError:
+                alive = False
+            if alive:
                 try:
                     self._write_frame(
                         {
@@ -464,25 +468,33 @@ class SpawnedBodyProcess:
                     )
                 except BodyBootError:
                     pass
+        if self._closed.wait(1.0):
+            return
         try:
-            self._process.wait(timeout=1.0)
-        except subprocess.TimeoutExpired:
             self._process.terminate()
-            try:
-                self._process.wait(timeout=1.0)
-            except subprocess.TimeoutExpired:
-                self._process.kill()
-                self._process.wait(timeout=1.0)
-        self._monitor_thread.join(timeout=1.0)
-        if not self._closed.is_set():
-            self._retire()
+        except OSError:
+            pass
+        if self._closed.wait(1.0):
+            return
+        try:
+            self._process.kill()
+        except OSError:
+            pass
+        if not self._closed.wait(1.0):
+            if self._process_fence is not None:
+                self._process_fence.close()
+            self._monitor_thread.join(timeout=1.0)
 
     def _monitor(self) -> None:
-        self._process.wait()
-        self._publish_rehearsal_outcome(
-            BodyBootError("Body subprocess exited during a private request")
-        )
-        self._retire()
+        try:
+            self._process.wait()
+        except OSError:
+            pass
+        finally:
+            self._publish_rehearsal_outcome(
+                BodyBootError("Body subprocess exited during a private request")
+            )
+            self._retire()
 
     def _run_rehearsal(self, command: Mapping[str, Any]) -> dict[str, Any]:
         with self._rehearsal_guard:
@@ -521,9 +533,12 @@ class SpawnedBodyProcess:
                     self._write_frame(response)
                     continue
                 if kind == "rehearsal_result":
+                    sequence = frame.get("sequence")
                     if (
                         not self._rehearsal_pending
-                        or frame.get("sequence") != self._last_lineage_sequence
+                        or not isinstance(sequence, int)
+                        or isinstance(sequence, bool)
+                        or sequence != self._last_lineage_sequence
                     ):
                         raise BodyBootError(
                             "unsolicited private rehearsal result"
@@ -551,16 +566,18 @@ class SpawnedBodyProcess:
             "sequence": request.get("sequence"),
             "operation": operation,
         }
+        sequence = request.get("sequence")
         if (
             request.get("protocol") != BODY_LINEAGE_PROTOCOL
             or request.get("kind") != "lineage_request"
             or request.get("boot_session") != self.boot.boot_session
-            or request.get("sequence") != self._next_lineage_sequence
+            or not isinstance(sequence, int)
+            or isinstance(sequence, bool)
+            or sequence != self._next_lineage_sequence
         ):
             raise BodyBootError("private lineage request lost its channel binding")
-        sequence = self._next_lineage_sequence
         self._next_lineage_sequence += 1
-        self._last_lineage_sequence = sequence
+        self._last_lineage_sequence = int(sequence)
 
         try:
             if operation == "prepare_successor":
@@ -629,6 +646,8 @@ class SpawnedBodyProcess:
                     "authority": status.authority,
                 }
             raise BodyBootError("private lineage operation is not allowed")
+        except BodyBootError:
+            raise
         except AgenticEvoError:
             return {**common, "ok": False, "error": "lineage_request_rejected"}
 

@@ -169,7 +169,16 @@ def _run_lineage_rehearsal(
         "sequence": sequence,
         "operation": operation,
     }
-    if any(response.get(key) != value for key, value in expected_common.items()):
+    response_sequence = response.get("sequence")
+    if (
+        not isinstance(response_sequence, int)
+        or isinstance(response_sequence, bool)
+        or response_sequence != sequence
+        or any(
+            response.get(key) != value
+            for key, value in expected_common.items()
+        )
+    ):
         raise BodyBootError("private lineage response lost its request binding")
     if response.get("ok") is False:
         if set(response) != {*expected_common, "ok", "error"} or response.get(
