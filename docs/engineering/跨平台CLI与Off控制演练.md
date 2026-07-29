@@ -252,7 +252,7 @@ status says Off
 
 ---
 
-## 6. Off 与 crash 是不同因果
+## 6. Off、crash 与 supervisor stop 是三种因果
 
 ```text
 service crash
@@ -286,6 +286,31 @@ Crash\neq Off
 Restart(Off(S)).Authority=Off
 }
 \]
+
+内部 supervisor stop 既不是 crash，也不是 Host Off：
+
+```text
+supervisor stop
+→ establish one dispatch-admission cutoff
+→ reject preconnected but not-yet-admitted requests
+→ wake and close public/control listeners
+→ close the registered-active transport snapshot through one raw-close owner each
+→ wait for requests admitted before the cutoff
+→ a pre-cutoff caller may observe EOF even if its transaction committed
+→ service finally joins workers, then retires Body and lease
+→ leaving the service lock releases singleton
+→ stop itself has no Root / Head / Authority / evidence transaction
+→ pre-cutoff admitted work may still commit exactly once
+→ same home may start a replacement service
+```
+
+\[
+\boxed{
+SupervisorStop\neq Crash\neq Off
+}
+\]
+
+这里的 `request_stop()` 只供未来 SCM / launchd / systemd control handler 调用，没有被加入 public operation 或当前 Off control protocol。它的返回点只表示 cutoff、cutoff 时 registry 内 active transport snapshot 的 close 与 admitted dispatch quiescence 已完成；`accept()` 已返回但尚未注册的瞬时连接由 accept path 随后关闭，全部 accept path、Body/lease/worker/singleton 的完整回收以 `serve_forever()` 已退出为准。由于 transport 先于 admitted work 归静而关闭，调用方看到 EOF 时结果是 caller-visible `OutcomeUnknown`，不能据此判断该事务未提交。
 
 本轮临时目录实验已经验证：
 
@@ -557,7 +582,7 @@ RenderPlan(P)\neq NativeVerified(P)
 }
 \]
 
-本节的 plan rendering 与可移植协议测试不能证明 macOS 或 Linux 原生边界，也不能证明 Windows SCM、service SID、protected state 或 HostPresence。后续 Windows 原生测试已经证明 foreground Job、public peer、restricted Low-Integrity Body 与 explicit inherited private lineage transport rehearsal；这些局部证据不能反推 distinct-principal authentication、安装态或其他平台原生边界。
+本节的 plan rendering 与可移植协议测试不能证明 macOS 或 Linux 原生边界，也不能证明 Windows SCM、service SID、protected state 或 HostPresence。WSL Ubuntu 现在已经运行完整测试发现：108 passed / 15 Windows-only skipped，包含 AF_UNIX service stop、preaccepted-request fencing 与 same-home restart；这证明 Linux 用户态可移植路径，不证明 systemd、dedicated UID、StateDirectory、cgroup 或 bare-metal Linux 安装态。macOS 仍未实机。后续 Windows 原生测试已经证明 foreground Job、public peer、restricted Low-Integrity Body 与 explicit inherited private lineage transport rehearsal；这些局部证据不能反推 distinct-principal authentication、安装态或其他平台原生边界。
 
 ---
 
@@ -641,9 +666,13 @@ AdvanceHead
 31. public Surface 与 generic、未认证 Off endpoint 仍是两条不同 transport，public account binding 不会把 Off provenance 升级。
 32. Windows child 的实际 restricted token、Low Integrity、suspended handoff、Job-before-Resume 与 explicit inherited private handles 已验证；
 33. Body 发起的严格序号谱系往返、same-lease candidate、authoritative result binding、replay/forgery rejection 与 `OutcomeUnknown` 已验证；
-34. Boot、command、response、stop 写入都受 deadline 约束，partial writes 被完整补写。
+34. Boot、command、response、stop 写入都受 deadline 约束，partial writes 被完整补写；
+35. 内部 supervisor stop 会在同一 lifecycle lock 上建立 dispatch cutoff，先唤醒/关闭 listener 与 active transports，再等待已 admission 请求归静；service finally 随后 join workers、回收 Body/lease、释放 singleton，并允许同一 home 重启；
+36. cutoff 前已 admission 的变更请求可恰好提交一次，`request_stop()` 必须等待该提交；stop 路径自身的可信状态增量为空；
+37. stop、worker cleanup 与 control receive deadline 共享每条 transport 的单一 raw-close owner；
+38. Windows 与 WSL Ubuntu 都通过上述 stop、preaccepted-request fencing、admitted-mutation drain、single-close ownership 和 same-home restart；macOS 尚未实机复验。
 
-截至当前停止点，全仓共 118 项测试通过，并以 `ResourceWarning` 作为错误运行。
+截至当前停止点，Windows 全仓 123/123 项测试通过，并以 `ResourceWarning` 作为错误运行；WSL Ubuntu 发现同样 123 项，其中 108 项通过、15 项 Windows-only contract 明确 skipped。
 
 ---
 
@@ -719,13 +748,14 @@ Agentic-Evo is a CLI product
 4. 未认证控制只允许 Off，不允许 On；
 5. 原子、幂等、来源降级的 Off；
 6. Off / crash / restart / tracked-service cleanup 的因果区分；
-7. bounded Hook input、canonical-byte public projection、partial-frame receive Timer 与独立 public/control response Timer；
-8. 三平台零安装副作用目标合同；
-9. Windows、macOS、Linux 的原生边界不再混为一种实现。
+7. supervisor stop 与 Host Off 的因果分离及同一 home 可重启关节；
+8. bounded Hook input、canonical-byte public projection、partial-frame receive Timer 与独立 public/control response Timer；
+9. 三平台零安装副作用目标合同；
+10. Windows、macOS、Linux 的原生边界不再混为一种实现。
 
 继续在 Python 层增加 token、另一把用户密钥、通用 control RPC、模拟 principal、可执行但虚假的 service 脚本，不会增强上述命题。
 
-Windows foreground Job、public named pipe、restricted suspended Body 与 private lineage transport rehearsal 已完成当前局部切片；`native_security_verified=false`、`ready_to_install=false`，也没有 SCM、protected state 或安装事实。
+Windows foreground Job、public named pipe、restricted suspended Body、private lineage transport rehearsal 与内部 supervisor-stop 关节已完成当前局部切片；`native_security_verified=false`、`ready_to_install=false`，也没有 SCM、protected state 或安装事实。
 
 下一项是：
 

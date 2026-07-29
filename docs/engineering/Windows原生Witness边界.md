@@ -1,7 +1,7 @@
 # Windows 原生 Witness 边界
 
 更新时间：2026-07-30  
-状态：四项 foreground 局部原生证据已形成：Job Object、认证 public named pipe、restricted Low-Integrity suspended Body、explicit inherited private lineage transport rehearsal；SCM principal、protected state、distinct Body principal、HostPresence 与安装仍未形成
+状态：四项 foreground 局部原生证据与内部 supervisor-stop 关节已形成：Job Object、认证 public named pipe、restricted Low-Integrity suspended Body、explicit inherited private lineage transport rehearsal，以及 stop 路径自身不创建 Authority 事务的可重启服务停止；SCM principal、protected state、distinct Body principal、HostPresence 与安装仍未形成
 对应实现：`src/agentic_evo/windows_native.py`、`src/agentic_evo/body_process.py`、`src/agentic_evo/windows_pipe.py`、`src/agentic_evo/ipc.py`、`src/agentic_evo/service.py`
 
 ---
@@ -296,7 +296,11 @@ subprocess_rehearsal
 13. child suspended handoff、explicit inherited handle list、Job-before-Resume 与 child-side seal 成立；
 14. Body 发起的 prepare→advance 私有往返、same-lease candidate、严格序号与 authoritative result binding 成立；
 15. Boot / command / response / stop 写入都有 deadline，写阻塞先 kill child 再解锁，partial writes 被完整补写；
-16. 全仓 118 项测试以 `ResourceWarning` 作为错误通过。
+16. 内部 `request_stop()` 在 lifecycle lock 上建立 dispatch cutoff；已经连接但尚未 admission 的 public/control 请求不能在 stop 后追加 evidence 或改变 Authority；
+17. 屏障测试证明 cutoff 前已 admission 的变更可以恰好提交一次，而 `request_stop()` 必须等该 dispatch 归静后才返回；
+18. 每条已接受 transport 只有一个 raw-close owner；stop、worker cleanup 与 control receive deadline 竞争关闭时不会再次关闭同一底层句柄；
+19. Windows 与 WSL Ubuntu 均验证 accept 唤醒、active connection 关闭、Body/lease/singleton 回收及同一 home 重启；macOS 尚未实机复验；
+20. Windows 全仓 123/123 项测试以 `ResourceWarning` 作为错误通过；WSL Ubuntu 发现同样 123 项，其中 108 项通过、15 项 Windows-only contract 明确 skipped。
 
 本轮不依赖 pywin32 或其他第三方包；实现只使用 Python 标准库、`ctypes` 与 Windows Kernel32 / Advapi32。
 
@@ -315,6 +319,10 @@ subprocess_rehearsal
 以及：
 
 > Windows foreground Witness 能 suspended-spawn restricted Low-Integrity Body，在 Resume 前完成 Job 与显式私有 handles 的交接；Body 发起的严格序号谱系请求真实穿过匿名管道，host 只接受 authoritative Witness response 的精确投影。
+
+以及：
+
+> 内部 supervisor stop 能结束当前 foreground Witness/Body 生命周期并释放同一 home 的 singleton，而不把进程停止改写成 Host Off。stop 路径自身不创建 Root、Head、Authority 或 evidence 事务；cutoff 前已经 admission 的合法请求仍可在退出前提交。
 
 当前仍不允许声称：
 
@@ -341,8 +349,213 @@ subprocess_rehearsal
 
 Job Object、foreground public pipe、restricted suspended Body 与 private lineage transport rehearsal 已完成当前局部切片。继续在 foreground 同用户权限域增加字段，不能关闭“宿主进程仍可改代码、状态或句柄”的证明缺口。
 
-下一项是：
+内部 `request_stop()` 已经补上未来 SCM control handler 所需的最小生命周期关节。令 \(\tau_s\) 为它在 lifecycle lock 上建立 dispatch cutoff 的线性化点：
+
+\[
+\boxed{
+\tau(Admitted(r))\ge\tau_s
+\Rightarrow Reject(r)
+}
+\]
+
+\[
+\boxed{
+Return(request\_stop)
+\Rightarrow
+Quiescent(Admitted_{<\tau_s})
+\land NoDispatch_{\ge\tau_s}
+\land Closed(RegisteredActiveTransports_{\tau_s})
+}
+\]
+
+`request_stop()` 返回不等于完整 service loop 已退出。Body / lease / worker / singleton 的回收发生在 `serve_forever()` 的 `finally` 与外层 service lock 退出：
+
+\[
+\boxed{
+ServiceStopComplete
+\equiv Exited(serve\_forever)
+\Rightarrow
+Return(request\_stop)
+\land Joined(Workers)
+\land Exited(AcceptLoops)
+\land Closed(AllAcceptedTransports)
+\land Retire(Body,Lease)
+\land Release(Singleton)
+}
+\]
+
+令 \(X=(Root,Head,Authority,Evidence)\)。stop 路径自身不创建 trusted-state transaction，因此：
+
+\[
+\boxed{
+\Delta X_{stop}=\varnothing
+}
+\]
+
+但这不推出无条件的 \(X_{after}=X_{before}\)。先定义 cutoff 时仍未归静的请求：
+
+\[
+\boxed{
+Pending_{\tau_s}
+=
+\{r\mid Admitted(r)<\tau_s
+\land \neg Completed(r,\tau_s^-)\}
+}
+\]
+
+准确的状态关系只加入这些 pending 请求在 drain 期间产生的提交：
+
+\[
+\boxed{
+X_{after}
+=
+X_{\tau_s^-}
+\oplus
+\Delta X_{Committed_{>\tau_s}(Pending_{\tau_s})}
+}
+\]
+
+只有 cutoff 时 \(Pending_{\tau_s}\) 中没有 mutating dispatch，第二项才为空。当前屏障测试已覆盖“变更 dispatch 先 admission → stop 等待 → 该请求恰好提交一次 → stop 返回”。由于 active transport 在 dispatch 归静前已关闭，调用方可能只看到 EOF 而不知道事务是否已提交；该结果必须视为 caller-visible `OutcomeUnknown` 并从可信状态对账，不能把断连解释成未提交。`request_stop` 没有被加入 public 或 Off control operation；service stop 仍不等于 Host Off。该关节完成后，下一项才可以准确地定义为：
 
 > 让 Witness 进入 SCM 管理的独立 service principal，把 trusted state/key 放入 service-owned ACL 边界，再由该 service 创建 restricted Body；随后以临时安装、同账户攻击、崩溃恢复与卸载测试证明 foreground Surface 不能改写 Witness、状态或 Body capability。
 
 该项继续复用已经冻结的 token、匿名 pipe、显式 handle inheritance 与 lineage 协议，不预先建通用权限 DSL。`HostPresence`、activation / probation 与正式 Genesis 仍是后续独立验收项。
+
+### 8.1 两个 Gate
+
+为避免把“代码已经写好”误报为“Windows 安全边界已经成立”，该切片分成两个不可互相替代的 Gate：
+
+```text
+Gate A：无 UAC 的实验工件与可逆清理路径就绪
+Gate B：UAC 后真实 SCM 安装、token/ACL 攻击、重启与卸载证据成立
+```
+
+当前只完成 Gate A 的第一个关节——Windows 与 WSL 已实测的内部 supervisor stop；macOS 对相同 AF_UNIX 路径尚未实机复验。SCM entrypoint、原生 probe、独立 verifier/attacker、protected artifact/state manifest 仍待实现；Gate B 完全没有运行。因此必须继续保持：
+
+```text
+privileged_installation_executed = false
+scm_observed = false
+service_token_observed = false
+state_acl_attacked = false
+native_security_verified = false
+ready_to_install = false
+```
+
+### 8.2 SCM principal 的可证伪验收
+
+令 \(S\) 为随机命名的临时 own-process service，\(W\) 为其 Witness/probe 进程，\(SID_S\) 为 `NT SERVICE\<service-name>` 派生的 per-service SID：
+
+\[
+\boxed{
+W_{SCM}
+=
+Running(S)
+\land PID_{SCM}(S)=PID(W)
+\land ServiceType(S)=SERVICE\_WIN32\_OWN\_PROCESS
+}
+\]
+
+\[
+\boxed{
+P_W
+=
+TokenUser(W)=LocalService
+\land SID_S\in EnabledSids(W)
+\land SID_S\in RestrictedSids(W)
+\land IsTokenRestricted(W)
+}
+\]
+
+`SERVICE_SID_TYPE_RESTRICTED` 的配置值本身不是证据。[Microsoft 的 `SERVICE_SID_INFO` 说明](https://learn.microsoft.com/en-us/windows/win32/api/winsvc/ns-winsvc-service_sid_info)指出它会把 service SID 加入 restricted SID list，并且 service SID type 的变更在下一次系统启动时生效；实验必须完成 system restart 后再读取真实 token，不能把“仅重启 service”当成兑现。配置写回成功而系统尚未重启，结果只能是 `pending_reboot`；重启后 token 仍未兑现则是 `not_proven`。同样，SCM PID 只在 service 到达稳定 `RUNNING` 后取值；`START_PENDING`/`STOP_PENDING` 不能充当 PID 绑定证据，见 [`SERVICE_STATUS_PROCESS`](https://learn.microsoft.com/en-us/windows/win32/api/winsvc/ns-winsvc-service_status_process)。
+
+### 8.3 protected state 与 protected image
+
+令 \(D\) 为临时 service-owned state root，\(A\) 为 exact service artifact：
+
+\[
+\boxed{
+S_{ACL}
+=
+ProtectedDACL(D)
+\land Owner(D)\in\{SYSTEM,Administrators\}
+\land WriteAllow(D)=\{SYSTEM,SID_S\}
+}
+\]
+
+\[
+\boxed{
+S_{isolated}
+=
+S_{ACL}
+\land
+CanRW(W,D)
+\land Denied(Host,D,\{Read,Write,Delete,Rename,WRITE\_DAC\})
+\land Denied(Body,D,\{Read,Write,Delete,Rename,WRITE\_DAC\})
+}
+\]
+
+\[
+\boxed{
+I_{protected}
+=
+ImagePath(S)=A
+\land \neg CanWrite(Host,A)
+\land Imports(W)\subseteq ProtectedClosure(A)
+}
+\]
+
+这里故意不从 \(S_{ACL}\) 直接推出 Body 被隔离：ACL 结构只是待核实的对象事实，\(S_{isolated}\) 还要求不同真实 token 的负向攻击与 Witness 正向事务共同成立。实验必须回读实际 DACL、owner 与 `SE_DACL_PROTECTED`，再以不同真实 token 发起文件操作；installer 打印一段 SDDL 不成立。Windows 提供的 `PROTECTED_DACL_SECURITY_INFORMATION` 用于阻断继承，语义见 [Security Information](https://learn.microsoft.com/en-us/windows/win32/secauthz/security-information)。当前 `sys.executable`、源码 checkout 与 `PYTHONPATH` 都在普通用户可写域，不能满足 \(I_{protected}\)，所以把现有 foreground Python 命令注册进 SCM 仍是假完成。
+
+最危险的反例来自 Body。当前 Low-Integrity Body token 从 Witness token 派生；若它仍携带 \(SID_S\)，而 DACL 又允许 \(SID_S\)，那么：
+
+\[
+\boxed{
+BodyRead(Key)=Allowed
+\Rightarrow
+WitnessBodySeparation=false
+}
+\]
+
+Low Integrity 不能被默认解释成“禁止向上读取”。restricted token 的访问需要 enabled SID 与 restricting SID 两次检查都通过，见 [`CreateRestrictedToken`](https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-createrestrictedtoken)。因此 Gate B 必须真实测试 Body 对 DB/key 的 read、write、delete 与 `WRITE_DAC`；任何一项意外成功都推翻 Body 隔离主张，而不是靠解释升级结论。
+
+### 8.4 最小攻击与恢复矩阵
+
+| ID | 独立动作 | 必须观察到 | 被推翻的主张 |
+|---|---|---|---|
+| C01 | 外部 verifier 查询 SCM stable status 与进程 token | own-process PID 一致；LocalService 与 restricted service SID 同时成立 | \(W_{SCM}\)、\(P_W\) |
+| C02 | 非提权宿主请求 `SERVICE_CHANGE_CONFIG`、DELETE、`WRITE_DAC` | `ACCESS_DENIED` | service object 不可改写 |
+| I01 | 宿主替换、截断、rename、delete service artifact/import | 全部拒绝，hash 不变 | \(I_{protected}\) |
+| S01 | 宿主 read/write/delete/rename DB、key、WAL、SHM | 全部拒绝，revision/hash 不变 | 宿主与可信状态隔离 |
+| S02 | SCM service 执行真实 SQLite transaction/checkpoint | 成功，restart 后可验证 | 合法 writer 可用 |
+| S03 | restricted Body read/write/delete/改 ACL | 全部拒绝 | Witness 与 Body 隔离 |
+| P01 | 合法 bound-user public client | 只获得 public allowlist | 安装态 Surface 可用 |
+| P02 | fake same-name pipe、other user、remote/generic client | fail closed | public server/client 身份边界 |
+| L01 | 旧 boot/seq/lease/handle 或复制 private handle | 拒绝，可信状态不变 | 安装态 lineage 因果绑定 |
+| R01 | kill/crash/restart service | Body tree 死亡；只恢复 committed state；旧 lease 不复活 | SCM 生命周期边界 |
+| R02 | administrator stop service | service 退出；stop 自身无可信状态增量；cutoff 前已 admission 的提交被保留且不重复 | supervisor stop 因果 |
+| U01 | stop→delete→cleanup 临时 service | service/object/artifact/state 无残留；Genesis 数仍为 0 | 可逆且不自动出生 |
+
+Microsoft 明确指出 `SERVICE_CHANGE_CONFIG` 可以改变系统实际执行的映像，因此只能授予管理员，见 [Service Security and Access Rights](https://learn.microsoft.com/en-us/windows/win32/services/service-security-and-access-rights)。实验的威胁边界是普通用户权限的 coding agent、Body 与项目代码；不声称抵抗管理员、SYSTEM、内核或离线磁盘篡改。
+
+### 8.5 反伪造规则与本轮停止点
+
+以下非等价关系必须保留：
+
+```text
+SCM config says RESTRICTED
+≠ running token contains the restricted service SID
+
+SCM status says RUNNING
+≠ exact protected artifact is running
+
+installer emits SDDL
+≠ target object owns that protected DACL
+
+one ACCESS_DENIED
+≠ read/write/delete/rename/WRITE_DAC matrix passed
+
+service self-report
+≠ independent verifier evidence
+```
+
+创建临时 service 需要管理员权限；Microsoft 的 SCM 权限说明也明确指出，能够 `CreateService` 的 SCM handle 只授予管理员。当前 Codex 进程是普通用户、Integrity Level 为 Medium，且 Python 解释器位于用户可写目录。因此 Gate B 的下一动作必须是一次明确授权、可逆、随机 service name、零 Genesis 的 UAC 演练；在获得该授权前，可以在这里停下。

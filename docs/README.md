@@ -24,11 +24,11 @@
 - [Current Body 私有会话租约](engineering/CurrentBody私有会话租约.md)
   给出 exact-Head 短期 lease、authority epoch、候选归属、一次性推进、失败重试与来源降级的公式、状态机和测试；后续受限 Body 已复用该语义形成真实跨进程 transport rehearsal，但仍不是安装态 OS Body principal 身份证明。
 - [机器 Witness 服务与 exact-Head 子进程演练](engineering/机器Witness服务与exact-Head子进程演练.md)
-  记录固定 dev-home 的 cooperative-singleton 前台服务、公共 Surface allowlist、exact-Head 全 package、匿名子进程 Boot/ReadyEcho、authority-epoch fencing、崩溃语义、三平台映射与严格证明上限；后续已增加受限 Body 与私有谱系 transport rehearsal，但 provenance 仍不升级为 `agent_self_authored`。
+  记录固定 dev-home 的 cooperative-singleton 前台服务、公共 Surface allowlist、exact-Head 全 package、匿名子进程 Boot/ReadyEcho、authority-epoch fencing、崩溃语义、三平台映射与严格证明上限；后续已增加受限 Body、私有谱系 transport rehearsal 和 stop 路径自身不创建 Authority 事务的内部 supervisor-stop 关节，但 provenance 仍不升级为 `agent_self_authored`。
 - [跨平台 CLI、Off 控制与零安装副作用计划](engineering/跨平台CLI与Off控制演练.md)
   记录 `serve/status/hook/off/plan-install`、Codex adapter 实现只经公共 Surface、未认证控制只允许 Off、原子幂等、输入/输出投影与 Timer 边界、Off/crash/restart/tracked-service cleanup 实验，以及 Windows/macOS/Linux 原生目标合同；计划不安装任何服务或 Hook，三平台均保持 `not_run`。
 - [Windows 原生 Witness 边界](engineering/Windows原生Witness边界.md)
-  汇总四项 Windows foreground 局部原生证据：Job Object、认证 public named pipe、restricted Low-Integrity suspended Body，以及 explicit inherited private lineage transport；全仓 118 项测试通过。它们仍不等于 SCM、protected state、HostPresence、安装态 native security 或正式 Genesis。
+  汇总四项 Windows foreground 局部原生证据与内部 supervisor-stop 关节，并冻结 SCM/service-SID/protected-state 的两 Gate 验收式、攻击矩阵、Body 读 key 反例和 UAC 停止点；Windows 全仓 123/123 项测试通过，WSL Ubuntu 为 108 passed / 15 Windows-only skipped。它们仍不等于 SCM、protected state、HostPresence、安装态 native security 或正式 Genesis。
 - [受限 Body 与私有谱系能力演练](engineering/受限Body与私有谱系能力演练.md)
   保存 restricted child token、suspended handoff、显式 capability handles、Body 发起谱系请求、authoritative result binding、`Committed / Rejected / Unknown`、阻塞写 deadline、短写处理与三平台 adapter 映射的公式、关系图、攻击证据和严格声明边界。
 

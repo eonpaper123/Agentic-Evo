@@ -162,7 +162,7 @@ Nira 不拥有 Root，不产生独立 Agent，也不是本工具的安装范围�
 - ReadyEcho 精确绑定 boot session、challenge、Root、Head、generation 与 activation descriptor，回声后再次校验 authority epoch；
 - worker crash 只有在 pipe 与 logical lease 已释放后才发布 closed；同一 Head 可由新 boot session 重新实例化；
 - 外部 Off→On 在下一次服务检查时淘汰旧 subprocess binding；当前是惰性 fencing；
-- 有效 6 MiB activation 不会因为内部 JSON/base64 的固定帧常数成为不可启动 Head；
+- 有效 6 MiB activation 在专用 30 秒有界 boot 测试窗口内不会因为内部 JSON/base64 的固定帧常数成为不可启动 Head；该证据不覆盖生产默认 2 秒窗口的 Windows 冷机可靠性；
 - worker argv 与继承环境不含 Root、Head、challenge、boot session 或调用进程的任意 secret；
 - public status 不公开 boot session 或 challenge，boot 演练不产生 evidence；
 - Windows diagnostic Body 在接收 Boot 前加入匿名、不可继承、`KILL_ON_JOB_CLOSE` 的 Job Object；真实父/孙进程测试证明最后 handle 关闭会终止进程树，assignment 失败则不发送 Boot 并释放 lease；
@@ -179,13 +179,15 @@ Nira 不拥有 Root，不产生独立 Agent，也不是本工具的安装范围�
 - public endpoint 继续拒绝 Off；独立 control endpoint 只接受无参数 Off，调用者不能自报 provenance；
 - control Off 在 `BEGIN IMMEDIATE` 内原子幂等，第二次 Off 不新增 evidence；
 - Off 回包前 Body 已退出且 logical lease 已释放；Off 后 Root / Head 不变、sessions 清空；
-- fake connection 上的 partial control frame 与 partial response frame Timer 编排有界，public/control client 的 12 秒 response Timer 与 2 秒 request receive Timer 分离，慢 public dispatch 与 Body shutdown 不被 receive Timer 中止；真实 AF_PIPE / AF_UNIX 取消行为尚未实测；
+- fake connection 上的 partial control frame 与 partial response frame Timer 编排有界，public/control client 的 12 秒 response Timer 与 2 秒 request receive Timer 分离，慢 public dispatch 与 Body shutdown 不被 receive Timer 中止；Windows public/control `accept()` 的跨线程中断已经实测，真实 AF_PIPE / AF_UNIX `recv` 取消仍未实测；
 - Off 后强杀并重启 service，Authority 仍为 Off，Body 不重生；
 - `control_rehearsal_off` 推进 authority epoch，旧 lease 不能跨该 Off→On 复活；
 - public string parameter 与 Body logical path 有明确 byte bound；含 1201 个文件的合法 Head 可以 wake，body-files、activation-context 与 active-sessions 按 canonical JSON bytes 返回有界投影及 count/truncated；
 - `plan-install` 跨 cwd、环境和伪 home 逐字节确定，不创建 Agent 文件或状态、不安装服务或 Hook、不启动受管 Agent 进程，也不执行 Genesis；
 - Windows、macOS、Linux 目标均保持 `native_test_status=not_run`；
-- 当前全仓 118 项测试在 `ResourceWarning` 作为错误时通过。
+- 内部 supervisor stop 不经过 public/Off operation：`request_stop()` 在 lifecycle lock 上建立 dispatch cutoff，唤醒/关闭 listener 与 active transports，拒绝 cutoff 后才尝试 admission 的请求，并等待 cutoff 前已 admission 的请求归静；service loop 随后 join workers、回收 Body/lease、释放 singleton；
+- 屏障测试证明 cutoff 前已 admission 的变更可以恰好提交一次且 stop 必须等待；stop 路径自身的可信状态增量为空；每条 transport 的 raw close 由 stop、worker 与 deadline timer 共享的单一 owner 串行化；
+- Windows 全仓 123/123 项测试在 `ResourceWarning` 作为错误时通过；WSL Ubuntu 发现同样 123 项，其中 108 项通过、15 项 Windows-only contract 明确 skipped。macOS 尚未实机运行。
 
 这些结果证明的是代码契约，不是长期学习、自我进化或独立科研证据已经成立。
 
@@ -251,7 +253,7 @@ Root、Head、Authority、session、revision、evidence 与 checkpoint 现已进
 - worker 已有最小 lineage dispatcher并能发起请求；logical lease、Root/Head/epoch 派生与事务裁决仍由 service 父进程持有，provenance 继续是 `subprocess_rehearsal`；
 - 当前 foreground service、worker、SQLite 和 key 仍处于同一普通用户权限域；private child handles 已显式继承，但 control endpoint、state 与 key 尚无 service SID / distinct Body principal 保护；POSIX 路径也尚无专用 UID 或 peer-credential 实机证据；
 - public pipe 的 SID 只证明客户端 token 属于绑定账户，不证明第一宿主真人此刻在场；client PID 只用于诊断，不能作为稳定身份、授权或防 PID reuse 的依据；
-- receive/response Timer 只通过 fake connection 验证了编排；真实 AF_PIPE / AF_UNIX 上跨线程 `close()` 能否可靠中断阻塞 `recv` 仍需平台测试或原生取消 I/O；
+- receive/response Timer 只通过 fake connection 验证了编排；Windows public/control `accept()` 的关闭/唤醒已有实测，真实 AF_PIPE / AF_UNIX 上跨线程 `close()` 能否可靠中断阻塞 `recv` 仍需平台测试或原生取消 I/O；
 - 12 秒 response Timer 约束客户端等待，不会强杀卡在业务处理中的 Python worker；原生 service 仍需可取消工作、进程级隔离或 supervisor fencing；
 - Windows launcher 已完成 restricted suspended spawn、Job-before-Resume 与 explicit handle inheritance；但 SCM service crash / restart、未知外部 worker、protected state 和安装后完整攻击矩阵仍未验证，因而不能把该局部证据扩大为整机活体唯一性；
 - 敏感信息过滤主要检查 evidence payload key，尚不能替代完整的值分类与 artifact policy。
@@ -311,7 +313,7 @@ Body candidate 可在事务前完整落盘；未被已提交 Head 引用的 cand
 
 ### G3：形成真实机器生命周期
 
-G3 的 Python 可移植层已经完成；Windows foreground 又完成 Job、认证 public pipe、restricted suspended Body 与 private lineage transport rehearsal。它没有持久化 lease 表或 bearer token，也没有把 `subprocess_rehearsal`、`private_lineage_transport_rehearsal`、`control_unverified` 或 rendered plan 冒充为真实 Body / Host / installed native 来源。
+G3 的 Python 可移植层已经完成；Windows foreground 又完成 Job、认证 public pipe、restricted suspended Body、private lineage transport rehearsal，以及 stop 路径自身不创建 Authority 事务的内部 supervisor-stop 关节。它没有持久化 lease 表或 bearer token，也没有把 `subprocess_rehearsal`、`private_lineage_transport_rehearsal`、`control_unverified` 或 rendered plan 冒充为真实 Body / Host / installed native 来源。
 
 需要一个机器级、项目无关的安装与运行边界：
 
@@ -366,6 +368,7 @@ Authority
 [已完成] Windows Job Object 在 Boot 前围栏 diagnostic Body，并由真实孙进程验证 kill-on-close
 [已完成] Windows foreground public pipe 使用显式 DACL、remote rejection、最小 client access、peer-SID verification 与 diagnostic PID
 [已完成] Windows restricted Low-Integrity suspended Body + explicit inherited private lineage transport rehearsal
+[已完成] 内部 supervisor stop：cutoff、transport close、admitted-work drain 与完整 service-loop 回收分层；不改写 Host Off，stop 自身无 Authority / evidence 增量
 → 用 SCM service principal / protected state 形成机器生命周期边界
 → 在临时安装中攻击并复验 public / Body capability / crash / uninstall
 → 隔离 Authority、Witness、Current Body 与 probation principal

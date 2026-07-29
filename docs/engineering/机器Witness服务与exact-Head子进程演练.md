@@ -435,7 +435,7 @@ commit Authority=Off
 - Ready 期间跨过 Off boundary 会杀死进程、释放 lease；
 - worker crash 后只有在 lease 已释放时 `wait_closed` 才完成；
 - 同一 Head 可以从新的 boot session 重新实例化；
-- 有效 6 MiB activation 不会因 8 MiB JSON/base64 单帧常数成为不可启动 Head；
+- 有效 6 MiB activation 在专用 30 秒有界 boot 测试窗口内不会因 8 MiB JSON/base64 单帧常数成为不可启动 Head；这不证明生产默认 2 秒窗口在 Windows 冷机上也足够；
 - worker argv 不含 Root、Head、challenge 或 boot session；
 - worker 不继承服务进程中的任意环境 secret；
 - public status 不暴露 challenge 或 boot session；
@@ -445,9 +445,137 @@ commit Authority=Off
 - Windows Body 以 restricted Low-Integrity token suspended-spawn，在 Resume 前加入 Job 并只继承显式私有 handle pair；
 - Body 发起的谱系请求绑定 boot session、严格序号、same-lease candidate 与 authoritative Witness response；
 - replay、伪造 result、claimed authorship、深层 JSON、timeout 与异步故障均 fail closed 或进入 `OutcomeUnknown`；
-- Boot、command、response 与 stop 四个父端写点都有 deadline，partial writes 不会被误判为完整 frame。
+- Boot、command、response 与 stop 四个父端写点都有 deadline，partial writes 不会被误判为完整 frame；
+- 内部 supervisor stop 会建立 dispatch cutoff，唤醒并关闭 listener/active transports，拒绝 cutoff 后才尝试 admission 的 public/control 请求，并等待 cutoff 前已获准的请求归静；service loop 随后 join worker、回收 Body/lease、释放 singleton，并允许同一 home 重启；
+- stop 路径自身没有可信状态增量，但 cutoff 前已经 admission 的合法变更仍可恰好提交一次；屏障测试证明 `request_stop()` 会等待该提交完成；
+- stop、worker cleanup 与 control receive deadline 共享每条 transport 的单一 raw-close owner，不会并发重复关闭同一底层句柄。
 
-这些是协议和进程生命周期事实，不是长期学习或自我进化证据。截至当前，全仓 118 项测试在 `ResourceWarning` 作为错误时通过。
+这些是协议和进程生命周期事实，不是长期学习或自我进化证据。截至当前，Windows 全仓 123/123 项测试在 `ResourceWarning` 作为错误时通过；WSL Ubuntu 同样发现 123 项，其中 108 项通过、15 项 Windows-only contract 明确 skipped。
+
+### 8.1 service stop 与 Host Off 是两种因果
+
+未来 Windows SCM、macOS launchd 和 Linux systemd 都需要一个 supervisor-owned stop 关节。它只结束当前服务进程及其 Body，不替宿主表达“关闭 Agent”：
+
+```mermaid
+flowchart LR
+    S["OS supervisor stop<br/>SCM / launchd / systemd"]
+    R["WitnessService.request_stop()"]
+    P["建立 admission cutoff"]
+    T["唤醒/关闭 listeners<br/>关闭 active transports"]
+    Q["等待 cutoff 前<br/>admitted dispatch 归静"]
+    J["service finally<br/>join workers"]
+    B["关闭 Body + process fence<br/>释放 CurrentBody lease"]
+    L["释放 singleton<br/>同一 state 可重启"]
+    O["Host Off control"]
+    A["Authority=Off<br/>写入 Off evidence"]
+    C["service 继续存活<br/>仍可响应 status"]
+
+    S --> R --> P --> T --> Q --> J --> B --> L
+    O --> A --> C
+```
+
+令 \(\tau_s\) 为 `request_stop()` 在 lifecycle lock 内设置 cutoff 的线性化点，\(Admitted(r)\) 为请求取得 dispatch admission。当前实测合同不是“粗暴关闭所有线程”，而是：
+
+\[
+\boxed{
+\tau(Admitted(r))\ge\tau_s
+\Rightarrow
+Reject(r)
+}
+\]
+
+\[
+\boxed{
+Return(request\_stop)
+\Rightarrow
+Quiescent(Admitted_{<\tau_s})
+\land NoDispatch_{\ge\tau_s}
+\land Closed(RegisteredActiveTransports_{\tau_s})
+}
+\]
+
+完整退出另有一个更晚的完成点：
+
+\[
+\boxed{
+ServiceStopComplete
+\equiv Exited(serve\_forever)
+\Rightarrow
+Return(request\_stop)
+\land Joined(Workers)
+\land Exited(AcceptLoops)
+\land Closed(AllAcceptedTransports)
+\land Retire(Body,Lease)
+\land Release(Singleton)
+}
+\]
+
+令 \(X=(Root,Head,Authority,Evidence)\)。supervisor stop 自身不产生可信状态事务：
+
+\[
+\boxed{
+\Delta X_{stop}=\varnothing
+}
+\]
+
+cutoff 前已经 admission 的合法请求仍可先提交。先定义 cutoff 时仍未归静的集合：
+
+\[
+\boxed{
+Pending_{\tau_s}
+=
+\{r\mid Admitted(r)<\tau_s
+\land \neg Completed(r,\tau_s^-)\}
+}
+\]
+
+于是一般形式只加入这些 pending 请求在 drain 期间产生的提交：
+
+\[
+\boxed{
+X_{after}
+=
+X_{\tau_s^-}
+\oplus
+\Delta X_{Committed_{>\tau_s}(Pending_{\tau_s})}
+}
+\]
+
+调用方不一定收到 cutoff 前已获准请求的响应：active transport 先关闭，请求随后可能提交。因此 EOF 只表示 caller-visible `OutcomeUnknown`，必须读取可信状态对账，不能推导“事务未提交”。只有 cutoff 时 \(Pending_{\tau_s}\) 中没有 mutating dispatch，状态关系才退化为：
+
+\[
+\boxed{
+NoMutating(Pending_{\tau_s})
+\Rightarrow
+X_{after}=X_{\tau_s^-}
+}
+\]
+
+而无论 stop 前是否已有合法请求：
+
+\[
+\boxed{
+Observed_{rehearsal}\Big[
+ServiceStopComplete(W_i)
+\land Valid(State_{after\ quiescence})
+\land SameTestEnvironment
+\Rightarrow
+StartSucceeded(W_{i+1},same\ home)
+\Big]
+}
+\]
+
+同时：
+
+\[
+\boxed{
+request\_stop
+\notin Ops_{public}
+\cup Ops_{control}
+}
+\]
+
+它只供进程 supervisor 进入；不能让 public Surface 或当前未认证 Off endpoint 获得“杀死服务”的新能力。Windows named pipe 与 POSIX AF_UNIX 都不能把跨线程 `Listener.close()` 当作 pending `accept()` 已退出的证明：实现先用有界 self-connect 唤醒 accept，再关闭 listener/active connections，等待 admitted dispatch 归静；`serve_forever()` 的 `finally` 再 join workers、回收 Body/lease 与释放 singleton。每条已接受 transport 由一个微型 close owner 串行化底层 `close()`，避免 stop、worker 与 deadline timer 并发关闭同一句柄。Windows 和 WSL 的“preaccepted public/control request 在 cutoff 后不得提交”“cutoff 前 admitted mutation 恰好提交且 stop 等待”“同一 transport 只 raw-close 一次”及“同一 home 立即重启”测试共同约束这一点；macOS 仍需对应实机复验。
 
 ---
 
@@ -527,7 +655,7 @@ public Surface allowlist
 
 三平台不是三种 Agent。相同协议不变量由三个薄的 OS 实现分别通过攻击测试。
 
-当前实际 subprocess、AF_PIPE、service crash 与锁恢复集成测试运行在 Windows。macOS/Linux 目前只验证了 endpoint 推导与共享 Python 协议代码；在对应平台 CI 或实机运行前，不能把它们写成已经通过的 IPC、signal、file-lock 或子进程行为。
+当前完整 123 项测试在 Windows 运行。WSL Ubuntu 也发现 123 项，其中 108 项通过、15 项 Windows-only contract 明确 skipped；这已经覆盖 AF_UNIX public/control、subprocess、service crash/stop、preaccepted-request fencing、锁恢复与 same-home restart。它仍不是 systemd、dedicated UID、StateDirectory 或 bare-metal Linux 的原生证据。macOS 目前只有 endpoint 推导与共享代码路径；在 macOS 实机运行前，不能把它写成已经通过的 launchd、IPC、signal、file-lock 或子进程行为。
 
 ---
 
@@ -541,7 +669,8 @@ public Surface allowlist
 4. challenge / ReadyEcho / Root / Head / generation / activation / epoch fencing；
 5. worker crash、service crash、Off→On 与大 Body 的协议演练；
 6. restricted Body 的 explicit inherited private transport 与严格谱系往返；
-7. `subprocess_rehearsal` / `private_lineage_transport_rehearsal` 与真实 Body provenance 的严格区分。
+7. `subprocess_rehearsal` / `private_lineage_transport_rehearsal` 与真实 Body provenance 的严格区分；
+8. supervisor stop 与 Host Off 的因果分离，以及 stop 后同一 home 的可重启性。
 
 本轮不能继续用 Python 类或更多 token 假装解决：
 
@@ -556,4 +685,4 @@ public Surface allowlist
 
 > 冻结并审计 Python 可移植层，然后直接进入平台原生 service/principal、protected state、peer credential 与 process-tree fencing；不再扩张模拟安全层。
 
-该冻结、Windows Job Object、foreground native public named pipe、restricted Body 与 private lineage transport 切片现已完成，见[《Windows 原生 Witness 边界》](Windows原生Witness边界.md)和[《受限 Body 与私有谱系能力演练》](受限Body与私有谱系能力演练.md)。当前下一项是 SCM Witness principal + service-owned protected state，再以临时安装和攻击测试复验现有 transport；不提前宣称 HostPresence、安装完成或正式 Genesis。
+该冻结、Windows Job Object、foreground native public named pipe、restricted Body、private lineage transport 与内部 supervisor-stop 关节现已完成，见[《Windows 原生 Witness 边界》](Windows原生Witness边界.md)和[《受限 Body 与私有谱系能力演练》](受限Body与私有谱系能力演练.md)。当前下一项是让真实 SCM `SERVICE_CONTROL_STOP` 接入该关节，并建立 SCM Witness principal + service-owned protected state，再以临时安装和攻击测试复验现有 transport；不提前宣称 HostPresence、安装完成或正式 Genesis。
