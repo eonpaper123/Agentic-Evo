@@ -174,7 +174,9 @@ class BodyProcessTests(unittest.TestCase):
         body = BodyProcessSupervisor(
             self.runtime,
             self.witness,
-            ready_timeout_seconds=10.0,
+            # Keep a bounded deadline while allowing cold Windows process
+            # startup and endpoint scanning of the 8+ MiB encoded package.
+            ready_timeout_seconds=30.0,
         ).spawn_current()
         self.bodies.append(body)
         self.assertTrue(body.is_alive())
