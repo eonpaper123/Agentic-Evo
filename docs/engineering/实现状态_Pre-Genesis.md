@@ -1,7 +1,7 @@
 # Agentic-Evo 实现状态：Pre-Genesis
 
 更新时间：2026-07-30
-状态：本地可信事务与 Current Body lease 逻辑纵切面已形成代码，尚未安装，尚未 Genesis
+状态：本地可信事务、Current Body lease、前台 Witness 服务与 exact-Head 子进程演练已形成代码，尚未安装，尚未 Genesis
 适用范围：当前仓库中的真实实现、已验证性质、未成立性质和 Genesis 前阻断项
 
 ---
@@ -17,6 +17,7 @@ Trusted State（身份锚 + Head + session + evidence + checkpoint）
 + Content-addressed Body
 + Machine Runtime
 + WitnessCore（Current Body lease 逻辑演练）
++ Foreground Witness service / exact-Head subprocess rehearsal
 + Codex Adapter
 ```
 
@@ -32,6 +33,10 @@ Genesis
 → 合法父代经一次性 lease 在单一可信事务中推进 Head
 → 等待
 → Off / On
+→ fixed-home cooperative-singleton foreground service
+→ public Surface allowlist
+→ exact Head package 经匿名 pipe 交给 diagnostic subprocess
+→ ReadyEcho 后重新校验 Head / authority epoch
 ```
 
 但这里的“模拟 Genesis”只是自动化测试夹具，不是正式 Genesis。仓库没有写入用户级 Codex hook，没有常驻后台进程，没有创建机器级唯一 Root，也没有开始正式纵向实验。
@@ -96,6 +101,7 @@ Nira 不拥有 Root，不产生独立 Agent，也不是本工具的安装范围�
 | 证据与本地见证 | SQLite 内连续 evidence hash chain；每次可信变化一个 checkpoint；checkpoint 承诺 `Who / Why / Root / Head / Authority / sessions_hash / evidence tail` | evidence、状态与 checkpoint 数量和尾部必须一致；人工仪器变化与 Human Learning Intervention 仍可分类；当前 MAC 不是独立数字签名 |
 | Runtime | Genesis 单写者锁、生命周期串行锁、跨会话状态、wake/wait、后继准备、事务内 Head CAS、On/Off | 同一测试安装可跨项目与接入面保持一个 Root 和 Head；并发 Genesis 只有一个成功；独立 Runtime 竞争旧 Head 只有一个赢家；真实进程退出不留半提交历史 |
 | Current Body lease 演练 | volatile `CurrentBodySession`、exact Root / Head、authority epoch、单调 deadline、lease-local candidate set、跨平台 OS 文件锁 | 正常谱系路径不能由 Surface 直接调用；Off→On、旧 Head、过期、其他 lease 候选和伪造 rehearsal 标签不能复用推进权；当前仍不认证 OS Body principal |
+| 前台 Witness / 子进程演练 | 固定 dev-home、singleton service lock、AF_PIPE/AF_UNIX 公共 bytes/JSON、public allowlist、exact-Head package、匿名 stdin/stdout、Boot challenge / ReadyEcho、sanitized environment | 公共 Surface 没有 lineage API；子进程能重建 exact Head；崩溃与 authority epoch 会撤销逻辑绑定；只证明 `subprocess_rehearsal`，lease 仍在父进程 |
 | Codex adapter | `SessionStart / SessionEnd / prompt / tool / compact / subagent / stop / permission` 映射；原文哈希化；失败隔离 | Codex 可作为端口而不成为身份；观测失败不阻断 coding-agent 主任务 |
 
 当前实现没有规定记忆 schema、信号、学习算法、候选评分、Better 函数或 evaluator。这些开放空间仍属于身体。
@@ -138,6 +144,16 @@ Nira 不拥有 Root，不产生独立 Agent，也不是本工具的安装范围�
 - 外部 Off→On 不能复活旧 lease；伪造 `in_process_rehearsal` 标签不能冒充由该 lease 亲自准备的候选；
 - Surface 不能自报最终 `source_kind / author_kind / human_intervention_kind`，当前统一降级为 `surface_unverified`；
 - Body 逻辑演练只记录 `ingress_path=in_process_rehearsal`，不产生 `agent_self_authored` 主张；
+- 遵守同一 service-lock 协议的 foreground Witness 在同一 dev-home 至多一个；空 home 启动绝不自行 Genesis；
+- 公共 endpoint 只允许 `status / wake / sleep / observe`，lineage、On / Off 与 Genesis 请求均被拒绝；
+- malformed、oversize 与静默公共连接 fail closed，且静默连接不能阻塞其他 Surface 请求；
+- exact Current Head 的完整 manifest 与 blobs 经匿名 pipe 交给 diagnostic subprocess 并在子进程重建；
+- ReadyEcho 精确绑定 boot session、challenge、Root、Head、generation 与 activation descriptor，回声后再次校验 authority epoch；
+- worker crash 只有在 pipe 与 logical lease 已释放后才发布 closed；同一 Head 可由新 boot session 重新实例化；
+- 外部 Off→On 在下一次服务检查时淘汰旧 subprocess binding；当前是惰性 fencing；
+- 有效 6 MiB activation 不会因为内部 JSON/base64 的固定帧常数成为不可启动 Head；
+- worker argv 与继承环境不含 Root、Head、challenge、boot session 或调用进程的任意 secret；
+- public status 不公开 boot session 或 challenge，boot 演练不产生 evidence；
 - Off 后延迟到达的 session end 被拒绝，不再增长 revision、evidence 或 checkpoint；
 - adapter 的科研仪器失败不会阻断 coding-agent hook。
 
@@ -173,9 +189,9 @@ Runtime 现在会交叉检查 SQLite state、session、当前 Body、evidence �
 
 > 身体无法冒充、复制或改写的唯一灵魂。
 
-### 5.3 逻辑 Off 不等于机器级真实终止
+### 5.3 逻辑 Off 与子进程 EOF 不等于机器级真实终止
 
-当前没有 daemon、sleep worker、GPU worker 或自动恢复进程。测试证明的是 Runtime gate 在 `off` 状态拒绝后续 wake，不是已经证明所有后台活体活动都能被宿主终止。
+当前已有 foreground service 与 diagnostic subprocess，但没有受 SCM / launchd / systemd 监督的 daemon、独立 Body principal、sleep/GPU worker 或 OS process-tree 原子终止。测试证明 Runtime gate、logical lease、子进程 EOF 和下一次检查时的 epoch fencing；没有证明所有后台活体活动能在 Off 瞬间由宿主强制终止。
 
 ### 5.4 adapter 函数不等于已覆盖所有 coding agent
 
@@ -202,6 +218,9 @@ Root、Head、Authority、session、revision、evidence 与 checkpoint 现已进
 - adapter 失败目前静默退出以保护用户任务，但还没有身体之外的 health / coverage-gap 通路；
 - activation artifact 会进入模型上下文，当前尚无内容分级、模型信任域、跨项目泄露检查和最大 body 读取边界；
 - 当前 `surface-context-utf8-v1` 只形成 exact activation reference，不是受保护 Body principal 的真实 boot；
+- 当前 diagnostic worker 能重建 exact Head package 并返回 ReadyEcho，但不执行 activation 语义；logical lease 仍由 service 父进程持有，worker 没有 lineage dispatcher；
+- 当前 foreground service、worker、SQLite 和 key 仍处于同一普通用户权限域；AF_PIPE/AF_UNIX 与匿名 pipe 还没有 DACL、peer credential、service SID、专用 UID 或 code-signing 身份；
+- Windows 尚无 Job Object，service crash 后旧 worker 到 pipe EOF 退出之间可能与重启 worker 短暂重叠；旧 worker 没有可用 Head writer，但物理单进程不变量尚未证明；
 - 敏感信息过滤主要检查 evidence payload key，尚不能替代完整的值分类与 artifact policy。
 
 这些问题不要求人类规定 Agent 应怎样记忆或学习；它们属于研究世界能否可信存在的工程条件。
@@ -255,7 +274,7 @@ Body candidate 可在事务前完整落盘；未被已提交 Head 引用的 cand
 
 ### G3：形成真实机器生命周期
 
-G3 的第一步——Current Body lease 的逻辑状态机、一次性推进、authority epoch 与候选归属——已经完成。它没有持久化 lease 表或 bearer token，也没有把逻辑路径冒充为真实来源。
+G3 的前两步已经完成：Current Body lease 的逻辑状态机、一次性推进、authority epoch 与候选归属；以及 fixed-home foreground service、公共 allowlist、exact-Head package 与 diagnostic subprocess ReadyEcho。它没有持久化 lease 表或 bearer token，也没有把 `subprocess_rehearsal` 冒充为真实 Body 来源。
 
 需要一个机器级、项目无关的安装与运行边界：
 
@@ -302,11 +321,12 @@ Authority
 ```text
 [已完成] 把可信身份状态迁入单一 SQLite 事务域
 [已完成] 建立 Current Body lineage lease 的逻辑协议与进程内演练
-→ 用 OS service / 私有 IPC 兑现真实 Current Body principal
+[已完成] 建立固定 dev-home 的 cooperative-singleton foreground service 与公共 Surface IPC
+[已完成] 建立 exact-Head package / anonymous pipe / ReadyEcho 子进程演练
+→ 增加最小 CLI、Host control rehearsal 与三平台 service / hook dry-run
+→ 在临时目录完成 Off / crash / restart / cleanup 演练
+→ 用原生 OS service / principal / 私有 lineage IPC 兑现真实 Current Body 来源
 → 隔离 Authority、Witness、Current Body 与 probation principal
-→ 增加机器级 service / IPC / CLI
-→ 生成但不安装 Codex hook 配置
-→ 在临时安装中完成 crash / Off / uninstall 演练
 → 冻结 I₀ 与 Protocol₀
 → 用户明确启动正式 Genesis
 ```
@@ -322,3 +342,5 @@ Head 的最小出生信封、解释器不可消除性、exact activation / exact
 身份、Head、session、evidence 与本地 checkpoint 的原子提交、崩溃语义和本地 HMAC 上限，见[《单一可信事务域》](单一可信事务域.md)。
 
 Current Body lease 的公式、状态机、authority epoch、候选归属、已验证性质与惰性 TTL / OS principal 上限，见[《Current Body 私有会话租约》](CurrentBody私有会话租约.md)。
+
+固定 dev-home 服务、公共 IPC、exact-Head package、匿名子进程 Boot/ReadyEcho、崩溃与 epoch fencing 的公式、关系图、验证结果和证明上限，见[《机器 Witness 服务与 exact-Head 子进程演练》](机器Witness服务与exact-Head子进程演练.md)。

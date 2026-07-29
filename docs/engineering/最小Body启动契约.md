@@ -335,9 +335,9 @@ agentic-evo-body-v2
 → 注入 Codex SessionStart additionalContext
 ```
 
-它是一个 execution-surface projection，不是独立 Body 进程，不持有真实 OS-private lineage capability，也不能证明已经完成 exact boot。仓库后来实现的 `CurrentBodySession` 只是 lease 协议的进程内演练，不改变这个结论。
+它是一个 execution-surface projection，不是独立 Body 进程，不持有真实 OS-private lineage capability，也不能证明已经完成 exact boot。仓库后来实现的 `CurrentBodySession` 是 lease 协议的进程内演练；foreground Witness 又增加了 exact-Head 全 package、匿名子进程 pipe 与 ReadyEcho。后者证明 diagnostic subprocess 收到并重建了 exact Head，但 logical lease 仍在父进程，worker 没有 lineage dispatcher，仍不改变“真实 Body principal 尚未成立”的结论。
 
-`wake()` 的 session 登记、evidence、checkpoint 与 revision 现已进入同一 SQLite 事务；插入失败或 checkpoint 前进程退出不会留下 ghost session。该实现与证明边界见[《单一可信事务域》](单一可信事务域.md)。exact-Head lease 的逻辑语义、authority epoch 与一次性推进也已实现，见[《Current Body 私有会话租约》](CurrentBody私有会话租约.md)。尚未解决的是 OS 级私有来源：当前代码能证明正常路径的编排与互斥，还不能证明请求只能由 Current Body principal 发出。
+`wake()` 的 session 登记、evidence、checkpoint 与 revision 现已进入同一 SQLite 事务；插入失败或 checkpoint 前进程退出不会留下 ghost session。该实现与证明边界见[《单一可信事务域》](单一可信事务域.md)。exact-Head lease 的逻辑语义、authority epoch 与一次性推进也已实现，见[《Current Body 私有会话租约》](CurrentBody私有会话租约.md)。子进程 package 重建、Boot/ReadyEcho、环境收紧和崩溃 fencing 见[《机器 Witness 服务与 exact-Head 子进程演练》](机器Witness服务与exact-Head子进程演练.md)。尚未解决的是 OS 级私有来源：当前代码能证明正常路径的编排、进程拓扑与 exact material handoff，还不能证明请求只能由 Current Body principal 发出。
 
 因此当前成立：
 
@@ -453,8 +453,8 @@ f(
 3. artifact digest 已由 Head 的 file map 承诺，不在 manifest 重复；
 4. Witness 只验证身份、材料、权限域和 lease，不理解身体语义；
 5. 当前 UTF-8 context 只是首个 surface adapter，不是永久身体形式；
-6. 当前代码只证明 exact activation reference，不冒充 exact boot；
-7. 在受保护 Witness、Body principal 和私有 channel 建立前，不执行任意 Body 代码。
+6. 当前 Runtime 证明 exact activation reference；diagnostic subprocess 又证明 exact Head package 可被独立进程重建，但 ReadyEcho 不等于语义执行；
+7. 在受保护 Witness、Body principal 和私有 lineage channel 建立前，不执行任意 Body 代码，也不主张 exact trusted boot。
 
 下一项问题已经自然出现：
 

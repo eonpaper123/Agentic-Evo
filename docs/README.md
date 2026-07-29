@@ -23,6 +23,8 @@
   把身份锚、Root、Head、Authority、session、evidence 与本地 checkpoint 收入一个 SQLite 原子提交，给出 Genesis、CAS、崩溃、session 承诺和本地 HMAC 的公式、关系图、验证结果与证明上限。
 - [Current Body 私有会话租约](engineering/CurrentBody私有会话租约.md)
   给出 exact-Head 短期 lease、authority epoch、候选归属、一次性推进、失败重试与来源降级的公式、状态机和测试；明确当前只是进程内协议演练与合作式互斥，不是 OS Body principal 身份证明。
+- [机器 Witness 服务与 exact-Head 子进程演练](engineering/机器Witness服务与exact-Head子进程演练.md)
+  记录固定 dev-home 的 singleton 前台服务、公共 Surface allowlist、exact-Head 全 package、匿名子进程 Boot/ReadyEcho、authority-epoch fencing、崩溃语义、三平台映射与严格证明上限；当前只成立 `subprocess_rehearsal`，不成立独立 principal、真实 lineage capability 或 `agent_self_authored`。
 
 ## 专题
 

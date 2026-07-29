@@ -6,7 +6,7 @@ The project is not a Codex plugin or a Codex-specific optimization system. The u
 
 ## Current status
 
-**Pre-Genesis.** The first machine-level `Trusted State + Body + Runtime + Witness lease rehearsal + Codex Adapter` vertical slice now exists and is tested, but it is not installed globally and no real Root has been created. Identity, Head, sessions, evidence, and local checkpoints commit in one SQLite transaction; a volatile exact-Head lease now gates the normal lineage path without claiming authenticated Body identity. Authority/Witness isolation, a real OS-private Current-Body channel, and a single machine service remain hard blockers before the one formal Genesis.
+**Pre-Genesis.** The first machine-level `Trusted State + Body + Runtime + Witness service/process rehearsal + Codex Adapter` vertical slice now exists and is tested, but it is not installed globally and no real Root has been created. Identity, Head, sessions, evidence, and local checkpoints commit in one SQLite transaction. A fixed-home cooperative-singleton foreground service now exposes a lineage-free public Surface protocol and can hand the complete exact-Head package to a sanitized diagnostic subprocess through anonymous pipes. The logical lease remains in the parent and the subprocess provenance is deliberately only `subprocess_rehearsal`: independent OS principals, service-owned state, a real private lineage channel, native installation and formal Genesis remain blockers.
 
 See [实现状态：Pre-Genesis](docs/engineering/实现状态_Pre-Genesis.md).
 
@@ -31,6 +31,8 @@ See [实现状态：Pre-Genesis](docs/engineering/实现状态_Pre-Genesis.md).
 [单一可信事务域](docs/engineering/单一可信事务域.md)
 
 [Current Body 私有会话租约](docs/engineering/CurrentBody私有会话租约.md)
+
+[机器 Witness 服务与 exact-Head 子进程演练](docs/engineering/机器Witness服务与exact-Head子进程演练.md)
 
 [跨模块科研假设矩阵](docs/research/跨模块科研假设矩阵.md)
 

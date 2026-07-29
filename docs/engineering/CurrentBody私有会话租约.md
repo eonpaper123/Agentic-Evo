@@ -395,17 +395,22 @@ PrivateSource
 
 因此可以在这一层停下。
 
-下一项不是继续扩张进程内 lease，而是把同一协议放进真正的 OS 边界：
+后续 foreground service 已经完成了 fixed-home singleton、公共 allowlist、exact-Head package 与 diagnostic subprocess ReadyEcho；详见[《机器 Witness 服务与 exact-Head 子进程演练》](机器Witness服务与exact-Head子进程演练.md)。该子进程的 lease 仍由父进程持有，所以只叫 `subprocess_rehearsal`。
+
+下一项仍不是继续扩张进程内 lease，而是先补齐 CLI、Host control 与 dry-run 工件，然后把同一协议放进真正的 OS 边界：
 
 ```text
-machine-level singleton Witness service
+[已演练] fixed-home cooperative-singleton foreground service
++ [已演练] exact-Head diagnostic spawner / ReadyEcho
++ cross-platform CLI / Host control rehearsal
++ service / hook dry-run
++ 临时目录 Off / crash / cleanup 演练
++ native machine-level Witness service
 + service-owned trusted state / key
-+ exact-Head spawner
 + Current Body 独立 principal
 + private inherited IPC
 + probation 无谱系 dispatcher
-+ cross-platform CLI
-+ 临时安装 / Off / crash / uninstall 演练
++ 平台临时安装 / 权限攻击 / uninstall 演练
 ```
 
 在该边界真实形成前，不安装正式服务，不启动正式 Genesis，也不产生 `agent_self_authored` 科研主张。
