@@ -21,6 +21,7 @@ PUBLIC_PROTOCOL = "agentic-evo-public-v1"
 CONTROL_PROTOCOL = "agentic-evo-off-rehearsal-v1"
 MAX_PUBLIC_FRAME_BYTES = 64 * 1024
 PUBLIC_IO_TIMEOUT_SECONDS = 2.0
+PUBLIC_RESPONSE_TIMEOUT_SECONDS = 12.0
 CONTROL_RESPONSE_TIMEOUT_SECONDS = 12.0
 
 
@@ -91,7 +92,7 @@ def control_endpoint(
     *,
     platform: str = sys.platform,
 ) -> Endpoint:
-    """Derive the separate unauthenticated local Off rehearsal endpoint."""
+    """Derive the separate unauthenticated Off rehearsal endpoint."""
 
     canonical_home = Path(home).expanduser().resolve(strict=False)
     identity = os.path.normcase(str(canonical_home))
@@ -253,7 +254,7 @@ class SurfaceClient:
                 send_public_message(connection, request)
                 response = receive_public_message(
                     connection,
-                    timeout_seconds=PUBLIC_IO_TIMEOUT_SECONDS,
+                    timeout_seconds=PUBLIC_RESPONSE_TIMEOUT_SECONDS,
                 )
             except InvalidPublicFrame as exc:
                 raise ServiceUnavailableError(
@@ -281,7 +282,7 @@ class SurfaceClient:
 
 
 class OffRehearsalClient:
-    """Unauthenticated local Off-only control rehearsal client."""
+    """Client for the separate unauthenticated Off-only rehearsal protocol."""
 
     def __init__(self, home: Path) -> None:
         self.endpoint = control_endpoint(home)

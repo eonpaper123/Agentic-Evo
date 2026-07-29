@@ -210,16 +210,9 @@ class WitnessService:
             pass
 
     def _serve_connection_with_deadline(self, connection: Connection) -> None:
-        deadline = threading.Timer(
-            PUBLIC_IO_TIMEOUT_SECONDS,
-            connection.close,
-        )
-        deadline.daemon = True
-        deadline.start()
         try:
             self._serve_connection(connection)
         finally:
-            deadline.cancel()
             connection.close()
             self._connection_slots.release()
 
