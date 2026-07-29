@@ -842,8 +842,10 @@ class WitnessServiceTests(unittest.TestCase):
         connection = FakeConnection()
         observed_during_shutdown: list[bool] = []
         service = WitnessService.__new__(WitnessService)
+        service._lifecycle_guard = threading.RLock()
+        service._active_connections = {}
 
-        def slow_control_work(_: object) -> None:
+        def slow_control_work(_: object, __: object | None = None) -> None:
             time.sleep(0.05)
             observed_during_shutdown.append(connection.closed)
 

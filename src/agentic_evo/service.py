@@ -42,6 +42,26 @@ class PublicRequestError(AgenticEvoError):
         self.code = code
 
 
+class _ManagedConnection:
+    """Give one accepted transport exactly one raw close owner."""
+
+    def __init__(self, connection: Connection) -> None:
+        self.connection = connection
+        self._close_guard = threading.Lock()
+        self._closed = False
+
+    def close(self) -> None:
+        with self._close_guard:
+            if self._closed:
+                return
+            try:
+                self.connection.close()
+            except (OSError, ValueError):
+                pass
+            finally:
+                self._closed = True
+
+
 class WitnessService:
     """Foreground rehearsal of one fixed-home Witness public boundary.
 
@@ -97,7 +117,7 @@ class WitnessService:
         self._quiescent = threading.Condition(self._lifecycle_guard)
         self._stop_requested = threading.Event()
         self._active_dispatches = 0
-        self._active_connections: dict[int, Connection] = {}
+        self._active_connections: dict[int, _ManagedConnection] = {}
         self._connection_workers: set[threading.Thread] = set()
         self._public_listener: Any | None = None
         self._control_listener: Listener | None = None
@@ -174,11 +194,11 @@ class WitnessService:
                         try:
                             self._serve_connection(connection)
                         finally:
-                            connection.close()
+                            self._managed_connection(connection).close()
                             self._unregister_connection(connection)
                         continue
                     if not self._connection_slots.acquire(blocking=False):
-                        connection.close()
+                        self._managed_connection(connection).close()
                         self._unregister_connection(connection)
                         continue
                     worker = threading.Thread(
@@ -193,7 +213,7 @@ class WitnessService:
                     except BaseException:
                         with self._lifecycle_guard:
                             self._connection_workers.discard(worker)
-                        connection.close()
+                        self._managed_connection(connection).close()
                         self._unregister_connection(connection)
                         self._connection_slots.release()
                         raise
@@ -308,10 +328,11 @@ class WitnessService:
             pass
 
     def _serve_connection_with_deadline(self, connection: Connection) -> None:
+        managed_connection = self._managed_connection(connection)
         try:
             self._serve_connection(connection)
         finally:
-            connection.close()
+            managed_connection.close()
             self._unregister_connection(connection)
             with self._lifecycle_guard:
                 self._connection_workers.discard(threading.current_thread())
@@ -558,17 +579,27 @@ class WitnessService:
         self,
         connection: Connection,
     ) -> None:
+        managed_connection = self._managed_connection(connection)
         try:
-            self._serve_control_connection(connection)
+            self._serve_control_connection(connection, managed_connection)
         finally:
-            connection.close()
+            managed_connection.close()
 
-    def _serve_control_connection(self, connection: Connection) -> None:
+    def _serve_control_connection(
+        self,
+        connection: Connection,
+        managed_connection: _ManagedConnection | None = None,
+    ) -> None:
         request_id: str | None = None
         try:
+            close_connection = (
+                managed_connection.close
+                if managed_connection is not None
+                else connection.close
+            )
             receive_deadline = threading.Timer(
                 PUBLIC_IO_TIMEOUT_SECONDS,
-                connection.close,
+                close_connection,
             )
             receive_deadline.daemon = True
             receive_deadline.start()
@@ -731,8 +762,15 @@ class WitnessService:
         with self._lifecycle_guard:
             if self._stop_requested.is_set():
                 return False
-            self._active_connections[id(connection)] = connection
+            self._active_connections[id(connection)] = _ManagedConnection(connection)
             return True
+
+    def _managed_connection(self, connection: Connection) -> _ManagedConnection:
+        with self._lifecycle_guard:
+            managed_connection = self._active_connections.get(id(connection))
+        if managed_connection is not None:
+            return managed_connection
+        return _ManagedConnection(connection)
 
     def _unregister_connection(self, connection: Connection) -> None:
         with self._lifecycle_guard:
