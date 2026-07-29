@@ -20,7 +20,12 @@ from .runtime import DevelopmentalRuntime
 from .witness import CurrentBodySession, WitnessCore
 
 if sys.platform == "win32":
-    from .windows_native import KillOnCloseJob
+    import msvcrt
+
+    from .windows_native import (
+        KillOnCloseJob,
+        spawn_restricted_suspended_process,
+    )
 
 
 BODY_BOOT_PROTOCOL = "agentic-evo-private-boot-v1"
@@ -282,7 +287,11 @@ class SpawnedBodyProcess:
     def __init__(
         self,
         *,
-        process: subprocess.Popen[bytes],
+        process: Any,
+        private_reader: BinaryIO,
+        private_writer: BinaryIO,
+        body_channel: str,
+        process_token: str,
         command: tuple[str, ...],
         boot: BootEnvelope,
         ready: ReadyEcho,
@@ -291,6 +300,10 @@ class SpawnedBodyProcess:
         process_fence: Any | None,
     ) -> None:
         self._process = process
+        self._private_reader = private_reader
+        self._private_writer = private_writer
+        self._body_channel = body_channel
+        self._process_token = process_token
         self.command = command
         self.boot = boot
         self.ready = ready
@@ -328,6 +341,8 @@ class SpawnedBodyProcess:
             "pid": self.pid,
             "head": self.boot.head,
             "provenance": self.provenance,
+            "process_token": self._process_token,
+            "body_channel": self._body_channel,
             "process_fencing": (
                 "windows_job_object_kill_on_close"
                 if self._process_fence is not None
@@ -338,10 +353,10 @@ class SpawnedBodyProcess:
     def close(self) -> None:
         if self._closed.is_set():
             return
-        if self._process.poll() is None and self._process.stdin is not None:
+        if self._process.poll() is None:
             try:
                 write_private_frame(
-                    self._process.stdin,
+                    self._private_writer,
                     {
                         "protocol": BODY_BOOT_PROTOCOL,
                         "operation": "stop",
@@ -370,12 +385,13 @@ class SpawnedBodyProcess:
             if self._closed.is_set():
                 return
             try:
-                if self._process.stdin is not None:
-                    self._process.stdin.close()
-                if self._process.stdout is not None:
-                    self._process.stdout.close()
+                self._private_writer.close()
+                self._private_reader.close()
                 if self._process_fence is not None:
                     self._process_fence.close()
+                close_process = getattr(self._process, "close", None)
+                if close_process is not None:
+                    close_process()
                 self._session.close()
             finally:
                 self._closed.set()
@@ -400,8 +416,12 @@ class BodyProcessSupervisor:
     def spawn_current(self) -> SpawnedBodyProcess:
         status = self.runtime.status()
         session: CurrentBodySession | None = None
-        process: subprocess.Popen[bytes] | None = None
+        process: Any | None = None
+        private_reader: BinaryIO | None = None
+        private_writer: BinaryIO | None = None
         process_fence: Any | None = None
+        body_read_fd: int | None = None
+        body_write_fd: int | None = None
         try:
             session = self.witness.open_current_body_session(
                 expected_head=status.head
@@ -427,7 +447,7 @@ class BodyProcessSupervisor:
                 activation_digest=activation_digest,
                 body_package=self.runtime.body_store.export_manifest(status.head),
             )
-            command = (
+            command: tuple[str, ...] = (
                 sys.executable,
                 "-P",
                 "-m",
@@ -435,29 +455,55 @@ class BodyProcessSupervisor:
             )
             if sys.platform == "win32":
                 process_fence = KillOnCloseJob()
-            # ponytail: safe while this fixed worker blocks before Head input;
-            # Body-controlled launchers must use a native suspended spawn.
-            process = subprocess.Popen(
-                command,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                bufsize=0,
-                close_fds=True,
-                cwd=Path(sys.executable).resolve().parent,
-                env=_body_worker_environment(),
-            )
-            if process_fence is not None:
-                process_fence.assign_handle(int(process._handle))
-            if process.stdin is None or process.stdout is None:
+                body_read_fd, witness_write_fd = os.pipe()
+                witness_read_fd, body_write_fd = os.pipe()
+                private_writer = os.fdopen(witness_write_fd, "wb", buffering=0)
+                private_reader = os.fdopen(witness_read_fd, "rb", buffering=0)
+                body_read_handle = msvcrt.get_osfhandle(body_read_fd)
+                body_write_handle = msvcrt.get_osfhandle(body_write_fd)
+                os.set_handle_inheritable(body_read_handle, True)
+                os.set_handle_inheritable(body_write_handle, True)
+                command += (str(body_read_handle), str(body_write_handle))
+                process = spawn_restricted_suspended_process(
+                    command,
+                    inherited_handles=(body_read_handle, body_write_handle),
+                    cwd=Path(sys.executable).resolve().parent,
+                    environment=_body_worker_environment(),
+                )
+                process_fence.assign_handle(process.process_handle)
+                os.close(body_read_fd)
+                body_read_fd = None
+                os.close(body_write_fd)
+                body_write_fd = None
+                process.resume()
+                body_channel = "windows_explicit_handle_list_pipe_pair"
+                process_token = "windows_restricted_low_integrity"
+            else:
+                process = subprocess.Popen(
+                    command,
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                    bufsize=0,
+                    close_fds=True,
+                    cwd=Path(sys.executable).resolve().parent,
+                    env=_body_worker_environment(),
+                )
+                if process.stdin is None or process.stdout is None:
+                    raise BodyBootError("Body subprocess pipes were not created")
+                private_writer = process.stdin
+                private_reader = process.stdout
+                body_channel = "subprocess_stdio_pipe_pair"
+                process_token = "ordinary_subprocess_rehearsal"
+            if private_writer is None or private_reader is None:
                 raise BodyBootError("Body subprocess pipes were not created")
             write_private_frame(
-                process.stdin,
+                private_writer,
                 asdict(boot),
                 max_bytes=None,
             )
             response = _read_private_frame_with_timeout(
-                process.stdout,
+                private_reader,
                 timeout_seconds=self.ready_timeout_seconds,
             )
             ready = ready_echo_from_mapping(response)
@@ -467,6 +513,10 @@ class BodyProcessSupervisor:
             self.witness._authorize(session)
             return SpawnedBodyProcess(
                 process=process,
+                private_reader=private_reader,
+                private_writer=private_writer,
+                body_channel=body_channel,
+                process_token=process_token,
                 command=command,
                 boot=boot,
                 ready=ready,
@@ -476,7 +526,22 @@ class BodyProcessSupervisor:
             )
         except Exception as exc:
             if process is not None:
-                _terminate_process(process)
+                _terminate_process(
+                    process,
+                    private_reader=private_reader,
+                    private_writer=private_writer,
+                )
+                private_reader = None
+                private_writer = None
+            else:
+                if private_writer is not None:
+                    private_writer.close()
+                if private_reader is not None:
+                    private_reader.close()
+            if body_read_fd is not None:
+                os.close(body_read_fd)
+            if body_write_fd is not None:
+                os.close(body_write_fd)
             if session is not None:
                 session.close()
             if process_fence is not None:
@@ -512,7 +577,12 @@ def _read_private_frame_with_timeout(
     return value
 
 
-def _terminate_process(process: subprocess.Popen[bytes]) -> None:
+def _terminate_process(
+    process: Any,
+    *,
+    private_reader: BinaryIO | None = None,
+    private_writer: BinaryIO | None = None,
+) -> None:
     if process.poll() is None:
         process.terminate()
         try:
@@ -520,10 +590,13 @@ def _terminate_process(process: subprocess.Popen[bytes]) -> None:
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait(timeout=1.0)
-    if process.stdin is not None:
-        process.stdin.close()
-    if process.stdout is not None:
-        process.stdout.close()
+    if private_writer is not None:
+        private_writer.close()
+    if private_reader is not None:
+        private_reader.close()
+    close_process = getattr(process, "close", None)
+    if close_process is not None:
+        close_process()
 
 
 def _body_worker_environment() -> dict[str, str]:
