@@ -4,6 +4,7 @@ from dataclasses import replace
 import os
 from pathlib import Path
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 import sys
@@ -265,6 +266,35 @@ class BodyProcessTests(unittest.TestCase):
         with self.assertRaises(BodyBootError):
             body._handle_lineage_request(request)
         self.assertEqual(self.runtime.status().head, before.head)
+
+    def test_in_flight_advance_timeout_is_reported_as_outcome_unknown(
+        self,
+    ) -> None:
+        from agentic_evo.body_process import BodyLineageOutcomeUnknown
+
+        body = self._spawn()
+        candidate = body.rehearse_prepare_successor(
+            files={"entrypoint.md": "slow Body"}
+        )
+        body._request_timeout_seconds = 0.05
+        original_advance = self.runtime._advance_head
+
+        def delayed_advance(**kwargs):
+            time.sleep(0.25)
+            return original_advance(**kwargs)
+
+        with patch.object(
+            self.runtime,
+            "_advance_head",
+            side_effect=delayed_advance,
+        ):
+            with self.assertRaises(BodyLineageOutcomeUnknown) as raised:
+                body.rehearse_advance_head(candidate_head=candidate)
+
+        self.assertEqual(raised.exception.operation, "advance_head")
+        self.assertEqual(raised.exception.candidate_head, candidate)
+        time.sleep(0.3)
+        self.assertEqual(self.runtime.status().head, candidate)
 
     @unittest.skipUnless(sys.platform == "win32", "Windows native contract")
     def test_windows_body_worker_is_kernel_fenced(self) -> None:
