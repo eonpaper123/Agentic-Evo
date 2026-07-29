@@ -134,11 +134,24 @@ def read_private_frame(
         raise BodyBootError("private Body frame is incomplete or oversized")
     try:
         value = json.loads(raw)
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
         raise BodyBootError("private Body frame is not valid UTF-8 JSON") from exc
     if not isinstance(value, dict):
         raise BodyBootError("private Body frame must contain one JSON object")
+    _require_bounded_private_value_depth(value)
     return value
+
+
+def _require_bounded_private_value_depth(value: object) -> None:
+    stack = [(value, 0)]
+    while stack:
+        current, depth = stack.pop()
+        if depth > 128:
+            raise BodyBootError("private Body frame exceeds its nesting bound")
+        if isinstance(current, dict):
+            stack.extend((item, depth + 1) for item in current.values())
+        elif isinstance(current, list):
+            stack.extend((item, depth + 1) for item in current)
 
 
 def boot_envelope_from_mapping(value: Mapping[str, Any]) -> BootEnvelope:
@@ -335,7 +348,9 @@ class SpawnedBodyProcess:
         self._rehearsal_outcomes: Queue[
             dict[str, Any] | BaseException
         ] = Queue(maxsize=1)
-        self._rehearsal_pending = False
+        self._pending_rehearsal: tuple[str, int] | None = None
+        self._pending_lineage_request: tuple[str, int] | None = None
+        self._pending_lineage_response: dict[str, Any] | None = None
         self._next_lineage_sequence = 1
         self._last_lineage_sequence = 0
         self._closed = threading.Event()
@@ -516,9 +531,17 @@ class SpawnedBodyProcess:
         with self._rehearsal_guard:
             if not self.is_alive():
                 raise BodyBootError("Body subprocess is not alive")
-            if self._rehearsal_pending:
+            if self._pending_rehearsal is not None:
                 raise BodyBootError("another private rehearsal is already active")
-            self._rehearsal_pending = True
+            operation = command.get("operation")
+            if not isinstance(operation, str):
+                raise BodyBootError("private rehearsal operation is invalid")
+            self._pending_rehearsal = (
+                operation,
+                self._next_lineage_sequence,
+            )
+            self._pending_lineage_request = None
+            self._pending_lineage_response = None
             try:
                 self._write_frame(command)
                 try:
@@ -531,13 +554,8 @@ class SpawnedBodyProcess:
                             self._process.kill()
                     except OSError:
                         pass
-                    operation = command.get("operation")
                     raise BodyLineageOutcomeUnknown(
-                        operation=(
-                            str(operation)
-                            if isinstance(operation, str)
-                            else "unknown"
-                        ),
+                        operation=operation,
                         candidate_head=(
                             str(command["candidate_head"])
                             if operation == "advance_head"
@@ -546,12 +564,30 @@ class SpawnedBodyProcess:
                         ),
                     ) from exc
                 if isinstance(outcome, BaseException):
+                    if (
+                        self._pending_lineage_request
+                        == self._pending_rehearsal
+                    ):
+                        raise BodyLineageOutcomeUnknown(
+                            operation=operation,
+                            candidate_head=(
+                                str(command["candidate_head"])
+                                if operation == "advance_head"
+                                and isinstance(
+                                    command.get("candidate_head"),
+                                    str,
+                                )
+                                else None
+                            ),
+                        ) from outcome
                     raise BodyBootError(
                         "private Body lineage channel failed"
                     ) from outcome
                 return outcome
             finally:
-                self._rehearsal_pending = False
+                self._pending_rehearsal = None
+                self._pending_lineage_request = None
+                self._pending_lineage_response = None
 
     def _dispatch_private_channel(self) -> None:
         try:
@@ -560,15 +596,30 @@ class SpawnedBodyProcess:
                 kind = frame.get("kind")
                 if kind == "lineage_request":
                     response = self._handle_lineage_request(frame)
+                    if (
+                        self._pending_lineage_request
+                        == self._pending_rehearsal
+                    ):
+                        self._pending_lineage_response = response
                     self._write_frame(response)
                     continue
                 if kind == "rehearsal_result":
                     sequence = frame.get("sequence")
+                    operation = frame.get("operation")
                     if (
-                        not self._rehearsal_pending
+                        self._pending_rehearsal is None
+                        or self._pending_lineage_request
+                        != self._pending_rehearsal
                         or not isinstance(sequence, int)
                         or isinstance(sequence, bool)
-                        or sequence != self._last_lineage_sequence
+                        or not isinstance(operation, str)
+                        or (operation, sequence)
+                        != self._pending_rehearsal
+                        or self._pending_lineage_response is None
+                        or frame
+                        != _rehearsal_result_for_response(
+                            self._pending_lineage_response
+                        )
                     ):
                         raise BodyBootError(
                             "unsolicited private rehearsal result"
@@ -576,8 +627,13 @@ class SpawnedBodyProcess:
                     self._publish_rehearsal_outcome(frame)
                     continue
                 raise BodyBootError("private Body sent an unknown frame")
-        except BodyBootError as exc:
-            self._publish_rehearsal_outcome(exc)
+        except Exception as exc:
+            failure = (
+                exc
+                if isinstance(exc, BodyBootError)
+                else BodyBootError("private Body dispatcher failed closed")
+            )
+            self._publish_rehearsal_outcome(failure)
             try:
                 if self._process.poll() is None:
                     self._process.kill()
@@ -641,6 +697,10 @@ class SpawnedBodyProcess:
                         raise BodyBootError(
                             "private prepare request has invalid activation"
                         )
+                self._bind_request_to_pending_rehearsal(
+                    operation="prepare_successor",
+                    sequence=sequence,
+                )
                 candidate = self._session.prepare_successor(
                     files=files,
                     activation_kind=activation_kind,
@@ -665,6 +725,10 @@ class SpawnedBodyProcess:
                     raise BodyBootError(
                         "private advance request has an invalid candidate"
                     )
+                self._bind_request_to_pending_rehearsal(
+                    operation="advance_head",
+                    sequence=sequence,
+                )
                 status = self._session.advance_head(
                     candidate_head=candidate_head
                 )
@@ -680,6 +744,20 @@ class SpawnedBodyProcess:
             raise
         except AgenticEvoError:
             return {**common, "ok": False, "error": "lineage_request_rejected"}
+
+    def _bind_request_to_pending_rehearsal(
+        self,
+        *,
+        operation: str,
+        sequence: int,
+    ) -> None:
+        pending = self._pending_rehearsal
+        if pending is not None and pending != (operation, sequence):
+            raise BodyBootError(
+                "private lineage request does not match its rehearsal command"
+            )
+        if pending is not None:
+            self._pending_lineage_request = (operation, sequence)
 
     def _write_frame(self, value: Mapping[str, Any]) -> None:
         with self._write_guard:
@@ -709,6 +787,28 @@ class SpawnedBodyProcess:
                 self._session.close()
             finally:
                 self._closed.set()
+
+
+def _rehearsal_result_for_response(
+    response: Mapping[str, Any],
+) -> dict[str, Any]:
+    result = {
+        "protocol": BODY_LINEAGE_PROTOCOL,
+        "kind": "rehearsal_result",
+        "operation": response.get("operation"),
+        "sequence": response.get("sequence"),
+        "ok": response.get("ok"),
+    }
+    if response.get("ok") is False:
+        return {**result, "error": response.get("error")}
+    if response.get("operation") == "prepare_successor":
+        return {**result, "candidate_head": response.get("candidate_head")}
+    return {
+        **result,
+        "head": response.get("head"),
+        "generation": response.get("generation"),
+        "authority": response.get("authority"),
+    }
 
 
 class BodyProcessSupervisor:
