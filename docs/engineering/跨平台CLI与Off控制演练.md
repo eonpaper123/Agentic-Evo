@@ -554,7 +554,7 @@ RenderPlan(P)\neq NativeVerified(P)
 }
 \]
 
-Windows 上运行 Python 测试不能证明 macOS 或 Linux 原生边界；甚至也不能证明 Windows SCM、DACL、service SID 与 Job Object 已实现。
+本节的 plan rendering 与可移植协议测试不能证明 macOS 或 Linux 原生边界，也不能证明 Windows SCM、DACL 或 service SID。后续单独的 Windows ctypes 父/孙进程测试已经证明 Job Object primitive；该局部证据不能反推其他原生边界。
 
 ---
 

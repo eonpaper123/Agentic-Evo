@@ -196,7 +196,9 @@ class BodyProcessTests(unittest.TestCase):
             patch("agentic_evo.body_process.KillOnCloseJob") as job_type,
             patch("agentic_evo.body_process.write_private_frame") as write_frame,
         ):
-            job_type.return_value.assign.side_effect = OSError("assign failed")
+            job_type.return_value.assign_handle.side_effect = OSError(
+                "assign failed"
+            )
             with self.assertRaises(BodyBootError):
                 self.supervisor.spawn_current()
 

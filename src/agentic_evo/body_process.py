@@ -435,8 +435,8 @@ class BodyProcessSupervisor:
             )
             if sys.platform == "win32":
                 process_fence = KillOnCloseJob()
-            # ponytail: the fixed diagnostic worker blocks before Head input;
-            # use CREATE_SUSPENDED before any Body-controlled launcher exists.
+            # ponytail: safe while this fixed worker blocks before Head input;
+            # Body-controlled launchers must use a native suspended spawn.
             process = subprocess.Popen(
                 command,
                 stdin=subprocess.PIPE,
@@ -448,7 +448,7 @@ class BodyProcessSupervisor:
                 env=_body_worker_environment(),
             )
             if process_fence is not None:
-                process_fence.assign(process.pid)
+                process_fence.assign_handle(int(process._handle))
             if process.stdin is None or process.stdout is None:
                 raise BodyBootError("Body subprocess pipes were not created")
             write_private_frame(

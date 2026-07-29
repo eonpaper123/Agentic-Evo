@@ -91,7 +91,7 @@ flowchart LR
 Create anonymous Job
 → set KILL_ON_JOB_CLOSE
 → spawn fixed diagnostic worker
-→ assign worker PID to Job
+→ assign Popen's existing process handle to Job
 → assignment succeeded
 → send exact-Head Boot envelope
 → validate ReadyEcho

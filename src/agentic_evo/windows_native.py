@@ -6,8 +6,6 @@ from ctypes import wintypes
 
 _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION = 9
 _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
-_PROCESS_TERMINATE = 0x0001
-_PROCESS_SET_QUOTA = 0x0100
 
 
 class _IoCounters(ctypes.Structure):
@@ -56,12 +54,6 @@ _kernel32.SetInformationJobObject.argtypes = [
     wintypes.DWORD,
 ]
 _kernel32.SetInformationJobObject.restype = wintypes.BOOL
-_kernel32.OpenProcess.argtypes = [
-    wintypes.DWORD,
-    wintypes.BOOL,
-    wintypes.DWORD,
-]
-_kernel32.OpenProcess.restype = wintypes.HANDLE
 _kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
 _kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
 _kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
@@ -90,21 +82,14 @@ class KillOnCloseJob:
             self.close()
             raise error
 
-    def assign(self, pid: int) -> None:
+    def assign_handle(self, process_handle: int) -> None:
         if self._handle is None:
             raise OSError("Windows Job Object is closed")
-        process = _kernel32.OpenProcess(
-            _PROCESS_TERMINATE | _PROCESS_SET_QUOTA,
-            False,
-            pid,
-        )
-        if not process:
+        if not _kernel32.AssignProcessToJobObject(
+            self._handle,
+            process_handle,
+        ):
             raise ctypes.WinError(ctypes.get_last_error())
-        try:
-            if not _kernel32.AssignProcessToJobObject(self._handle, process):
-                raise ctypes.WinError(ctypes.get_last_error())
-        finally:
-            _kernel32.CloseHandle(process)
 
     def close(self) -> None:
         handle, self._handle = self._handle, None
