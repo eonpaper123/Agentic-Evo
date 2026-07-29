@@ -396,10 +396,44 @@ class TrustedState:
         authority: str,
         host_binding: str | None = None,
     ) -> EvidenceRecord:
+        record = self._set_authority(
+            authority=authority,
+            host_binding=host_binding,
+            event_kind=f"host_{authority}",
+            source_kind="kernel",
+            author_kind="normal_host_interaction",
+            no_op_if_same=False,
+        )
+        if record is None:
+            raise AssertionError("non-idempotent authority transition returned no record")
+        return record
+
+    def set_off_rehearsal(self) -> EvidenceRecord | None:
+        return self._set_authority(
+            authority="off",
+            host_binding=None,
+            event_kind="control_rehearsal_off",
+            source_kind="host_control_rehearsal",
+            author_kind="control_unverified",
+            no_op_if_same=True,
+        )
+
+    def _set_authority(
+        self,
+        *,
+        authority: str,
+        host_binding: str | None,
+        event_kind: str,
+        source_kind: str,
+        author_kind: str,
+        no_op_if_same: bool,
+    ) -> EvidenceRecord | None:
         if authority not in {"on", "off"}:
             raise IntegrityError("invalid trusted authority state")
         with self._write_transaction() as connection:
             state = self._read_state(connection)
+            if no_op_if_same and state["authority"] == authority:
+                return None
             if authority == "on":
                 if host_binding is None or not hmac.compare_digest(
                     state["who"],
@@ -415,11 +449,11 @@ class TrustedState:
             return self._finish_transition(
                 connection,
                 state,
-                event_kind=f"host_{authority}",
+                event_kind=event_kind,
                 head_before=state["head"],
                 head_after=state["head"],
-                source_kind="kernel",
-                author_kind="normal_host_interaction",
+                source_kind=source_kind,
+                author_kind=author_kind,
                 payload={},
             )
 

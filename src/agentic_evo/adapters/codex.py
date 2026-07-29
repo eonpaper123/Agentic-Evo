@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-import sqlite3
 from typing import Any, Mapping
 
 from .._util import canonical_json_bytes, sha256_hex
 from ..errors import AgenticEvoError
-from ..runtime import DevelopmentalRuntime
+from ..ipc import SurfaceClient
 
 
 def handle_codex_hook(
@@ -15,36 +14,33 @@ def handle_codex_hook(
 ) -> dict[str, Any] | None:
     """Map stable observable Codex hook fields without copying raw prompt/tool content."""
 
-    try:
-        runtime = DevelopmentalRuntime.load(Path(home))
-    except (AgenticEvoError, OSError, sqlite3.DatabaseError):
-        return None
-
     event_name = str(payload.get("hook_event_name") or "")
     session_id = str(payload.get("session_id") or "")
     project_ref = _project_ref(payload.get("cwd"))
     model = _bounded_text(payload.get("model"))
 
     try:
+        surface = SurfaceClient(Path(home))
         if event_name == "SessionStart":
-            wake = runtime.wake(
+            wake = surface.wake(
                 execution_surface="codex",
                 session_id=session_id,
                 project_environment=project_ref,
                 model=model,
             )
-            body_files = ", ".join(wake.body_files[:16]) or "(empty body)"
+            body_files = ", ".join(wake["body_files"][:16]) or "(empty body)"
             context = (
                 "Agentic-Evo wake context. This Codex conversation is a temporary "
                 "execution surface for the same user-bound Agent lineage. "
-                f"Root={wake.root}; Head={wake.head}; Generation={wake.generation}; "
+                f"Root={wake['root']}; Head={wake['head']}; "
+                f"Generation={wake['generation']}; "
                 f"Body files={body_files}. Treat Codex, the model, and this project "
                 "as replaceable organs/environment, not as the Agent identity. "
                 "No memory or learning algorithm is prescribed by this context. "
-                f"Activation={wake.activation_kind}:"
-                f"{wake.activation_artifact}@{wake.activation_digest}. "
+                f"Activation={wake['activation_kind']}:"
+                f"{wake['activation_artifact']}@{wake['activation_digest']}. "
                 "Current body activation projection follows:\n\n"
-                f"{wake.activation_context}"
+                f"{wake['activation_context']}"
             )
             return {
                 "hookSpecificOutput": {
@@ -54,11 +50,11 @@ def handle_codex_hook(
             }
 
         if event_name == "SessionEnd":
-            runtime.sleep(session_id=session_id)
+            surface.sleep(session_id=session_id)
             return None
 
         event_kind, event_payload = _map_event(event_name, payload)
-        runtime.observe(
+        surface.observe(
             event_kind=event_kind,
             execution_surface="codex",
             session_id=session_id or None,
@@ -73,8 +69,8 @@ def handle_codex_hook(
         )
     except (
         AgenticEvoError,
+        KeyError,
         OSError,
-        sqlite3.DatabaseError,
         TimeoutError,
         TypeError,
         ValueError,
@@ -149,6 +145,8 @@ def _map_event(
         "execution_surface_event",
         {"unmapped_event_name": _bounded_text(event_name)},
     )
+
+
 def _project_ref(value: Any) -> str:
     raw = str(value or "")
     return f"sha256:{sha256_hex(raw)}"

@@ -13,9 +13,11 @@ from ._util import ExclusiveFileLock
 from .body_process import BodyProcessSupervisor, SpawnedBodyProcess
 from .errors import AgenticEvoError, IntegrityError, RuntimeOffError
 from .ipc import (
+    CONTROL_PROTOCOL,
     PUBLIC_PROTOCOL,
     PUBLIC_IO_TIMEOUT_SECONDS,
     InvalidPublicFrame,
+    control_endpoint,
     receive_public_message,
     send_public_message,
     service_endpoint,
@@ -70,6 +72,7 @@ class WitnessService:
         self.home = Path(home).expanduser().resolve(strict=False)
         self.runtime = DevelopmentalRuntime.load(self.home)
         self.endpoint = service_endpoint(self.home)
+        self.control_endpoint = control_endpoint(self.home)
         self.witness = WitnessCore(self.runtime)
         self.body_supervisor = BodyProcessSupervisor(
             self.runtime,
@@ -80,6 +83,7 @@ class WitnessService:
         self._connection_slots = threading.BoundedSemaphore(
             self._MAX_CONCURRENT_CONNECTIONS
         )
+        self._control_listener: Listener | None = None
 
     def serve_forever(self) -> None:
         service_lock = ExclusiveFileLock(
@@ -87,10 +91,12 @@ class WitnessService:
             timeout_seconds=0.0,
         )
         with service_lock:
-            self._remove_stale_unix_endpoint()
+            self._remove_stale_unix_endpoint(self.endpoint)
+            self._remove_stale_unix_endpoint(self.control_endpoint)
             listener: Listener | None = None
             try:
                 self._ensure_body()
+                self._start_control_listener()
                 listener = Listener(
                     self.endpoint.address,
                     family=self.endpoint.family,
@@ -111,9 +117,12 @@ class WitnessService:
             finally:
                 if listener is not None:
                     listener.close()
+                if self._control_listener is not None:
+                    self._control_listener.close()
                 self._close_body()
                 self.witness.close()
-                self._remove_stale_unix_endpoint()
+                self._remove_stale_unix_endpoint(self.endpoint)
+                self._remove_stale_unix_endpoint(self.control_endpoint)
 
     def dispatch_public(
         self,
@@ -294,10 +303,156 @@ class WitnessService:
             "error": {"code": code, "message": message},
         }
 
-    def _remove_stale_unix_endpoint(self) -> None:
-        if self.endpoint.family != "AF_UNIX":
+    def _start_control_listener(self) -> None:
+        listener = Listener(
+            self.control_endpoint.address,
+            family=self.control_endpoint.family,
+            backlog=1,
+            authkey=None,
+        )
+        self._control_listener = listener
+        thread = threading.Thread(
+            target=self._serve_control_loop,
+            args=(listener,),
+            daemon=True,
+        )
+        thread.start()
+
+    def _serve_control_loop(self, listener: Listener) -> None:
+        while True:
+            try:
+                connection = listener.accept()
+            except (EOFError, OSError):
+                return
+            self._serve_control_connection_with_deadline(connection)
+
+    def _serve_control_connection_with_deadline(
+        self,
+        connection: Connection,
+    ) -> None:
+        try:
+            self._serve_control_connection(connection)
+        finally:
+            connection.close()
+
+    def _serve_control_connection(self, connection: Connection) -> None:
+        request_id: str | None = None
+        try:
+            receive_deadline = threading.Timer(
+                PUBLIC_IO_TIMEOUT_SECONDS,
+                connection.close,
+            )
+            receive_deadline.daemon = True
+            receive_deadline.start()
+            try:
+                request = receive_public_message(
+                    connection,
+                    timeout_seconds=PUBLIC_IO_TIMEOUT_SECONDS,
+                )
+            finally:
+                receive_deadline.cancel()
+            possible_id = request.get("request_id")
+            if isinstance(possible_id, str):
+                request_id = possible_id
+            self._validate_control_request(request)
+            result = self._turn_off_rehearsal()
+            response = {
+                "protocol": CONTROL_PROTOCOL,
+                "request_id": request_id,
+                "ok": True,
+                "result": result,
+            }
+        except InvalidPublicFrame:
+            response = self._control_error_response(
+                request_id,
+                "invalid_frame",
+                "request is not one bounded UTF-8 JSON object",
+            )
+        except PublicRequestError as exc:
+            response = self._control_error_response(
+                request_id,
+                exc.code,
+                str(exc),
+            )
+        except AgenticEvoError:
+            response = self._control_error_response(
+                request_id,
+                "operation_failed",
+                "trusted runtime rejected the Off rehearsal",
+            )
+        except Exception:
+            response = self._control_error_response(
+                request_id,
+                "internal_error",
+                "Witness could not complete the Off rehearsal",
+            )
+
+        try:
+            send_public_message(connection, response)
+        except (InvalidPublicFrame, EOFError, OSError, ValueError):
+            pass
+
+    @staticmethod
+    def _validate_control_request(request: Mapping[str, Any]) -> None:
+        if set(request) != {"protocol", "request_id", "operation", "params"}:
+            raise PublicRequestError(
+                "invalid_request",
+                "control request envelope has unexpected fields",
+            )
+        if request.get("protocol") != CONTROL_PROTOCOL:
+            raise PublicRequestError(
+                "invalid_protocol",
+                "control request protocol is unsupported",
+            )
+        request_id = request.get("request_id")
+        if (
+            not isinstance(request_id, str)
+            or not request_id
+            or len(request_id) > 128
+        ):
+            raise PublicRequestError(
+                "invalid_request",
+                "request_id must be a bounded non-empty string",
+            )
+        if request.get("operation") != "off":
+            raise PublicRequestError(
+                "operation_not_control",
+                "operation is not available on the Off rehearsal endpoint",
+            )
+        if request.get("params") != {}:
+            raise PublicRequestError(
+                "invalid_parameters",
+                "Off rehearsal accepts no caller-supplied parameters",
+            )
+
+    def _turn_off_rehearsal(self) -> dict[str, Any]:
+        with self._body_guard:
+            self.runtime.rehearse_turn_off()
+            self._close_body()
+            status = self.runtime.status()
+            result = asdict(status)
+            result["body_rehearsal"] = self._body_description()
+            result["control_provenance"] = "control_unverified"
+            return result
+
+    @staticmethod
+    def _control_error_response(
+        request_id: str | None,
+        code: str,
+        message: str,
+    ) -> dict[str, Any]:
+        return {
+            "protocol": CONTROL_PROTOCOL,
+            "request_id": request_id,
+            "ok": False,
+            "error": {"code": code, "message": message},
+        }
+
+    @staticmethod
+    def _remove_stale_unix_endpoint(endpoint: Any) -> None:
+        if endpoint.family != "AF_UNIX":
             return
-        path = Path(self.endpoint.address)
+        path = Path(endpoint.address)
         try:
             path.unlink()
         except FileNotFoundError:

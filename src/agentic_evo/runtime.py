@@ -353,6 +353,11 @@ class DevelopmentalRuntime:
         return self.status()
 
     @_serialized_lifecycle
+    def rehearse_turn_off(self) -> RuntimeStatus:
+        self.trusted.set_off_rehearsal()
+        return self.status()
+
+    @_serialized_lifecycle
     def turn_on(self, *, host_binding: str) -> RuntimeStatus:
         self.trusted.set_authority(
             authority="on",

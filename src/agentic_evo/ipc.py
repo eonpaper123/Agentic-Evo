@@ -17,8 +17,10 @@ from .errors import AgenticEvoError
 
 
 PUBLIC_PROTOCOL = "agentic-evo-public-v1"
+CONTROL_PROTOCOL = "agentic-evo-off-rehearsal-v1"
 MAX_PUBLIC_FRAME_BYTES = 64 * 1024
 PUBLIC_IO_TIMEOUT_SECONDS = 2.0
+CONTROL_RESPONSE_TIMEOUT_SECONDS = 12.0
 
 
 class ServiceIPCError(AgenticEvoError):
@@ -80,6 +82,42 @@ def service_endpoint(
         )
     if len(os.fsencode(address)) >= maximum:
         raise ValueError("cannot derive a bounded AF_UNIX endpoint")
+    return Endpoint(family="AF_UNIX", address=address)
+
+
+def control_endpoint(
+    home: Path,
+    *,
+    platform: str = sys.platform,
+) -> Endpoint:
+    """Derive the separate unauthenticated local Off rehearsal endpoint."""
+
+    canonical_home = Path(home).expanduser().resolve(strict=False)
+    identity = os.path.normcase(str(canonical_home))
+    digest = sha256_hex(identity)
+
+    if platform == "win32":
+        return Endpoint(
+            family="AF_PIPE",
+            address=rf"\\.\pipe\agentic-evo-dev-off-{digest[:32]}",
+        )
+
+    if platform == "darwin":
+        maximum = 104
+    elif platform.startswith("linux"):
+        maximum = 108
+    else:
+        raise ValueError(f"unsupported control platform: {platform}")
+
+    candidate = canonical_home / "trusted" / "control.sock"
+    if len(os.fsencode(candidate)) < maximum:
+        address = str(candidate)
+    else:
+        address = str(
+            Path(tempfile.gettempdir()) / f"agentic-evo-off-{digest[:24]}.sock"
+        )
+    if len(os.fsencode(address)) >= maximum:
+        raise ValueError("cannot derive a bounded AF_UNIX control endpoint")
     return Endpoint(family="AF_UNIX", address=address)
 
 
@@ -230,4 +268,52 @@ class SurfaceClient:
         message = error.get("message")
         if not isinstance(code, str) or not isinstance(message, str):
             raise ServiceUnavailableError("Witness returned an invalid error")
+        raise ServiceRejectedError(code, message)
+
+
+class OffRehearsalClient:
+    """Unauthenticated local Off-only control rehearsal client."""
+
+    def __init__(self, home: Path) -> None:
+        self.endpoint = control_endpoint(home)
+
+    def off(self) -> dict[str, Any]:
+        request_id = uuid4().hex
+        request = {
+            "protocol": CONTROL_PROTOCOL,
+            "request_id": request_id,
+            "operation": "off",
+            "params": {},
+        }
+        with open_public_connection(self.endpoint) as connection:
+            try:
+                send_public_message(connection, request)
+                response = receive_public_message(
+                    connection,
+                    timeout_seconds=CONTROL_RESPONSE_TIMEOUT_SECONDS,
+                )
+            except InvalidPublicFrame as exc:
+                raise ServiceUnavailableError(
+                    "Witness returned an invalid control response"
+                ) from exc
+
+        if response.get("protocol") != CONTROL_PROTOCOL:
+            raise ServiceUnavailableError("Witness returned the wrong control protocol")
+        if response.get("request_id") != request_id:
+            raise ServiceUnavailableError("Witness returned the wrong control request id")
+        if response.get("ok") is True:
+            result = response.get("result")
+            if not isinstance(result, dict):
+                raise ServiceUnavailableError(
+                    "Witness returned an invalid control result"
+                )
+            return result
+
+        error = response.get("error")
+        if not isinstance(error, dict):
+            raise ServiceUnavailableError("Witness returned an invalid control error")
+        code = error.get("code")
+        message = error.get("message")
+        if not isinstance(code, str) or not isinstance(message, str):
+            raise ServiceUnavailableError("Witness returned an invalid control error")
         raise ServiceRejectedError(code, message)
