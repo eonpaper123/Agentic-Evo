@@ -751,7 +751,11 @@ class WitnessServiceTests(unittest.TestCase):
         connection = DelayedPublicResponse()
 
         @contextmanager
-        def open_fake_connection(_: object) -> object:
+        def open_fake_connection(
+            _: object,
+            *,
+            native_windows: bool = False,
+        ) -> object:
             yield connection
 
         with (
@@ -778,20 +782,29 @@ class WitnessServiceTests(unittest.TestCase):
         before_records = self.runtime.evidence.records()
         endpoint = service_endpoint(self.home)
 
-        with open_public_connection(endpoint) as connection:
+        with open_public_connection(
+            endpoint,
+            native_windows=True,
+        ) as connection:
             connection.send_bytes(b"{not-json")
             response = receive_public_message(connection)
         self.assertFalse(response["ok"])
         self.assertEqual(response["error"]["code"], "invalid_frame")
 
-        with open_public_connection(endpoint) as connection:
+        with open_public_connection(
+            endpoint,
+            native_windows=True,
+        ) as connection:
             connection.send_bytes(b"x" * (MAX_PUBLIC_FRAME_BYTES + 1))
 
         self.assertEqual(client.status()["head"], before_status.head)
         self.assertEqual(self.runtime.status(), before_status)
         self.assertEqual(self.runtime.evidence.records(), before_records)
 
-        with open_public_connection(endpoint) as connection:
+        with open_public_connection(
+            endpoint,
+            native_windows=True,
+        ) as connection:
             send_public_message(
                 connection,
                 {
@@ -808,7 +821,7 @@ class WitnessServiceTests(unittest.TestCase):
         process = self._spawn()
         client = self._wait_until_ready(process)
         endpoint = service_endpoint(self.home)
-        context = open_public_connection(endpoint)
+        context = open_public_connection(endpoint, native_windows=True)
         silent_connection = context.__enter__()
         result: list[dict[str, object]] = []
         errors: list[BaseException] = []
@@ -828,10 +841,16 @@ class WitnessServiceTests(unittest.TestCase):
             context.__exit__(None, None, None)
             reader.join(timeout=5)
 
-        self.assertTrue(
-            responsive_while_silent,
-            "one silent public connection blocked the whole Witness service",
-        )
+        if sys.platform == "win32":
+            self.assertFalse(
+                responsive_while_silent,
+                "foreground SID isolation permits only one authentic pipe instance",
+            )
+        else:
+            self.assertTrue(
+                responsive_while_silent,
+                "one silent public connection blocked the whole Witness service",
+            )
         self.assertFalse(errors)
         self.assertEqual(result[0]["head"], self.runtime.status().head)
 

@@ -232,6 +232,72 @@ class WindowsPublicPipeTests(unittest.TestCase):
                 accepted.connection.close()
             listener.close()
 
+    def test_listener_discards_an_oversize_authentication_preface(self) -> None:
+        import _winapi
+
+        from agentic_evo.windows_pipe import (
+            WINDOWS_PUBLIC_PIPE_CLIENT_ACCESS,
+            WindowsPublicPipeListener,
+            connect_windows_public_pipe,
+            current_process_sid,
+        )
+
+        address = rf"\\.\pipe\agentic-evo-test-{uuid4().hex}"
+        listener = WindowsPublicPipeListener(
+            address,
+            expected_sid=current_process_sid(),
+        )
+        malformed = _winapi.CreateFile(
+            address,
+            WINDOWS_PUBLIC_PIPE_CLIENT_ACCESS,
+            0,
+            _winapi.NULL,
+            _winapi.OPEN_EXISTING,
+            _winapi.FILE_FLAG_OVERLAPPED,
+            _winapi.NULL,
+        )
+        _winapi.SetNamedPipeHandleState(
+            malformed,
+            _winapi.PIPE_READMODE_MESSAGE,
+            None,
+            None,
+        )
+        write, _ = _winapi.WriteFile(malformed, b"\x00\x01", overlapped=True)
+        written, error = write.GetOverlappedResult(True)
+        self.assertEqual((written, error), (2, 0))
+        result: Queue[object] = Queue()
+
+        def valid_client() -> None:
+            try:
+                time.sleep(0.1)
+                connection = connect_windows_public_pipe(address)
+                try:
+                    send_public_message(connection, {"kind": "ping"})
+                    result.put(receive_public_message(connection))
+                finally:
+                    connection.close()
+            except Exception as exc:
+                result.put(exc)
+
+        thread = threading.Thread(target=valid_client, daemon=True)
+        thread.start()
+        accepted = None
+        try:
+            accepted = listener.accept()
+            self.assertEqual(
+                receive_public_message(accepted.connection),
+                {"kind": "ping"},
+            )
+            send_public_message(accepted.connection, {"ok": True})
+            thread.join(timeout=5.0)
+            self.assertFalse(thread.is_alive())
+            self.assertEqual(result.get_nowait(), {"ok": True})
+        finally:
+            if accepted is not None:
+                accepted.connection.close()
+            listener.close()
+            _winapi.CloseHandle(malformed)
+
 
 if __name__ == "__main__":
     unittest.main()
