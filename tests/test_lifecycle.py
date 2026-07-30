@@ -230,6 +230,48 @@ class MachineLifecycleTests(unittest.TestCase):
         ):
             DevelopmentalRuntime.load(self.home)
 
+    def test_legacy_empty_session_schema_cannot_partially_commit_genesis(
+        self,
+    ) -> None:
+        legacy_home = self.home / "legacy-empty-schema"
+        trusted_path = legacy_home / "trusted"
+        trusted_path.mkdir(parents=True)
+        db_path = trusted_path / "state.sqlite3"
+        with closing(sqlite3.connect(db_path)) as connection, connection:
+            connection.execute(
+                """
+                CREATE TABLE sessions (
+                    session_id TEXT PRIMARY KEY,
+                    value_json BLOB NOT NULL
+                )
+                """
+            )
+
+        with self.assertRaisesRegex(
+            IntegrityError,
+            "incompatible trusted state schema",
+        ):
+            DevelopmentalRuntime.genesis(
+                legacy_home,
+                host_binding=self.host_binding,
+                purpose_anchor="Improve the future of the one bound host.",
+                initial_body={"entrypoint.md": "Body zero"},
+                instrument_version="instrument-test-v1",
+                protocol_version="protocol-test-v1",
+            )
+
+        with closing(sqlite3.connect(db_path)) as connection:
+            committed_rows = {
+                table: connection.execute(
+                    f"SELECT COUNT(*) FROM {table}"
+                ).fetchone()[0]
+                for table in ("state", "events", "checkpoints")
+            }
+        self.assertEqual(
+            committed_rows,
+            {"state": 0, "events": 0, "checkpoints": 0},
+        )
+
     def test_wake_describes_activation_material_from_the_exact_current_head(self) -> None:
         before = self.runtime.status()
         candidate = self._prepare_successor(
