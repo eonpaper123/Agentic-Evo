@@ -386,6 +386,80 @@ class WitnessServiceTests(unittest.TestCase):
         self.assertEqual(len(failures), 1)
         self.assertIsInstance(failures[0], ServiceUnavailableError)
 
+    def test_real_control_transport_cancels_a_partial_response(self) -> None:
+        from multiprocessing.connection import Listener
+        import struct
+
+        endpoint = control_endpoint(self.home)
+        listener = Listener(
+            endpoint.address,
+            family=endpoint.family,
+            authkey=None,
+        )
+        release_server = threading.Event()
+        partial_sent = threading.Event()
+        server_failures: list[Exception] = []
+        client_failures: list[Exception] = []
+
+        def write_partial_frame(connection) -> None:
+            fragments = (struct.pack("!i", 64), b"{")
+            if sys.platform == "win32":
+                import _winapi
+
+                for fragment in fragments:
+                    pending, _ = _winapi.WriteFile(
+                        connection.fileno(),
+                        fragment,
+                        overlapped=True,
+                    )
+                    self.assertEqual(pending.GetOverlappedResult(True), (len(fragment), 0))
+            else:
+                os.write(connection.fileno(), b"".join(fragments))
+
+        def serve_partial_response() -> None:
+            try:
+                connection = listener.accept()
+                try:
+                    receive_public_message(connection)
+                    write_partial_frame(connection)
+                    partial_sent.set()
+                    release_server.wait(timeout=2)
+                finally:
+                    connection.close()
+            except Exception as exc:
+                server_failures.append(exc)
+
+        def request_off() -> None:
+            try:
+                OffRehearsalClient(self.home).off()
+            except Exception as exc:
+                client_failures.append(exc)
+
+        server = threading.Thread(target=serve_partial_response, daemon=True)
+        client = threading.Thread(target=request_off, daemon=True)
+        server.start()
+        try:
+            with patch(
+                "agentic_evo.ipc.CONTROL_RESPONSE_TIMEOUT_SECONDS",
+                0.1,
+            ):
+                client.start()
+                self.assertTrue(partial_sent.wait(timeout=1))
+                client.join(timeout=0.75)
+                completed_within_deadline = not client.is_alive()
+        finally:
+            release_server.set()
+            listener.close()
+            server.join(timeout=1)
+            client.join(timeout=1)
+            if endpoint.family == "AF_UNIX":
+                Path(endpoint.address).unlink(missing_ok=True)
+
+        self.assertTrue(completed_within_deadline)
+        self.assertFalse(server_failures)
+        self.assertEqual(len(client_failures), 1)
+        self.assertIsInstance(client_failures[0], ServiceUnavailableError)
+
     def test_service_never_performs_genesis_for_an_empty_home(self) -> None:
         empty_home = Path(self.tempdir.name) / "empty"
         process = self._spawn(empty_home)
