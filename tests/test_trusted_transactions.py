@@ -125,6 +125,28 @@ class TrustedTransactionTests(unittest.TestCase):
         self.assertEqual(reloaded.evidence.records(), before_records)
         self.assertEqual(self._trusted_counts(), before_counts)
 
+    def test_failed_sleep_preserves_composite_session_and_history(self) -> None:
+        self.runtime.wake(
+            execution_surface="codex",
+            session_id="live-session",
+            project_environment="project-a",
+        )
+        before_status = self.runtime.status()
+        before_records = self.runtime.evidence.records()
+        before_counts = self._trusted_counts()
+        self._fail_event("session_end")
+
+        with self.assertRaises(sqlite3.DatabaseError):
+            self.runtime.sleep(
+                execution_surface="codex",
+                session_id="live-session",
+            )
+
+        reloaded = DevelopmentalRuntime.load(self.home)
+        self.assertEqual(reloaded.status(), before_status)
+        self.assertEqual(reloaded.evidence.records(), before_records)
+        self.assertEqual(self._trusted_counts(), before_counts)
+
     def test_process_crash_before_checkpoint_rolls_back_the_whole_wake(self) -> None:
         before_status = self.runtime.status()
         before_records = self.runtime.evidence.records()

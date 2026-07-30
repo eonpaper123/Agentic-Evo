@@ -134,6 +134,48 @@ class MachineLifecycleTests(unittest.TestCase):
             (("other-coding-agent", "shared-session"),),
         )
 
+    def test_wrong_surface_sleep_cannot_end_same_raw_session_id(self) -> None:
+        self.runtime.wake(
+            execution_surface="other-coding-agent",
+            session_id="shared-session",
+            project_environment="project-b",
+        )
+        before_status = self.runtime.status()
+
+        self.runtime.sleep(
+            execution_surface="codex",
+            session_id="shared-session",
+        )
+
+        self.assertEqual(self.runtime.status(), before_status)
+        session_end = self.runtime.evidence.records()[-1]
+        self.assertEqual(session_end.execution_surface, "codex")
+        self.assertFalse(session_end.payload["session_was_active"])
+
+    def test_repeated_composite_wake_is_a_recorded_reattach(self) -> None:
+        before_records = self.runtime.evidence.records()
+
+        for _ in range(2):
+            self.runtime.wake(
+                execution_surface="codex",
+                session_id="reattached-session",
+                project_environment="project-a",
+            )
+
+        active = self.runtime.status().active_sessions
+        self.assertEqual(
+            tuple(
+                (identity.execution_surface, identity.session_id)
+                for identity in active
+            ),
+            (("codex", "reattached-session"),),
+        )
+        appended = self.runtime.evidence.records()[len(before_records):]
+        self.assertEqual(
+            [record.event_kind for record in appended],
+            ["session_start", "session_start"],
+        )
+
     def test_session_table_uses_the_composite_surface_identity_as_primary_key(
         self,
     ) -> None:
