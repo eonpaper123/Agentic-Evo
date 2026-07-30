@@ -246,6 +246,33 @@ class WindowsGateABundleTests(unittest.TestCase):
             finally:
                 junction.rmdir()
 
+    def test_cleanup_rejects_a_broken_junction_as_residue(self) -> None:
+        from agentic_evo.windows_gate_a import (
+            GateABundleError,
+            cleanup_gate_a_bundle,
+        )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            parent = Path(temporary)
+            target = parent / "target"
+            junction = parent / "broken-junction"
+            target.mkdir()
+            linked = subprocess.run(
+                ["cmd.exe", "/d", "/c", "mklink", "/J", str(junction), str(target)],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+            if linked.returncode != 0:
+                self.skipTest(f"junction creation unavailable: {linked.stderr}")
+            target.rmdir()
+            try:
+                with self.assertRaises(GateABundleError):
+                    cleanup_gate_a_bundle(junction)
+            finally:
+                junction.rmdir()
+
 
 class WindowsGateAPlatformTests(unittest.TestCase):
     def test_non_windows_host_is_rejected_before_output_creation(self) -> None:

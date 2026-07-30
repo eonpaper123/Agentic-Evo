@@ -29,7 +29,7 @@ def prepare_gate_a_bundle(output_dir: Path) -> dict[str, Any]:
     parent = output.parent
     if output.exists() or output.is_symlink() or _is_reparse_point(output):
         raise GateABundleError("output directory already exists")
-    if _is_reparse_point(parent) or not parent.is_dir():
+    if _has_reparse_component(parent) or not parent.is_dir():
         raise GateABundleError("output parent must be an existing ordinary directory")
 
     staging = parent / f".{output.name}.gate-a-{uuid4().hex}.tmp"
@@ -67,7 +67,7 @@ def prepare_gate_a_bundle(output_dir: Path) -> dict[str, Any]:
 
 
 def verify_gate_a_bundle(bundle_dir: Path) -> dict[str, Any]:
-    """Independently re-hash and exercise one uninstalled Gate A bundle."""
+    """Re-hash against the packaged source and system compiler, then exercise."""
 
     _require_windows()
     bundle = _absolute_path(bundle_dir)
@@ -79,6 +79,8 @@ def cleanup_gate_a_bundle(bundle_dir: Path) -> dict[str, str]:
 
     _require_windows()
     bundle = _absolute_path(bundle_dir)
+    if bundle.is_symlink() or _has_reparse_component(bundle):
+        raise GateABundleError("bundle cannot be a link or reparse path")
     if not bundle.exists():
         return {"status": "already_absent"}
     _verify_bundle_contents(bundle)
@@ -93,7 +95,7 @@ def _verify_bundle_contents(
     *,
     expected: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    if _is_reparse_point(bundle) or not bundle.is_dir():
+    if _has_reparse_component(bundle) or not bundle.is_dir():
         raise GateABundleError("bundle must be an ordinary directory")
     entries = {entry.name: entry for entry in bundle.iterdir()}
     if set(entries) != {ARTIFACT_NAME, MANIFEST_NAME}:
@@ -501,6 +503,17 @@ def _is_reparse_point(path: Path) -> bool:
     except OSError:
         return False
     return bool(attributes & _REPARSE_POINT)
+
+
+def _has_reparse_component(path: Path) -> bool:
+    current = path
+    while True:
+        if _is_reparse_point(current):
+            return True
+        parent = current.parent
+        if parent == current:
+            return False
+        current = parent
 
 
 def _remove_staging_directory(staging: Path) -> None:
