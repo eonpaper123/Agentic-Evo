@@ -20,7 +20,7 @@
 - [候选试生与 Head 推进](engineering/候选试生与Head推进.md)
   分离 mandatory activation gate 与 optional rehearsal，规定无谱系权限的 candidate probation 只能证明有限可实例化，不能成为 evaluator、自动晋升器或候选质量判决。
 - [单一可信事务域](engineering/单一可信事务域.md)
-  把身份锚、Root、Head、Authority、session、evidence 与本地 checkpoint 收入一个 SQLite 原子提交，给出 Genesis、CAS、崩溃、session 承诺和本地 HMAC 的公式、关系图、验证结果与证明上限。
+  把身份锚、Root、Head、Authority、session、evidence 与本地 checkpoint 收入一个 SQLite 原子提交；Surface session 使用 `(execution_surface, session_id)` 复合主键和带版本域的结构化承诺，并给出 Genesis、CAS、崩溃、本地 HMAC 的公式、关系图、验证结果与证明上限。
 - [Current Body 私有会话租约](engineering/CurrentBody私有会话租约.md)
   给出 exact-Head 短期 lease、authority epoch、候选归属、一次性推进、失败重试与来源降级的公式、状态机和测试；后续受限 Body 已复用该语义形成真实跨进程 transport rehearsal，但仍不是安装态 OS Body principal 身份证明。
 - [机器 Witness 服务与 exact-Head 子进程演练](engineering/机器Witness服务与exact-Head子进程演练.md)

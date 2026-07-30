@@ -305,7 +305,7 @@ author_kind = in_process_rehearsal
 20. Body crash 会释放 volatile lease，prepared candidate 不跨 lease 继承；
 21. Boot、command、response 与 stop 的父端写入均受 deadline 约束。
 
-这些结果与单一可信事务域共同证明“逻辑 lease + 真实跨进程 transport rehearsal”的正常因果路径，不是安装态不可绕过的安全来源。包含后续 Windows 原生回归在内，当前全仓 136 项测试在 `ResourceWarning` 作为错误时通过。
+这些结果与单一可信事务域共同证明“逻辑 lease + 真实跨进程 transport rehearsal”的正常因果路径，不是安装态不可绕过的安全来源。包含后续 Windows 原生与复合 Surface session 回归在内，当前全仓 151 项测试在 `ResourceWarning` 作为错误时通过。
 
 ---
 

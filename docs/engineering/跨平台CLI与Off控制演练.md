@@ -678,7 +678,7 @@ AdvanceHead
 37. stop、worker cleanup 与 control receive deadline 共享每条 transport 的单一 raw-close owner；
 38. Windows 与 WSL Ubuntu 都通过上述 stop、preaccepted-request fencing、admitted-mutation drain、single-close ownership 和 same-home restart；macOS 尚未实机复验。
 
-截至当前停止点，Windows 全仓 136/136 项测试通过，并以 `ResourceWarning` 作为错误运行；WSL Ubuntu 发现同样 136 项，其中 111 项通过、25 项 Windows-only contract 明确 skipped。
+截至当前停止点，Windows 全仓 151/151 项测试通过，并以 `ResourceWarning` 作为错误运行；WSL Ubuntu-24.04 发现同样 151 项，其中 126 项通过、25 项 Windows-only contract 明确 skipped。
 
 ---
 
@@ -756,12 +756,13 @@ Agentic-Evo is a CLI product
 7. supervisor stop 与 Host Off 的因果分离及同一 home 可重启关节；
 8. bounded Hook input、canonical-byte public projection、partial-frame receive Timer 与独立 public/control response Timer；
 9. 三平台零安装副作用目标合同；
-10. Windows、macOS、Linux 的原生边界不再混为一种实现。
+10. Windows、macOS、Linux 的原生边界不再混为一种实现；
+11. public-v2 用 `(execution_surface, session_id)` 复合身份表达、结束和有界投影 Surface session。
 
 继续在 Python 层增加 token、另一把用户密钥、通用 control RPC、模拟 principal、可执行但虚假的 service 脚本，不会增强上述命题。
 
-Windows foreground Job、public named pipe、restricted suspended Body、private lineage transport rehearsal、内部 supervisor-stop 关节与 SCM-only probe bundle 已完成当前局部切片。后续一次宿主批准的 UAC 配置探针又实机闭合了 externally pinned handoff、随机 SCM service、restricted SID/ACL 配置回读、exact cleanup 与普通权限端零残留复核；service 未启动、未重启，所有 token 与攻击案例均 `not_run`。因此 `configuration_probe_completed` 仍只是一项局部事实：`gate_a_complete=false`、`gate_b_outcome=not_established`、`native_security_verified=false`、`ready_to_install=false`，也没有 persistent SCM、service-owned protected state 或安装事实。
+Windows foreground Job、public named pipe、restricted suspended Body、private lineage transport rehearsal、内部 supervisor-stop 关节与 SCM-only probe bundle 已完成当前局部切片。后续一次宿主批准的 UAC 配置探针又实机闭合了 externally pinned handoff、随机 SCM service、restricted SID/ACL 配置回读、exact cleanup 与普通权限端零残留复核；service 未启动、未重启，所有 token 与攻击案例均 `not_run`。无新增 UAC 的后续切片又把 Surface session 从裸 ID 升级为真实复合主键、版本化承诺和 public-v2，并验证跨 surface 同名会话不再覆盖或误删。因此 `configuration_probe_completed` 仍只是一项局部事实：`gate_a_complete=false`、`gate_b_outcome=not_established`、`native_security_verified=false`、`ready_to_install=false`，也没有 persistent SCM、service-owned protected state 或安装事实。
 
 下一项是：
 
-> 下一项只修正跨执行表面的复合 session identity，不产生新增提权副作用；完成后再补齐独立 verifier/attacker。下一次 Windows 权限实验必须另获“保留临时 service + system restart”的明确授权，再读取运行中 token，并在临时可逆安装中复验 service-owned state、public peer、restricted Body capability、崩溃恢复、同账户攻击和完整卸载。之后再单独攻克 HostPresence。正式 Genesis 与用户级 Codex Hook 写入仍需单独授权。
+> 下一项是在不产生新增提权副作用的前提下，补齐独立 verifier/real-attacker 的最小合同与可执行证据入口；它必须区分 `not_run / inconclusive / failed / passed`，且不得用 receipt 存在或 service 自报替代外部观察。下一次 Windows 权限实验必须另获“保留临时 service + system restart”的明确授权，再读取运行中 token，并在临时可逆安装中复验 service-owned state、public peer、restricted Body capability、崩溃恢复、同账户攻击和完整卸载。之后再单独攻克 HostPresence。正式 Genesis 与用户级 Codex Hook 写入仍需单独授权。

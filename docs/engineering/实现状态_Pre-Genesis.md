@@ -196,7 +196,7 @@ Nira 不拥有 Root，不产生独立 Agent，也不是本工具的安装范围�
 - 同一次配置探针的提升端 cleanup 与普通权限端独立 cleanup 均为 complete；事后精确 service query 为 1060、匹配临时服务为 0、Program Files/ProgramData 两棵实验树均不存在；Genesis 只记录为 `not_measured`，不冒充 0；
 - 内部 supervisor stop 不经过 public/Off operation：`request_stop()` 在 lifecycle lock 上建立 dispatch cutoff，唤醒/关闭 listener 与 active transports，拒绝 cutoff 后才尝试 admission 的请求，并等待 cutoff 前已 admission 的请求归静；service loop 随后 join workers、回收 Body/lease、释放 singleton；
 - 屏障测试证明 cutoff 前已 admission 的变更可以恰好提交一次且 stop 必须等待；stop 路径自身的可信状态增量为空；每条 transport 的 raw close 由 stop、worker 与 deadline timer 共享的单一 owner 串行化；
-- Windows 全仓 136/136 项测试在 `ResourceWarning` 作为错误时通过；WSL Ubuntu 发现同样 136 项，其中 111 项通过、25 项 Windows-only contract 明确 skipped；macOS 尚未实机运行。
+- Windows 全仓 151/151 项测试在 `ResourceWarning` 作为错误时通过；WSL Ubuntu-24.04 发现同样 151 项，其中 126 项通过、25 项 Windows-only contract 明确 skipped；macOS 尚未实机运行。
 
 这些结果证明的是代码契约，不是长期学习、自我进化或独立科研证据已经成立。
 
@@ -253,7 +253,7 @@ Root、Head、Authority、session、revision、evidence 与 checkpoint 现已进
 - 公共 Surface 已不能自报最终作者；正常 lineage 路径也由 `WitnessCore` 派生 `in_process_rehearsal`。但 Runtime 私有研究入口、BodyStore 与 Witness 仍在同一用户权限内，因此同权限代码仍可绕过 Python 编排；最终必须由独立服务根据认证入口生成作者来源；
 - 当前同一 home 内的 Genesis 已串行化，但 `home` 仍由调用者传入；两个目录仍可分别产生 Root，尚无机器级唯一服务裁决；
 - 文件锁已改为 OS 持有：Windows 使用 byte-range lock，POSIX 使用 `flock`；Windows 子进程 `os._exit` 后自动释放已经验证，POSIX 路径仍需在对应平台 CI 复核；
-- Surface active session 已进入同一事务并被 `sessions_hash` 承诺；Current Body lease 则故意只存在于进程内和 OS lock 中，重启不复活。跨 execution surface 的同名 session、异常退出和系统重启仍需要机器 service reconciliation；
+- Surface active session 已以 `(execution_surface, session_id)` 真实复合主键进入同一事务，并由 `agentic-evo-sessions-v2` 结构化 `sessions_hash` 承诺；跨 surface 同名 ID 的并存、精确结束、reload 与 Codex SessionEnd 隔离均已验证。Current Body lease 则故意只存在于进程内和 OS lock 中，重启不复活；异常退出和系统重启仍需要机器 service reconciliation；
 - 当前 lease TTL 是下一次 owner check 时的准入失效，不是 deadline 到达瞬间的跨进程主动解锁；绕过 owner Witness 的 Off→On 会 fence 旧 lease 的写入，但旧 OS lock 要等 owner 再交互、close 或死亡才释放；
 - evidence append 每次重新验证完整历史，长期运行会趋向二次增长；需要独立 writer、索引和分段签名 checkpoint；
 - adapter 失败目前静默退出以保护用户任务，但还没有身体之外的 health / coverage-gap 通路；
@@ -379,7 +379,7 @@ Authority
 [已完成] 内部 supervisor stop：cutoff、transport close、admitted-work drain 与完整 service-loop 回收分层；不改写 Host Off，stop 自身无 Authority / evidence 增量
 [已完成] 可构建、可复核、SCM-only negative handshake、junction-safe local cleanup 的 exact Windows probe bundle
 [已完成] 一次 externally pinned、config-only、no-start/no-reboot 的 UAC SCM/ACL 配置探针与双重零残留复核
-→ 把跨 coding-agent 会话身份改为 `(execution_surface, session_id)` 复合键，消除不同执行表面的 ID 碰撞
+[已完成] 把跨 coding-agent 会话身份改为 `(execution_surface, session_id)` 复合主键，并用 public-v2 与版本化结构承诺消除覆盖、误删和哈希二义性
 → 补齐 independent verifier / real attacker；Windows 权限实验等待新的“保留临时 service + 重启”授权
 → 用运行中 SCM service principal / service-owned protected state 形成机器生命周期边界
 → 在临时安装中攻击并复验 public / Body capability / crash / uninstall
