@@ -300,7 +300,7 @@ subprocess_rehearsal
 17. 屏障测试证明 cutoff 前已 admission 的变更可以恰好提交一次，而 `request_stop()` 必须等该 dispatch 归静后才返回；
 18. 每条已接受 transport 只有一个 raw-close owner；stop、worker cleanup 与 control receive deadline 竞争关闭时不会再次关闭同一底层句柄；
 19. Windows 与 WSL Ubuntu 均验证 accept 唤醒、active connection 关闭、Body/lease/singleton 回收及同一 home 重启；macOS 尚未实机复验；
-20. Windows 全仓 129/129 项测试以 `ResourceWarning` 作为错误通过；WSL Ubuntu 发现同样 129 项，其中 109 项通过、20 项 Windows-only contract 明确 skipped；macOS 仍未实机运行。
+20. Windows 全仓 131/131 项测试以 `ResourceWarning` 作为错误通过；WSL Ubuntu 发现同样 131 项，其中 111 项通过、20 项 Windows-only contract 明确 skipped；macOS 仍未实机运行。
 
 本轮不依赖 pywin32 或其他第三方包；实现只使用 Python 标准库、`ctypes` 与 Windows Kernel32 / Advapi32。
 

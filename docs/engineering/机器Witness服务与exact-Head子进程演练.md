@@ -435,7 +435,7 @@ commit Authority=Off
 - Ready 期间跨过 Off boundary 会杀死进程、释放 lease；
 - worker crash 后只有在 lease 已释放时 `wait_closed` 才完成；
 - 同一 Head 可以从新的 boot session 重新实例化；
-- 有效 6 MiB activation 在专用 30 秒有界 boot 测试窗口内不会因 8 MiB JSON/base64 单帧常数成为不可启动 Head；这不证明生产默认 2 秒窗口在 Windows 冷机上也足够；
+- 有效 6 MiB activation 在专用 30 秒有界 boot 测试窗口内不会因 8 MiB JSON/base64 单帧常数成为不可启动 Head；这不证明生产默认 5 秒窗口在 Windows 冷机上也足够；
 - worker argv 不含 Root、Head、challenge 或 boot session；
 - worker 不继承服务进程中的任意环境 secret；
 - public status 不暴露 challenge 或 boot session；
@@ -450,7 +450,7 @@ commit Authority=Off
 - stop 路径自身没有可信状态增量，但 cutoff 前已经 admission 的合法变更仍可恰好提交一次；屏障测试证明 `request_stop()` 会等待该提交完成；
 - stop、worker cleanup 与 control receive deadline 共享每条 transport 的单一 raw-close owner，不会并发重复关闭同一底层句柄。
 
-这些是协议和进程生命周期事实，不是长期学习或自我进化证据。截至当前，Windows 全仓 129/129 项测试在 `ResourceWarning` 作为错误时通过；WSL Ubuntu 同样发现 129 项，其中 109 项通过、20 项 Windows-only contract 明确 skipped。
+这些是协议和进程生命周期事实，不是长期学习或自我进化证据。截至当前，Windows 全仓 131/131 项测试在 `ResourceWarning` 作为错误时通过；WSL Ubuntu 同样发现 131 项，其中 111 项通过、20 项 Windows-only contract 明确 skipped。
 
 ### 8.1 service stop 与 Host Off 是两种因果
 
@@ -655,7 +655,7 @@ public Surface allowlist
 
 三平台不是三种 Agent。相同协议不变量由三个薄的 OS 实现分别通过攻击测试。
 
-当前完整 129 项测试在 Windows 运行。WSL Ubuntu 也发现 129 项，其中 109 项通过、20 项 Windows-only contract 明确 skipped；这已经覆盖 AF_UNIX public/control、subprocess、service crash/stop、preaccepted-request fencing、锁恢复与 same-home restart。它仍不是 systemd、dedicated UID、StateDirectory 或 bare-metal Linux 的原生证据。macOS 目前只有 endpoint 推导与共享代码路径；在 macOS 实机运行前，不能把它写成已经通过的 launchd、IPC、signal、file-lock 或子进程行为。
+当前完整 131 项测试在 Windows 运行。WSL Ubuntu 也发现 131 项，其中 111 项通过、20 项 Windows-only contract 明确 skipped；这已经覆盖 AF_UNIX public/control、subprocess、service crash/stop、preaccepted-request fencing、锁恢复与 same-home restart。它仍不是 systemd、dedicated UID、StateDirectory 或 bare-metal Linux 的原生证据。macOS 目前只有 endpoint 推导与共享代码路径；在 macOS 实机运行前，不能把它写成已经通过的 launchd、IPC、signal、file-lock 或子进程行为。
 
 ---
 

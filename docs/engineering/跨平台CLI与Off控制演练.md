@@ -435,7 +435,7 @@ Timer bounds complete-frame receive
 → client uses a distinct 12-second response Timer
 ```
 
-仅调用 `poll(2s)` 也不充分：在 AF_UNIX stream 上，攻击者可以只发送 multiprocessing frame 的长度前缀，让 `poll()` 返回 readable，再永远不发送 frame body。当前实现用 receive-only Timer 尝试关闭这种 partial frame；自动化测试只用可被 `close()` 唤醒的 fake connection 验证了 Timer 编排，没有证明真实 Windows AF_PIPE 或 POSIX AF_UNIX 上跨线程 `close()` 一定中断阻塞的 `recv`。原生 transport 必须做真实 endpoint 测试，必要时使用 `shutdown`、取消 I/O 或平台等价机制。
+仅调用 `poll(2s)` 也不充分：在 AF_UNIX stream 上，攻击者可以只发送 multiprocessing frame 的长度前缀，让 `poll()` 返回 readable，再永远不发送 frame body。当前实现为 POSIX receive deadline 预先复制真实 AF_UNIX socket，超时时先 `shutdown(SHUT_RDWR)` 再交给原有单一 close owner，并等待 Timer 退出后才释放副本。Windows AF_PIPE 的 message-mode 碎片被当作完整坏帧立即拒绝。真实 control endpoint 已分别验证 partial request 后可继续服务和 partial response 会在 deadline 内退出；该结果不外推到尚未实机的 macOS。
 
 ### 8.1 深层 JSON
 
@@ -588,7 +588,7 @@ RenderPlan(P)\neq NativeVerified(P)
 }
 \]
 
-本节的 plan rendering 与可移植协议测试不能证明 macOS 或 Linux 原生边界，也不能证明 Windows SCM、service SID、protected state 或 HostPresence。WSL Ubuntu 现在已经运行完整测试发现：109 passed / 20 Windows-only skipped，包含 AF_UNIX service stop、preaccepted-request fencing 与 same-home restart；这证明 Linux 用户态可移植路径，不证明 systemd、dedicated UID、StateDirectory、cgroup 或 bare-metal Linux 安装态。macOS 仍未实机。后续 Windows 原生测试已经证明 foreground Job、public peer、restricted Low-Integrity Body 与 explicit inherited private lineage transport rehearsal；这些局部证据不能反推 distinct-principal authentication、安装态或其他平台原生边界。
+本节的 plan rendering 与可移植协议测试不能证明 macOS 或 Linux 原生边界，也不能证明 Windows SCM、service SID、protected state 或 HostPresence。WSL Ubuntu 现在已经运行完整测试发现：111 passed / 20 Windows-only skipped，包含 AF_UNIX service stop、preaccepted-request fencing 与 same-home restart；这证明 Linux 用户态可移植路径，不证明 systemd、dedicated UID、StateDirectory、cgroup 或 bare-metal Linux 安装态。macOS 仍未实机。后续 Windows 原生测试已经证明 foreground Job、public peer、restricted Low-Integrity Body 与 explicit inherited private lineage transport rehearsal；这些局部证据不能反推 distinct-principal authentication、安装态或其他平台原生边界。
 
 ---
 
@@ -646,12 +646,12 @@ AdvanceHead
 5. public endpoint 继续拒绝 On、Off、Genesis 与 lineage；
 6. control endpoint 只接受空参数 Off；
 7. 错协议、额外字段、伪 provenance、畸形与 oversize control frame 均不改变状态；
-8. fake connection 回归测试证明 receive-only Timer 的编排有界；真实 AF_PIPE / AF_UNIX partial frame 行为尚未实测；
+8. fake close-owner 回归与真实 AF_PIPE / AF_UNIX control endpoint 共同证明 partial request deadline 有界，超时后 listener 可继续处理下一请求；
 9. Off 原子幂等，第二次不增加 evidence；
 10. deterministic TOCTOU regression rehearsal 证明 service 不会因事务外预读返回陈旧 Off；
 11. Off 回包发生在 Body 退出与 lease 释放之后；
 12. 慢 Body shutdown 不会被 control receive Timer 提前终止；
-13. fake partial-response connection 证明 Off client 的独立 Timer 编排会返回而不是无限等待；真实 transport 取消行为仍待原生测试；
+13. fake 与真实 partial-response transport 都证明 Off client 的独立 Timer 会返回而不是无限等待；POSIX 使用 socket shutdown 中断已经 readable 但不完整的 frame；
 14. Off 后 Root / Head 不变、session 清空、Body absent；
 15. Off 后 crash / restart 仍保持 Off；
 16. malformed、oversize、深嵌套 Hook JSON fail-open 且不回显原文；
@@ -678,7 +678,7 @@ AdvanceHead
 37. stop、worker cleanup 与 control receive deadline 共享每条 transport 的单一 raw-close owner；
 38. Windows 与 WSL Ubuntu 都通过上述 stop、preaccepted-request fencing、admitted-mutation drain、single-close ownership 和 same-home restart；macOS 尚未实机复验。
 
-截至当前停止点，Windows 全仓 129/129 项测试通过，并以 `ResourceWarning` 作为错误运行；WSL Ubuntu 发现同样 129 项，其中 109 项通过、20 项 Windows-only contract 明确 skipped。
+截至当前停止点，Windows 全仓 131/131 项测试通过，并以 `ResourceWarning` 作为错误运行；WSL Ubuntu 发现同样 131 项，其中 111 项通过、20 项 Windows-only contract 明确 skipped。
 
 ---
 
@@ -698,11 +698,10 @@ AdvanceHead
 10. Codex Hook 已安装、已信任或已在真实 session 自然触发；
 11. `PermissionRequest` 或其他计划事件已由本项目做安装后集成验证；
 12. 当前 Windows public pipe 的 SID 是 HostPresence，或 client PID 是授权身份；
-13. 当前跨线程 `close()` 在真实 AF_PIPE / AF_UNIX 上可靠中断 partial frame；
-14. 所有孙进程均已退出；
-15. 一个卡在业务处理中的 Python worker 会被 Timer 强制终止；
-16. 正式 Genesis；
-17. `agent_self_authored`。
+13. 所有孙进程均已退出；
+14. 一个卡在业务处理中的 Python worker 会被 Timer 强制终止；
+15. 正式 Genesis；
+16. `agent_self_authored`。
 
 关键非等价关系：
 
