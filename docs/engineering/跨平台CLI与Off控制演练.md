@@ -83,7 +83,7 @@ plan-install = 已安装
 
 ## 3. 最小 CLI
 
-当前只提供五个命令：
+当前提供五个 foreground/plan 命令，以及三个只处理本地 Windows Gate A probe bundle 的命令：
 
 ```text
 agentic-evo serve        --dev-home <existing disposable home>
@@ -91,6 +91,9 @@ agentic-evo status       --dev-home <existing disposable home>
 agentic-evo off          --dev-home <existing disposable home>
 agentic-evo hook         --dev-home <existing disposable home>
 agentic-evo plan-install
+agentic-evo prepare-windows-gate-a --bundle-dir <new local directory>
+agentic-evo verify-windows-gate-a  --bundle-dir <existing local directory>
+agentic-evo cleanup-windows-gate-a --bundle-dir <verified local directory>
 ```
 
 其中：
@@ -102,6 +105,9 @@ agentic-evo plan-install
 | `off` | 经独立未认证控制通路请求 Off | On、Genesis、Head 推进 |
 | `hook` | 把一个 bounded Codex lifecycle event 映射到公共 Surface | 直接打开 trusted state、阻断 coding-agent 主任务 |
 | `plan-install` | 向 stdout 输出确定性三平台目标合同 | 创建服务、写 Hook、启动进程、创建状态 |
+| `prepare-windows-gate-a` | 用 Windows system compiler 构建 exact SCM-only probe 与 canonical manifest | UAC、SCM/ProgramData 写入、服务启动、完整 Gate A |
+| `verify-windows-gate-a` | 重算 source/compiler/artifact 摘要并验证 console 1063 handshake | 把 bundle 自述哈希当签名、查询真实 SCM/token/ACL |
+| `cleanup-windows-gate-a` | 只删除已验证的普通两文件本地 bundle；junction/tamper fail closed | service uninstall、状态清理、跟随 reparse point |
 
 没有增加 `restart`：杀死 foreground service 后再次 `serve` 已足够构成当前重启实验。
 
@@ -582,7 +588,7 @@ RenderPlan(P)\neq NativeVerified(P)
 }
 \]
 
-本节的 plan rendering 与可移植协议测试不能证明 macOS 或 Linux 原生边界，也不能证明 Windows SCM、service SID、protected state 或 HostPresence。WSL Ubuntu 现在已经运行完整测试发现：108 passed / 15 Windows-only skipped，包含 AF_UNIX service stop、preaccepted-request fencing 与 same-home restart；这证明 Linux 用户态可移植路径，不证明 systemd、dedicated UID、StateDirectory、cgroup 或 bare-metal Linux 安装态。macOS 仍未实机。后续 Windows 原生测试已经证明 foreground Job、public peer、restricted Low-Integrity Body 与 explicit inherited private lineage transport rehearsal；这些局部证据不能反推 distinct-principal authentication、安装态或其他平台原生边界。
+本节的 plan rendering 与可移植协议测试不能证明 macOS 或 Linux 原生边界，也不能证明 Windows SCM、service SID、protected state 或 HostPresence。WSL Ubuntu 现在已经运行完整测试发现：109 passed / 19 Windows-only skipped，包含 AF_UNIX service stop、preaccepted-request fencing 与 same-home restart；这证明 Linux 用户态可移植路径，不证明 systemd、dedicated UID、StateDirectory、cgroup 或 bare-metal Linux 安装态。macOS 仍未实机。后续 Windows 原生测试已经证明 foreground Job、public peer、restricted Low-Integrity Body 与 explicit inherited private lineage transport rehearsal；这些局部证据不能反推 distinct-principal authentication、安装态或其他平台原生边界。
 
 ---
 
@@ -672,7 +678,7 @@ AdvanceHead
 37. stop、worker cleanup 与 control receive deadline 共享每条 transport 的单一 raw-close owner；
 38. Windows 与 WSL Ubuntu 都通过上述 stop、preaccepted-request fencing、admitted-mutation drain、single-close ownership 和 same-home restart；macOS 尚未实机复验。
 
-截至当前停止点，Windows 全仓 123/123 项测试通过，并以 `ResourceWarning` 作为错误运行；WSL Ubuntu 发现同样 123 项，其中 108 项通过、15 项 Windows-only contract 明确 skipped。
+截至当前停止点，Windows 全仓 128/128 项测试通过，并以 `ResourceWarning` 作为错误运行；WSL Ubuntu 发现同样 128 项，其中 109 项通过、19 项 Windows-only contract 明确 skipped。
 
 ---
 
@@ -755,8 +761,8 @@ Agentic-Evo is a CLI product
 
 继续在 Python 层增加 token、另一把用户密钥、通用 control RPC、模拟 principal、可执行但虚假的 service 脚本，不会增强上述命题。
 
-Windows foreground Job、public named pipe、restricted suspended Body、private lineage transport rehearsal 与内部 supervisor-stop 关节已完成当前局部切片；`native_security_verified=false`、`ready_to_install=false`，也没有 SCM、protected state 或安装事实。
+Windows foreground Job、public named pipe、restricted suspended Body、private lineage transport rehearsal、内部 supervisor-stop 关节与 SCM-only probe bundle 已完成当前局部切片。probe bundle 只成立 `scm_probe_bundle_ready`；完整 Gate A 仍缺独立 verifier、真实 attacker、可执行 Gate B cleanup 与可信 elevated handoff。因此 `gate_a_complete=false`、`native_security_verified=false`、`ready_to_install=false`，也没有 SCM、protected state 或安装事实。
 
 下一项是：
 
-> 建立 SCM Witness principal + service-owned protected state，在临时可逆安装中复验 public peer、restricted Body capability、崩溃恢复和同账户攻击；之后再单独攻克 HostPresence。正式 Genesis 与用户级 Codex Hook 写入仍需单独授权。
+> 先补齐完整 Gate A 的独立 verifier/attacker、exact-target cleanup 与宿主批准摘要的可信 handoff；再经明确授权建立 SCM Witness principal + service-owned protected state，在临时可逆安装中复验 public peer、restricted Body capability、崩溃恢复和同账户攻击。之后再单独攻克 HostPresence。正式 Genesis 与用户级 Codex Hook 写入仍需单独授权。

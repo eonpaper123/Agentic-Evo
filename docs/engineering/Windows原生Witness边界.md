@@ -1,8 +1,8 @@
 # Windows 原生 Witness 边界
 
 更新时间：2026-07-30  
-状态：四项 foreground 局部原生证据与内部 supervisor-stop 关节已形成：Job Object、认证 public named pipe、restricted Low-Integrity suspended Body、explicit inherited private lineage transport rehearsal，以及 stop 路径自身不创建 Authority 事务的可重启服务停止；SCM principal、protected state、distinct Body principal、HostPresence 与安装仍未形成
-对应实现：`src/agentic_evo/windows_native.py`、`src/agentic_evo/body_process.py`、`src/agentic_evo/windows_pipe.py`、`src/agentic_evo/ipc.py`、`src/agentic_evo/service.py`
+状态：四项 foreground 局部原生证据、内部 supervisor-stop 关节与一个可构建的 SCM-only probe bundle 已形成；完整 Gate A 仍缺独立 verifier、真实 attacker、可执行 Gate B cleanup 与可信提权交接，Gate B、SCM principal、protected state、distinct Body principal、HostPresence 与安装均未形成
+对应实现：`src/agentic_evo/windows_native.py`、`src/agentic_evo/body_process.py`、`src/agentic_evo/windows_pipe.py`、`src/agentic_evo/ipc.py`、`src/agentic_evo/service.py`、`src/agentic_evo/windows_gate_a.py`、`src/agentic_evo/native/AgenticEvo.ScmProbe.cs`
 
 ---
 
@@ -300,7 +300,7 @@ subprocess_rehearsal
 17. 屏障测试证明 cutoff 前已 admission 的变更可以恰好提交一次，而 `request_stop()` 必须等该 dispatch 归静后才返回；
 18. 每条已接受 transport 只有一个 raw-close owner；stop、worker cleanup 与 control receive deadline 竞争关闭时不会再次关闭同一底层句柄；
 19. Windows 与 WSL Ubuntu 均验证 accept 唤醒、active connection 关闭、Body/lease/singleton 回收及同一 home 重启；macOS 尚未实机复验；
-20. Windows 全仓 123/123 项测试以 `ResourceWarning` 作为错误通过；WSL Ubuntu 发现同样 123 项，其中 108 项通过、15 项 Windows-only contract 明确 skipped。
+20. Windows 全仓 128/128 项测试以 `ResourceWarning` 作为错误通过；WSL Ubuntu 发现同样 128 项，其中 109 项通过、19 项 Windows-only contract 明确 skipped；macOS 仍未实机运行。
 
 本轮不依赖 pywin32 或其他第三方包；实现只使用 Python 标准库、`ctypes` 与 Windows Kernel32 / Advapi32。
 
@@ -430,9 +430,57 @@ Gate A：无 UAC 的实验工件与可逆清理路径就绪
 Gate B：UAC 后真实 SCM 安装、token/ACL 攻击、重启与卸载证据成立
 ```
 
-当前只完成 Gate A 的第一个关节——Windows 与 WSL 已实测的内部 supervisor stop；macOS 对相同 AF_UNIX 路径尚未实机复验。SCM entrypoint、原生 probe、独立 verifier/attacker、protected artifact/state manifest 仍待实现；Gate B 完全没有运行。因此必须继续保持：
+当前又完成了 Gate A 的第二个关节：系统 `.NET Framework` 编译器从已提交 C# 源构建不依赖用户 Python、checkout 或 `PYTHONPATH` 的 own-process SCM probe；外部 builder 对 source、compiler、artifact 三重 SHA-256 重新绑定，普通控制台启动必须以 `ERROR_FAILED_SERVICE_CONTROLLER_CONNECT (1063)` fail closed；canonical manifest 只渲染 protected artifact/state 目标，不创建它们。bundle 本地 cleanup 只接受 exact 两文件普通目录，并拒绝 junction/reparse point、篡改工件和未声明文件。
+
+令 \(A\) 为 probe artifact，\(M\) 为 manifest，\(V,T,C,H\) 分别为完整独立 verifier、真实 attacker、可执行 Gate B cleanup 与可信 elevated handoff。完整 Gate A 的停止式是：
+
+\[
+\boxed{
+GateAReady
+=
+Buildable(A)
+\land ExactClosure(A,M)
+\land SCMOnlyNegative(A)
+\land Complete(V,T,C)
+\land TrustedHandoff(H)
+\land ZeroPrivilegedEffect
+\land ZeroGenesis
+}
+\]
+
+本轮实际成立的只是：
+
+\[
+\boxed{
+ScmProbeBundleReady=true
+\qquad\land\qquad
+GateAReady=false
+}
+\]
+
+原因不是形式上的“还少几个文件”：当前没有 UAC 后的真实 service/token/ACL 对象，提前写一个永远返回漂亮 JSON 的 verifier 不能产生证据。独立审查也发现，早期 stub 只按 receipt 是否存在返回固定结果，属于伪 verifier/attacker；它已被删除，`passed/ready` 过度声明也已降级为 `partial/scm_probe_bundle_ready`。完整 Gate A 仍明确缺少：
 
 ```text
+independent_verifier
++ real_attacker
++ executable_gate_b_cleanup
++ trusted_elevated_handoff
+```
+
+2026-07-30 本机保存于 ignored `artifacts/windows-gate-a/` 的可重建 probe 证据为：
+
+```text
+source_sha256   = d008db53a4b587949e1ef0916130e7f425a822e882780d38b8514c929f1ebd77
+compiler_sha256 = 46809206887326d2d24db1eff1f3064de972c3451abe766b49111450a5e08e00
+artifact_sha256 = 2fa4058e74a37ef4d3f378ad7607774dc7ac4de0bcc9f3a3cd3617dbb4e6623b
+manifest_sha256 = a4c3e2f87830044312279e657d366640c8ce64628bd4436af142bfd40e7ceb04
+```
+
+这些摘要固定的是本次可重建工件，不是签名信任根。同账户进程仍可同时替换用户可写 bundle 与 manifest；未来提权侧必须重新核对宿主明确批准的外部摘要，不能相信 bundle 的自述哈希或同目录 receipt。Gate B 完全没有运行，因此必须继续保持：
+
+```text
+scm_probe_bundle_ready = true
+gate_a_complete = false
 privileged_installation_executed = false
 scm_observed = false
 service_token_observed = false
@@ -440,6 +488,18 @@ state_acl_attacked = false
 native_security_verified = false
 ready_to_install = false
 ```
+
+特别保留：
+
+\[
+\boxed{
+ScmProbeBundleReady
+\not\Rightarrow
+GateAReady
+\not\Rightarrow
+W_{SCM}
+}
+\]
 
 ### 8.2 SCM principal 的可证伪验收
 
@@ -558,4 +618,4 @@ service self-report
 ≠ independent verifier evidence
 ```
 
-创建临时 service 需要管理员权限；Microsoft 的 SCM 权限说明也明确指出，能够 `CreateService` 的 SCM handle 只授予管理员。当前 Codex 进程是普通用户、Integrity Level 为 Medium，且 Python 解释器位于用户可写目录。因此 Gate B 的下一动作必须是一次明确授权、可逆、随机 service name、零 Genesis 的 UAC 演练；在获得该授权前，可以在这里停下。
+创建临时 service 需要管理员权限；Microsoft 的 SCM 权限说明也明确指出，能够 `CreateService` 的 SCM handle 只授予管理员。当前 Codex 进程是普通用户、Integrity Level 为 Medium，且 Python 解释器位于用户可写目录。当前 probe bundle 不能直接进入提权执行：先要补齐独立 verifier/attacker、严格 receipt 与 exact-target cleanup，并把宿主明确批准的外部摘要作为 elevated bootstrap 输入；随后才是随机 service name、零 Genesis 的 UAC 演练。没有该批准时，可以在这个无特权停止点停下。
