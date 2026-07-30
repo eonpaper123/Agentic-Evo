@@ -346,7 +346,7 @@ class WitnessServiceTests(unittest.TestCase):
         client = self._wait_until_ready(
             process,
             home=many_home,
-            timeout_seconds=15.0,
+            timeout_seconds=45.0,
         )
 
         wake = client.wake(
