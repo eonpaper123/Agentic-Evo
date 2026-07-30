@@ -1,8 +1,8 @@
 # Windows 原生 Witness 边界
 
 更新时间：2026-07-30  
-状态：四项 foreground 局部原生证据、内部 supervisor-stop 关节与一个可构建的 SCM-only probe bundle 已形成；完整 Gate A 仍缺独立 verifier、真实 attacker、可执行 Gate B cleanup 与可信提权交接，Gate B、SCM principal、protected state、distinct Body principal、HostPresence 与安装均未形成
-对应实现：`src/agentic_evo/windows_native.py`、`src/agentic_evo/body_process.py`、`src/agentic_evo/windows_pipe.py`、`src/agentic_evo/ipc.py`、`src/agentic_evo/service.py`、`src/agentic_evo/windows_gate_a.py`、`src/agentic_evo/native/AgenticEvo.ScmProbe.cs`
+状态：四项 foreground 局部原生证据、内部 supervisor-stop、SCM-only probe bundle，以及一次无启动、无重启、零持久残留的 UAC 配置探针已形成；完整 Gate A 仍缺独立 verifier、真实 attacker 与 running-service stop→delete→cleanup，完整 Gate B、运行中 SCM principal、service-owned protected state、distinct Body principal、HostPresence 与持久安装均未形成
+对应实现：`src/agentic_evo/windows_native.py`、`src/agentic_evo/body_process.py`、`src/agentic_evo/windows_pipe.py`、`src/agentic_evo/ipc.py`、`src/agentic_evo/service.py`、`src/agentic_evo/windows_gate_a.py`、`src/agentic_evo/native/AgenticEvo.ScmProbe.cs`、`tools/windows-gate-b-experiment.ps1`、`tests/test_windows_gate_b.py`
 
 ---
 
@@ -300,7 +300,7 @@ subprocess_rehearsal
 17. 屏障测试证明 cutoff 前已 admission 的变更可以恰好提交一次，而 `request_stop()` 必须等该 dispatch 归静后才返回；
 18. 每条已接受 transport 只有一个 raw-close owner；stop、worker cleanup 与 control receive deadline 竞争关闭时不会再次关闭同一底层句柄；
 19. Windows 与 WSL Ubuntu 均验证 accept 唤醒、active connection 关闭、Body/lease/singleton 回收及同一 home 重启；macOS 尚未实机复验；
-20. Windows 全仓 131/131 项测试以 `ResourceWarning` 作为错误通过；WSL Ubuntu 发现同样 131 项，其中 111 项通过、20 项 Windows-only contract 明确 skipped；macOS 仍未实机运行。
+20. Windows 全仓 136/136 项测试以 `ResourceWarning` 作为错误通过；WSL Ubuntu 发现同样 136 项，其中 111 项通过、25 项 Windows-only contract 明确 skipped；macOS 仍未实机运行。
 
 本轮不依赖 pywin32 或其他第三方包；实现只使用 Python 标准库、`ctypes` 与 Windows Kernel32 / Advapi32。
 
@@ -458,13 +458,12 @@ GateAReady=false
 }
 \]
 
-原因不是形式上的“还少几个文件”：当前没有 UAC 后的真实 service/token/ACL 对象，提前写一个永远返回漂亮 JSON 的 verifier 不能产生证据。独立审查也发现，早期 stub 只按 receipt 是否存在返回固定结果，属于伪 verifier/attacker；它已被删除，`passed/ready` 过度声明也已降级为 `partial/scm_probe_bundle_ready`。完整 Gate A 仍明确缺少：
+原因不是形式上的“还少几个文件”。独立审查曾发现，早期 stub 只按 receipt 是否存在返回固定结果，属于伪 verifier/attacker；它已被删除，`passed/ready` 过度声明也已降级为 `partial/scm_probe_bundle_ready`。后续配置探针已经实机执行 config-object exact-target cleanup 与宿主批准摘要的 trusted elevated handoff，但没有运行 service、读取 token 或执行攻击矩阵；因此 \(C\) 只形成 config-only 子证据，U01 仍是 partial。完整 Gate A 仍明确缺少：
 
 ```text
 independent_verifier
 + real_attacker
-+ executable_gate_b_cleanup
-+ trusted_elevated_handoff
++ running_service_stop_delete_cleanup
 ```
 
 2026-07-30 本机保存于 ignored `artifacts/windows-gate-a/` 的可重建 probe 证据为：
@@ -476,18 +475,77 @@ artifact_sha256 = 2fa4058e74a37ef4d3f378ad7607774dc7ac4de0bcc9f3a3cd3617dbb4e662
 manifest_sha256 = a4c3e2f87830044312279e657d366640c8ce64628bd4436af142bfd40e7ceb04
 ```
 
-这些摘要固定的是本次可重建工件，不是签名信任根。同账户进程仍可同时替换用户可写 bundle 与 manifest；未来提权侧必须重新核对宿主明确批准的外部摘要，不能相信 bundle 的自述哈希或同目录 receipt。Gate B 完全没有运行，因此必须继续保持：
+这些摘要固定的是本次可重建工件，不是签名信任根。同账户进程仍可同时替换用户可写 bundle 与 manifest；提权侧因此必须重新核对宿主明确批准的外部摘要，不能相信 bundle 的自述哈希或同目录 receipt。
+
+2026-07-30，宿主批准了一次严格限域的 UAC 配置探针。普通权限控制器由外部固定摘要的可信 bootstrap 启动；提升进程再次验证同一脚本字节，只导入固定系统 PowerShell 模块，在 protected artifact root 内封闭编译临时目录，并把提升结果经绑定实际提升进程 PID 的单向 named pipe 返回。它创建随机临时 own-process service，写入并回读 restricted service-SID 配置和 protected ACL，然后在同一提升生命周期内删除 service 与两棵临时目录。service 从未启动，系统没有重启，Hook、Genesis 和现有 Runtime 均未触碰。
+
+令 \(Q_C\) 表示这次配置探针：
+
+\[
+\boxed{
+Q_C
+=
+PinnedScript
+\land TrustedElevationClosure
+\land Create(S)
+\land QSidType(S)=RESTRICTED
+\land ProtectedACLReadback
+\land ExactCleanup
+\land IndependentZeroResidue
+}
+\]
+
+本机不可变 receipt 为：
+
+```text
+run_id          = d8846efecf8149849f49ea12c2813fe0
+script_sha256   = fe79b3730f4f8a893076a20446cac3089a59541923e8ce2ac7c9cf8ef28cb027
+artifact_sha256 = 2fa4058e74a37ef4d3f378ad7607774dc7ac4de0bcc9f3a3cd3617dbb4e6623b
+result_sha256   = 13629892dc470e2dbb7ee73aa2219c28da25b38673b6a4e801b32e0229ee0e8a
+create/sidtype/qsidtype/delete exit = 0/0/0/0
+status           = configuration_probe_completed
+service_started  = false
+reboot_validation = not_performed_service_removed
+elevated_cleanup  = complete
+independent_cleanup = complete
+final_service_query = 1060
+matching_gate_b_services = 0
+artifact_tree_exists = false
+state_tree_exists = false
+```
+
+因此当前精确结论是：
 
 ```text
 scm_probe_bundle_ready = true
 gate_a_complete = false
-privileged_installation_executed = false
-scm_observed = false
+privileged_configuration_probe_executed = true
+persistent_installation = false
+scm_configuration_observed = true
+restricted_configuration_readback = true
+service_started = false
 service_token_observed = false
 state_acl_attacked = false
+all_attack_cases = not_run
+genesis_requested = false
+genesis_count = not_measured
+U01 = partial_cleanup_pass_genesis_not_measured
+gate_b_outcome = not_established
 native_security_verified = false
 ready_to_install = false
 ```
+
+\[
+\boxed{
+Q_C=true
+\not\Rightarrow
+GateAReady
+\not\Rightarrow
+W_{SCM}
+\not\Rightarrow
+GateB
+}
+\]
 
 特别保留：
 
@@ -526,7 +584,7 @@ TokenUser(W)=LocalService
 }
 \]
 
-`SERVICE_SID_TYPE_RESTRICTED` 的配置值本身不是证据。[Microsoft 的 `SERVICE_SID_INFO` 说明](https://learn.microsoft.com/en-us/windows/win32/api/winsvc/ns-winsvc-service_sid_info)指出它会把 service SID 加入 restricted SID list，并且 service SID type 的变更在下一次系统启动时生效；实验必须完成 system restart 后再读取真实 token，不能把“仅重启 service”当成兑现。配置写回成功而系统尚未重启，结果只能是 `pending_reboot`；重启后 token 仍未兑现则是 `not_proven`。同样，SCM PID 只在 service 到达稳定 `RUNNING` 后取值；`START_PENDING`/`STOP_PENDING` 不能充当 PID 绑定证据，见 [`SERVICE_STATUS_PROCESS`](https://learn.microsoft.com/en-us/windows/win32/api/winsvc/ns-winsvc-service_status_process)。
+`SERVICE_SID_TYPE_RESTRICTED` 的配置值本身不是运行中 token 证据。[Microsoft 的 `SERVICE_SID_INFO` 说明](https://learn.microsoft.com/en-us/windows/win32/api/winsvc/ns-winsvc-service_sid_info)指出它会把 service SID 加入 restricted SID list，并且 service SID type 的变更在下一次系统启动时生效；完整实验必须完成 system restart 后再读取真实 token，不能把“仅重启 service”当成兑现。如果保留该临时 service 等待重启，配置写回成功只能记为 `pending_reboot`；本轮已在重启前删除 service，因此精确状态是 `configuration_write_accepted_before_cleanup` 与 `not_performed_service_removed`，不能在未来重启后续验这次对象。重启后新实验的 token 仍未兑现则是 `not_proven`。同样，SCM PID 只在 service 到达稳定 `RUNNING` 后取值；`START_PENDING`/`STOP_PENDING` 不能充当 PID 绑定证据，见 [`SERVICE_STATUS_PROCESS`](https://learn.microsoft.com/en-us/windows/win32/api/winsvc/ns-winsvc-service_status_process)。
 
 ### 8.3 protected state 与 protected image
 
@@ -618,4 +676,4 @@ service self-report
 ≠ independent verifier evidence
 ```
 
-创建临时 service 需要管理员权限；Microsoft 的 SCM 权限说明也明确指出，能够 `CreateService` 的 SCM handle 只授予管理员。当前 Codex 进程是普通用户、Integrity Level 为 Medium，且 Python 解释器位于用户可写目录。当前 probe bundle 不能直接进入提权执行：先要补齐独立 verifier/attacker、严格 receipt 与 exact-target cleanup，并把宿主明确批准的外部摘要作为 elevated bootstrap 输入；随后才是随机 service name、零 Genesis 的 UAC 演练。没有该批准时，可以在这个无特权停止点停下。
+创建临时 service 需要管理员权限；Microsoft 的 SCM 权限说明也明确指出，能够 `CreateService` 的 SCM handle 只授予管理员。本轮已用一次宿主批准、外部固定脚本摘要、随机 service name、零 Genesis 的 UAC 配置探针证明 trusted handoff 与 exact cleanup 可以实机闭合；它没有把普通用户 Python 注册为服务，也没有留下可跨重启对象。Windows 权限实验当前可以在这里停下：下一次重新打开必须得到覆盖“保留临时 service + system restart + 独立 verifier/attacker + 完整攻击与卸载矩阵”的新授权。没有该授权时，继续运行同类配置探针不会增加 \(W_{SCM}\) 或 Gate B 证据。

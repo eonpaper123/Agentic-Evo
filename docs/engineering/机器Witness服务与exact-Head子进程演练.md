@@ -450,7 +450,7 @@ commit Authority=Off
 - stop 路径自身没有可信状态增量，但 cutoff 前已经 admission 的合法变更仍可恰好提交一次；屏障测试证明 `request_stop()` 会等待该提交完成；
 - stop、worker cleanup 与 control receive deadline 共享每条 transport 的单一 raw-close owner，不会并发重复关闭同一底层句柄。
 
-这些是协议和进程生命周期事实，不是长期学习或自我进化证据。截至当前，Windows 全仓 131/131 项测试在 `ResourceWarning` 作为错误时通过；WSL Ubuntu 同样发现 131 项，其中 111 项通过、20 项 Windows-only contract 明确 skipped。
+这些是协议和进程生命周期事实，不是长期学习或自我进化证据。截至当前，Windows 全仓 136/136 项测试在 `ResourceWarning` 作为错误时通过；WSL Ubuntu 同样发现 136 项，其中 111 项通过、25 项 Windows-only contract 明确 skipped。
 
 ### 8.1 service stop 与 Host Off 是两种因果
 
@@ -655,7 +655,7 @@ public Surface allowlist
 
 三平台不是三种 Agent。相同协议不变量由三个薄的 OS 实现分别通过攻击测试。
 
-当前完整 131 项测试在 Windows 运行。WSL Ubuntu 也发现 131 项，其中 111 项通过、20 项 Windows-only contract 明确 skipped；这已经覆盖 AF_UNIX public/control、subprocess、service crash/stop、preaccepted-request fencing、锁恢复与 same-home restart。它仍不是 systemd、dedicated UID、StateDirectory 或 bare-metal Linux 的原生证据。macOS 目前只有 endpoint 推导与共享代码路径；在 macOS 实机运行前，不能把它写成已经通过的 launchd、IPC、signal、file-lock 或子进程行为。
+当前完整 136 项测试在 Windows 运行。WSL Ubuntu 也发现 136 项，其中 111 项通过、25 项 Windows-only contract 明确 skipped；这已经覆盖 AF_UNIX public/control、subprocess、service crash/stop、preaccepted-request fencing、锁恢复与 same-home restart。它仍不是 systemd、dedicated UID、StateDirectory 或 bare-metal Linux 的原生证据。macOS 目前只有 endpoint 推导与共享代码路径；在 macOS 实机运行前，不能把它写成已经通过的 launchd、IPC、signal、file-lock 或子进程行为。
 
 ---
 
@@ -685,4 +685,4 @@ public Surface allowlist
 
 > 冻结并审计 Python 可移植层，然后直接进入平台原生 service/principal、protected state、peer credential 与 process-tree fencing；不再扩张模拟安全层。
 
-该冻结、Windows Job Object、foreground native public named pipe、restricted Body、private lineage transport 与内部 supervisor-stop 关节现已完成，见[《Windows 原生 Witness 边界》](Windows原生Witness边界.md)和[《受限 Body 与私有谱系能力演练》](受限Body与私有谱系能力演练.md)。当前下一项是让真实 SCM `SERVICE_CONTROL_STOP` 接入该关节，并建立 SCM Witness principal + service-owned protected state，再以临时安装和攻击测试复验现有 transport；不提前宣称 HostPresence、安装完成或正式 Genesis。
+该冻结、Windows Job Object、foreground native public named pipe、restricted Body、private lineage transport 与内部 supervisor-stop 关节现已完成，见[《Windows 原生 Witness 边界》](Windows原生Witness边界.md)和[《受限 Body 与私有谱系能力演练》](受限Body与私有谱系能力演练.md)。后续配置级 UAC 探针只验证 SCM/ACL 构造与清理，没有建立运行中 service principal。当前唯一下一项是把 session identity 修正为 `(execution_surface, session_id)`；真实 SCM `SERVICE_CONTROL_STOP`、service-owned protected state 与临时安装攻击测试等待新的重启授权，且不得提前宣称 HostPresence、安装完成或正式 Genesis。

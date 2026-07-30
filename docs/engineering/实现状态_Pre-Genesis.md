@@ -1,7 +1,7 @@
 # Agentic-Evo 实现状态：Pre-Genesis
 
 更新时间：2026-07-30
-状态：Pre-Genesis Python 可移植层已到停止点；Windows foreground 四项局部证据、内部 supervisor stop 与 SCM-only probe bundle 已形成，但完整 Gate A、SCM principal、protected state、distinct Body principal、HostPresence、原生安装和正式 Genesis 均未形成
+状态：Pre-Genesis Python 可移植层已到停止点；Windows foreground 四项局部证据、内部 supervisor stop、SCM-only probe bundle 与一次零持久残留的 UAC 配置探针已形成，但完整 Gate A/Gate B、运行中 SCM principal、service-owned protected state、distinct Body principal、HostPresence、原生安装和正式 Genesis 均未形成
 适用范围：当前仓库中的真实实现、已验证性质、未成立性质和 Genesis 前阻断项
 
 ---
@@ -21,6 +21,7 @@ Trusted State（身份锚 + Head + session + evidence + checkpoint）
 + restricted exact-Head Body / private lineage transport rehearsal
 + CLI / Off-only control / zero-install-effect native plan
 + Windows no-UAC SCM probe bundle builder / verifier / confined local cleanup
++ Windows pinned-hash UAC configuration probe / exact privileged cleanup
 + Codex Adapter
 ```
 
@@ -49,7 +50,7 @@ Genesis
 → exact-hash Windows SCM probe bundle（Gate A partial）
 ```
 
-但这里的“模拟 Genesis”只是自动化测试夹具，不是正式 Genesis。仓库没有写入用户级 Codex hook，没有安装原生后台服务，没有创建机器级唯一 Root，也没有开始正式纵向实验。`plan-install` 仍只输出 `ready_to_install=false` 的 canonical JSON；Windows builder 只在显式本地目录生成 SCM probe 与 manifest，不请求 UAC、不写 SCM/ProgramData，也不把 `scm_probe_bundle_ready` 冒充完整 Gate A。
+但这里的“模拟 Genesis”只是自动化测试夹具，不是正式 Genesis。仓库没有写入用户级 Codex hook，没有安装原生后台服务，没有创建机器级唯一 Root，也没有开始正式纵向实验。`plan-install` 仍只输出 `ready_to_install=false` 的 canonical JSON。Windows builder 本身仍是零 UAC；单独的实验脚本只在宿主明确批准的一次运行中短暂创建 SCM/ACL 对象，service 从未启动，随后由提升端和普通权限端双重确认零残留。该结果是 `configuration_probe_completed`，不是完整 Gate A、Gate B 或安装。
 
 ---
 
@@ -114,6 +115,7 @@ Nira 不拥有 Root，不产生独立 Agent，也不是本工具的安装范围�
 | 前台 Witness / 子进程演练 | 固定 dev-home、cooperative-singleton service lock、Windows 原生 public named pipe / POSIX AF_UNIX、public allowlist、exact-Head package、Windows explicit inherited anonymous pipes / POSIX stdio fallback、Boot / ReadyEcho、sanitized environment | Windows public pipe 校验 peer SID；Windows child 是 restricted Low-Integrity suspended process并在 Resume 前加入 Job；Body 真实发起严格序号谱系请求，结果绑定 authoritative Witness response；只证明 foreground `subprocess_rehearsal + private_lineage_transport_rehearsal` |
 | CLI / Off 控制演练 | `serve / status / hook / off / plan-install`；独立 generic、未认证的 Off endpoint；事务内原子幂等；Body 退出后回包；receive Timer 与 response Timer 分离 | Off 控制协议仍只提供 Off，不提供 On 或谱系操作；Off 与 crash/restart 因果可区分；public pipe 的 SID 认证不扩展到 Off，也不证明 HostPresence 或真实 transport partial-frame / response-frame 取消 |
 | Windows Gate A probe 子切片 | `prepare / verify / cleanup-windows-gate-a`；系统 C# compiler 构建 SCM-only own-process probe；source/compiler/artifact 三重摘要；console 1063 负向 handshake；canonical protected-target manifest；junction/tamper fail closed | 证明 exact probe bundle 可构建、可复核并局部安全清理；不证明完整 Gate A、SCM/token/ACL、independent verifier/attacker、可信提权交接或可逆 service uninstall |
+| Windows Gate B 配置探针 | 外部固定脚本摘要的双层 bootstrap；系统 PowerShell 模块闭包；随机临时 SCM service；restricted SID 配置回读；protected artifact/state ACL；提升端 exact cleanup + 普通权限端独立零残留复核 | 证明一次配置级 trusted handoff、SCM/ACL 对象构造和清理闭环；service 未启动、未重启、token/攻击矩阵均 `not_run`，所以 `gate_b_outcome=not_established` |
 | Codex adapter | `SessionStart / SessionEnd / prompt / tool / compact / subagent / stop / permission` 映射；实现路径只经 `SurfaceClient`；原文哈希化；失败隔离 | Codex 可作为端口而不成为身份；当前 adapter 没有 trusted-state 或 Off 操作，观测失败不阻断 coding-agent 主任务；同 OS 用户下的实际读取/调用能力尚未隔离 |
 | 有界公共投影 | string parameter 1024 UTF-8 bytes、Body path 512 bytes；wake body files 最多 16 项/8 KiB、activation context 24 KiB；status active sessions 最多 32 项/24 KiB；按 canonical JSON bytes 预算并返回 total/truncated | 合法大 Head、增长中的 session 集合和 escape-heavy 文本不再必然撑破 64 KiB 响应；内部事实没有被截断，只有公共投影有界 |
 | 三平台安装计划 | canonical、无时间/随机/home/env 的 Windows/macOS/Linux target contract；macOS 明确 Witness UID 与 dedicated Body UID；installation effects 全 false；Hook 映射为 planned/not installed/not integration tested | 可移植协议的原生目标可审查；代码签名不冒充权限主体；不证明任何平台已安装或通过 native security test |
@@ -190,9 +192,11 @@ Nira 不拥有 Root，不产生独立 Agent，也不是本工具的安装范围�
 - Windows、macOS、Linux 目标均保持 `native_test_status=not_run`；
 - Windows Gate A builder 在显式目录生成两个 exact 文件；probe 从普通控制台启动准确返回 1063，不退化为 foreground daemon；manifest 与 artifact 篡改、junction cleanup 和非 Windows materialization 均 fail closed；
 - 本轮先发现并删除了只按 receipt 存在返回固定 JSON 的伪 verifier/attacker，并把 `passed/ready` 降级为 `partial/scm_probe_bundle_ready`；独立审查确认完整 Gate A 仍未成立；
+- 一次固定摘要 UAC 配置探针实机观察到 `create/sidtype/qsidtype/delete=0/0/0/0` 与 `SERVICE_SID_TYPE: RESTRICTED`；service 始终 `Stopped`、PID 为 0，未执行重启、token 读取或攻击案例；
+- 同一次配置探针的提升端 cleanup 与普通权限端独立 cleanup 均为 complete；事后精确 service query 为 1060、匹配临时服务为 0、Program Files/ProgramData 两棵实验树均不存在；Genesis 只记录为 `not_measured`，不冒充 0；
 - 内部 supervisor stop 不经过 public/Off operation：`request_stop()` 在 lifecycle lock 上建立 dispatch cutoff，唤醒/关闭 listener 与 active transports，拒绝 cutoff 后才尝试 admission 的请求，并等待 cutoff 前已 admission 的请求归静；service loop 随后 join workers、回收 Body/lease、释放 singleton；
 - 屏障测试证明 cutoff 前已 admission 的变更可以恰好提交一次且 stop 必须等待；stop 路径自身的可信状态增量为空；每条 transport 的 raw close 由 stop、worker 与 deadline timer 共享的单一 owner 串行化；
-- Windows 全仓 131/131 项测试在 `ResourceWarning` 作为错误时通过；WSL Ubuntu 发现同样 131 项，其中 111 项通过、20 项 Windows-only contract 明确 skipped；macOS 尚未实机运行。
+- Windows 全仓 136/136 项测试在 `ResourceWarning` 作为错误时通过；WSL Ubuntu 发现同样 136 项，其中 111 项通过、25 项 Windows-only contract 明确 skipped；macOS 尚未实机运行。
 
 这些结果证明的是代码契约，不是长期学习、自我进化或独立科研证据已经成立。
 
@@ -317,7 +321,7 @@ Body candidate 可在事务前完整落盘；未被已提交 Head 引用的 cand
 
 ### G3：形成真实机器生命周期
 
-G3 的 Python 可移植层已经完成；Windows foreground 又完成 Job、认证 public pipe、restricted suspended Body、private lineage transport rehearsal、内部 supervisor-stop 关节，以及不依赖用户 Python 的 SCM-only probe bundle。它没有持久化 lease 表或 bearer token，也没有把 `subprocess_rehearsal`、`private_lineage_transport_rehearsal`、`control_unverified`、rendered plan 或 `scm_probe_bundle_ready` 冒充为真实 Body / Host / installed native 来源。
+G3 的 Python 可移植层已经完成；Windows foreground 又完成 Job、认证 public pipe、restricted suspended Body、private lineage transport rehearsal、内部 supervisor-stop 关节、不依赖用户 Python 的 SCM-only probe bundle，以及一次配置级 UAC 创建/回读/清理。它没有持久化 lease 表或 bearer token，也没有把 `subprocess_rehearsal`、`private_lineage_transport_rehearsal`、`control_unverified`、rendered plan、`scm_probe_bundle_ready` 或 `configuration_probe_completed` 冒充为真实 Body / Host / installed native 来源。
 
 需要一个机器级、项目无关的安装与运行边界：
 
@@ -374,8 +378,10 @@ Authority
 [已完成] Windows restricted Low-Integrity suspended Body + explicit inherited private lineage transport rehearsal
 [已完成] 内部 supervisor stop：cutoff、transport close、admitted-work drain 与完整 service-loop 回收分层；不改写 Host Off，stop 自身无 Authority / evidence 增量
 [已完成] 可构建、可复核、SCM-only negative handshake、junction-safe local cleanup 的 exact Windows probe bundle
-→ 补齐独立 verifier / real attacker / executable cleanup / trusted elevated handoff，使完整 Gate A 成立
-→ 经宿主明确授权后，用 SCM service principal / protected state 形成机器生命周期边界
+[已完成] 一次 externally pinned、config-only、no-start/no-reboot 的 UAC SCM/ACL 配置探针与双重零残留复核
+→ 把跨 coding-agent 会话身份改为 `(execution_surface, session_id)` 复合键，消除不同执行表面的 ID 碰撞
+→ 补齐 independent verifier / real attacker；Windows 权限实验等待新的“保留临时 service + 重启”授权
+→ 用运行中 SCM service principal / service-owned protected state 形成机器生命周期边界
 → 在临时安装中攻击并复验 public / Body capability / crash / uninstall
 → 隔离 Authority、Witness、Current Body 与 probation principal
 → 冻结 I₀ 与 Protocol₀
