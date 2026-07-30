@@ -11,6 +11,12 @@ from .errors import AgenticEvoError
 from .install_plan import build_install_plan
 from .ipc import OffRehearsalClient, SurfaceClient
 from .service import main as service_main
+from .windows_gate_a import (
+    GateABundleError,
+    cleanup_gate_a_bundle,
+    prepare_gate_a_bundle,
+    verify_gate_a_bundle,
+)
 
 
 MAX_HOOK_INPUT_BYTES = 2 * 1024 * 1024
@@ -114,6 +120,27 @@ def _parser() -> argparse.ArgumentParser:
         "plan-install",
         help="Print a deterministic plan that performs no installation writes.",
     )
+    for name, help_text in (
+        (
+            "prepare-windows-gate-a",
+            "Build an exact no-UAC Windows SCM experiment bundle.",
+        ),
+        (
+            "verify-windows-gate-a",
+            "Re-hash and exercise an uninstalled Windows Gate A bundle.",
+        ),
+        (
+            "cleanup-windows-gate-a",
+            "Remove only a verified local Windows Gate A bundle.",
+        ),
+    ):
+        command = commands.add_parser(name, help=help_text)
+        command.add_argument(
+            "--bundle-dir",
+            type=Path,
+            required=True,
+            help="Explicit local Gate A bundle directory.",
+        )
     return parser
 
 
@@ -129,6 +156,32 @@ def main(argv: list[str] | None = None) -> int:
         return _codex_hook(arguments.dev_home)
     if arguments.command == "plan-install":
         _write_json(build_install_plan())
+        return 0
+    if arguments.command in {
+        "prepare-windows-gate-a",
+        "verify-windows-gate-a",
+        "cleanup-windows-gate-a",
+    }:
+        try:
+            if arguments.command == "prepare-windows-gate-a":
+                result = prepare_gate_a_bundle(arguments.bundle_dir)
+            elif arguments.command == "verify-windows-gate-a":
+                result = verify_gate_a_bundle(arguments.bundle_dir)
+            else:
+                result = cleanup_gate_a_bundle(arguments.bundle_dir)
+        except GateABundleError as error:
+            _write_json(
+                {
+                    "ok": False,
+                    "error": {
+                        "code": "windows_gate_a_error",
+                        "message": str(error),
+                    },
+                },
+                stream=sys.stderr,
+            )
+            return 5
+        _write_json({"ok": True, "result": result})
         return 0
     raise AssertionError("argparse accepted an unknown command")
 
