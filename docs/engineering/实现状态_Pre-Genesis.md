@@ -192,7 +192,7 @@ Nira 不拥有 Root，不产生独立 Agent，也不是本工具的安装范围�
 - 本轮先发现并删除了只按 receipt 存在返回固定 JSON 的伪 verifier/attacker，并把 `passed/ready` 降级为 `partial/scm_probe_bundle_ready`；独立审查确认完整 Gate A 仍未成立；
 - 内部 supervisor stop 不经过 public/Off operation：`request_stop()` 在 lifecycle lock 上建立 dispatch cutoff，唤醒/关闭 listener 与 active transports，拒绝 cutoff 后才尝试 admission 的请求，并等待 cutoff 前已 admission 的请求归静；service loop 随后 join workers、回收 Body/lease、释放 singleton；
 - 屏障测试证明 cutoff 前已 admission 的变更可以恰好提交一次且 stop 必须等待；stop 路径自身的可信状态增量为空；每条 transport 的 raw close 由 stop、worker 与 deadline timer 共享的单一 owner 串行化；
-- Windows 全仓 128/128 项测试在 `ResourceWarning` 作为错误时通过；WSL Ubuntu 发现同样 128 项，其中 109 项通过、19 项 Windows-only contract 明确 skipped；macOS 尚未实机运行。
+- Windows 全仓 129/129 项测试在 `ResourceWarning` 作为错误时通过；WSL Ubuntu 发现同样 129 项，其中 109 项通过、20 项 Windows-only contract 明确 skipped；macOS 尚未实机运行。
 
 这些结果证明的是代码契约，不是长期学习、自我进化或独立科研证据已经成立。
 
