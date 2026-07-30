@@ -238,12 +238,40 @@ class MachineLifecycleTests(unittest.TestCase):
         trusted_path.mkdir(parents=True)
         db_path = trusted_path / "state.sqlite3"
         with closing(sqlite3.connect(db_path)) as connection, connection:
-            connection.execute(
+            connection.executescript(
                 """
+                CREATE TABLE state (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    schema_version TEXT NOT NULL,
+                    who TEXT NOT NULL,
+                    why TEXT NOT NULL,
+                    authority TEXT NOT NULL,
+                    root TEXT NOT NULL,
+                    head TEXT NOT NULL,
+                    revision INTEGER NOT NULL,
+                    instrument_version TEXT NOT NULL,
+                    protocol_version TEXT NOT NULL,
+                    last_event_sequence INTEGER NOT NULL,
+                    last_event_hash TEXT,
+                    checkpoint_sequence INTEGER NOT NULL,
+                    checkpoint_hash TEXT,
+                    sessions_hash TEXT NOT NULL
+                );
+                CREATE TABLE events (
+                    sequence INTEGER PRIMARY KEY,
+                    event_id TEXT NOT NULL UNIQUE,
+                    event_kind TEXT NOT NULL,
+                    record_json BLOB NOT NULL
+                );
                 CREATE TABLE sessions (
                     session_id TEXT PRIMARY KEY,
                     value_json BLOB NOT NULL
-                )
+                );
+                CREATE TABLE checkpoints (
+                    sequence INTEGER PRIMARY KEY,
+                    record_json BLOB NOT NULL,
+                    checkpoint_mac TEXT NOT NULL
+                );
                 """
             )
 

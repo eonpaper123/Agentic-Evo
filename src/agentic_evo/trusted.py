@@ -152,6 +152,7 @@ class TrustedState:
                 author_kind="research_instrument",
                 payload=genesis_payload,
             )
+            trusted._verify_connection(connection)
 
         trusted.verify()
         return trusted
@@ -912,6 +913,15 @@ class TrustedState:
     def _ensure_schema(self) -> None:
         try:
             with closing(self._connect_path(self.db_path)) as connection:
+                existing_sessions = connection.execute(
+                    """
+                    SELECT 1
+                    FROM sqlite_master
+                    WHERE type = 'table' AND name = 'sessions'
+                    """
+                ).fetchone()
+                if existing_sessions is not None:
+                    self._require_sessions_schema(connection)
                 connection.execute(
                     """
                     CREATE TABLE IF NOT EXISTS state (
@@ -962,8 +972,29 @@ class TrustedState:
                     )
                     """
                 )
+                self._require_sessions_schema(connection)
         except sqlite3.DatabaseError as exc:
             raise IntegrityError("cannot initialize trusted state schema") from exc
+
+    @staticmethod
+    def _require_sessions_schema(connection: sqlite3.Connection) -> None:
+        rows = connection.execute("PRAGMA table_info(sessions)").fetchall()
+        layout = tuple(
+            (
+                row["name"],
+                str(row["type"]).upper(),
+                int(row["notnull"]),
+                int(row["pk"]),
+            )
+            for row in rows
+        )
+        expected = (
+            ("execution_surface", "TEXT", 1, 1),
+            ("session_id", "TEXT", 1, 2),
+            ("value_json", "BLOB", 1, 0),
+        )
+        if layout != expected:
+            raise IntegrityError("incompatible trusted state schema")
 
     @contextmanager
     def _read_transaction(self) -> Iterator[sqlite3.Connection]:
