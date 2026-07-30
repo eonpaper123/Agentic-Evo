@@ -229,6 +229,73 @@ class WitnessServiceTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "invalid_parameters")
         self.assertEqual(self.runtime.evidence.records(), before)
 
+    def test_public_sleep_requires_surface_and_preserves_state_when_missing(
+        self,
+    ) -> None:
+        process = self._spawn()
+        client = self._wait_until_ready(process)
+        client.wake(
+            execution_surface="codex",
+            session_id="shared-session",
+            project_environment="project-a",
+        )
+        before_status = client.status()
+        before_records = self.runtime.evidence.records()
+
+        with self.assertRaises(ServiceRejectedError) as caught:
+            client._request("sleep", {"session_id": "shared-session"})
+
+        self.assertEqual(caught.exception.code, "invalid_parameters")
+        self.assertEqual(client.status()["active_sessions"], before_status["active_sessions"])
+        self.assertEqual(self.runtime.evidence.records(), before_records)
+
+    def test_public_status_and_sleep_use_composite_session_identity(self) -> None:
+        process = self._spawn()
+        client = self._wait_until_ready(process)
+        client.wake(
+            execution_surface="codex",
+            session_id="shared-session",
+            project_environment="project-a",
+        )
+        client.wake(
+            execution_surface="other-coding-agent",
+            session_id="shared-session",
+            project_environment="project-b",
+        )
+
+        self.assertEqual(
+            client.status()["active_sessions"],
+            [
+                {
+                    "execution_surface": "codex",
+                    "session_id": "shared-session",
+                },
+                {
+                    "execution_surface": "other-coding-agent",
+                    "session_id": "shared-session",
+                },
+            ],
+        )
+
+        client.sleep(
+            execution_surface="codex",
+            session_id="shared-session",
+        )
+        self.assertEqual(
+            client.status()["active_sessions"],
+            [
+                {
+                    "execution_surface": "other-coding-agent",
+                    "session_id": "shared-session",
+                }
+            ],
+        )
+
+    def test_composite_session_contract_has_a_new_public_protocol_version(
+        self,
+    ) -> None:
+        self.assertEqual(PUBLIC_PROTOCOL, "agentic-evo-public-v2")
+
     def test_many_file_head_has_a_bounded_public_wake_projection(self) -> None:
         many_home = Path(self.tempdir.name) / "many-file-runtime"
         files = {

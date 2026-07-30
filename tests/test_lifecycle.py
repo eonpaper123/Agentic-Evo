@@ -89,6 +89,64 @@ class MachineLifecycleTests(unittest.TestCase):
             ("entrypoint.md", "state/open-questions.json"),
         )
 
+    def test_same_raw_session_id_isolated_by_execution_surface(self) -> None:
+        self.runtime.wake(
+            execution_surface="codex",
+            session_id="shared-session",
+            project_environment="project-a",
+        )
+        self.runtime.wake(
+            execution_surface="other-coding-agent",
+            session_id="shared-session",
+            project_environment="project-b",
+        )
+
+        active = self.runtime.status().active_sessions
+        self.assertEqual(len(active), 2)
+        self.assertEqual(
+            {
+                (identity.execution_surface, identity.session_id)
+                for identity in active
+            },
+            {
+                ("codex", "shared-session"),
+                ("other-coding-agent", "shared-session"),
+            },
+        )
+
+        self.runtime.sleep(
+            execution_surface="codex",
+            session_id="shared-session",
+        )
+        remaining = DevelopmentalRuntime.load(self.home).status().active_sessions
+        self.assertEqual(
+            tuple(
+                (identity.execution_surface, identity.session_id)
+                for identity in remaining
+            ),
+            (("other-coding-agent", "shared-session"),),
+        )
+
+    def test_session_table_uses_the_composite_surface_identity_as_primary_key(
+        self,
+    ) -> None:
+        with closing(
+            sqlite3.connect(self.home / "trusted" / "state.sqlite3")
+        ) as connection:
+            columns = connection.execute("PRAGMA table_info(sessions)").fetchall()
+
+        primary_key = tuple(
+            row[1]
+            for row in sorted(
+                (row for row in columns if row[5] > 0),
+                key=lambda row: row[5],
+            )
+        )
+        self.assertEqual(
+            primary_key,
+            ("execution_surface", "session_id"),
+        )
+
     def test_wake_describes_activation_material_from_the_exact_current_head(self) -> None:
         before = self.runtime.status()
         candidate = self._prepare_successor(

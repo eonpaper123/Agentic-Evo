@@ -188,6 +188,45 @@ class CodexAdapterTests(unittest.TestCase):
         self.assertEqual(last.event_kind, "session_end")
         self.assertNotIn("transcript_path", last.payload)
 
+    def test_session_end_only_closes_the_codex_surface_identity(self) -> None:
+        client = SurfaceClient(self.home)
+        client.wake(
+            execution_surface="other-coding-agent",
+            session_id="shared-session",
+            project_environment="project-b",
+        )
+        handle_codex_hook(
+            self.home,
+            {
+                "session_id": "shared-session",
+                "cwd": "C:/work/project-a",
+                "hook_event_name": "SessionStart",
+                "model": "model-a",
+                "source": "startup",
+            },
+        )
+
+        handle_codex_hook(
+            self.home,
+            {
+                "session_id": "shared-session",
+                "cwd": "C:/work/project-a",
+                "hook_event_name": "SessionEnd",
+                "model": "model-a",
+                "reason": "other",
+            },
+        )
+
+        self.assertEqual(
+            client.status()["active_sessions"],
+            [
+                {
+                    "execution_surface": "other-coding-agent",
+                    "session_id": "shared-session",
+                }
+            ],
+        )
+
     def test_observatory_failure_does_not_block_the_coding_agent_hook(self) -> None:
         db_path = self.home / "trusted" / "state.sqlite3"
         with closing(sqlite3.connect(db_path)) as connection, connection:
