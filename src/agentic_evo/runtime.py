@@ -19,7 +19,7 @@ from .errors import (
 from .trusted import TRUSTED_SCHEMA_VERSION, TrustedState
 
 
-RUNTIME_SCHEMA_VERSION = "agentic-evo-runtime-v2"
+RUNTIME_SCHEMA_VERSION = "agentic-evo-runtime-v3"
 SURFACE_CONTEXT_ACTIVATION_KIND = "surface-context-utf8-v1"
 
 
@@ -44,6 +44,12 @@ def _serialized_lifecycle(method: Callable[..., Any]) -> Callable[..., Any]:
     return wrapped
 
 
+@dataclass(frozen=True, order=True)
+class SessionIdentity:
+    execution_surface: str
+    session_id: str
+
+
 @dataclass(frozen=True)
 class RuntimeStatus:
     root: str
@@ -51,7 +57,7 @@ class RuntimeStatus:
     generation: int
     authority: str
     lifecycle_state: str
-    active_sessions: tuple[str, ...]
+    active_sessions: tuple[SessionIdentity, ...]
     instrument_version: str
     protocol_version: str
 
@@ -170,7 +176,13 @@ class DevelopmentalRuntime:
             generation=manifest.generation,
             authority=snapshot.authority,
             lifecycle_state=lifecycle,
-            active_sessions=tuple(sorted(sessions)),
+            active_sessions=tuple(
+                SessionIdentity(
+                    execution_surface=execution_surface,
+                    session_id=session_id,
+                )
+                for execution_surface, session_id in sorted(sessions)
+            ),
             instrument_version=self.trusted.instrument_version,
             protocol_version=self.trusted.protocol_version,
         )
@@ -226,8 +238,16 @@ class DevelopmentalRuntime:
         )
 
     @_serialized_lifecycle
-    def sleep(self, *, session_id: str) -> RuntimeStatus:
-        self.trusted.end_session(session_id=session_id)
+    def sleep(
+        self,
+        *,
+        execution_surface: str,
+        session_id: str,
+    ) -> RuntimeStatus:
+        self.trusted.end_session(
+            execution_surface=execution_surface,
+            session_id=session_id,
+        )
         return self.status()
 
     @_serialized_lifecycle

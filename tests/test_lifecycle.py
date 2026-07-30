@@ -69,7 +69,10 @@ class MachineLifecycleTests(unittest.TestCase):
             project_environment="project-a",
             model="model-a",
         )
-        self.runtime.sleep(session_id="session-a")
+        self.runtime.sleep(
+            execution_surface="codex",
+            session_id="session-a",
+        )
 
         reloaded = DevelopmentalRuntime.load(self.home)
         second = reloaded.wake(
@@ -118,6 +121,10 @@ class MachineLifecycleTests(unittest.TestCase):
             execution_surface="codex",
             session_id="shared-session",
         )
+        session_end = self.runtime.evidence.records()[-1]
+        self.assertEqual(session_end.event_kind, "session_end")
+        self.assertEqual(session_end.execution_surface, "codex")
+        self.assertTrue(session_end.payload["session_was_active"])
         remaining = DevelopmentalRuntime.load(self.home).status().active_sessions
         self.assertEqual(
             tuple(
@@ -208,6 +215,20 @@ class MachineLifecycleTests(unittest.TestCase):
 
         self.assertEqual(self.runtime.status(), before_status)
         self.assertEqual(self.runtime.evidence.records(), before_records)
+
+    def test_pre_composite_trusted_schema_fails_closed(self) -> None:
+        db_path = self.home / "trusted" / "state.sqlite3"
+        with closing(sqlite3.connect(db_path)) as connection, connection:
+            connection.execute(
+                "UPDATE state SET schema_version = ? WHERE id = 1",
+                ("agentic-evo-trusted-v1",),
+            )
+
+        with self.assertRaisesRegex(
+            IntegrityError,
+            "unsupported trusted state schema",
+        ):
+            DevelopmentalRuntime.load(self.home)
 
     def test_wake_describes_activation_material_from_the_exact_current_head(self) -> None:
         before = self.runtime.status()
@@ -737,8 +758,12 @@ class MachineLifecycleTests(unittest.TestCase):
         db_path = self.home / "trusted" / "state.sqlite3"
         with closing(sqlite3.connect(db_path)) as connection, connection:
             connection.execute(
-                "UPDATE sessions SET value_json = ? WHERE session_id = ?",
-                (b"not-json", "session-corrupt"),
+                """
+                UPDATE sessions
+                SET value_json = ?
+                WHERE execution_surface = ? AND session_id = ?
+                """,
+                (b"not-json", "codex", "session-corrupt"),
             )
 
         with self.assertRaises(IntegrityError):

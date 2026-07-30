@@ -81,7 +81,10 @@ class WitnessService:
             ),
             frozenset({"model"}),
         ),
-        "sleep": (frozenset({"session_id"}), frozenset()),
+        "sleep": (
+            frozenset({"execution_surface", "session_id"}),
+            frozenset(),
+        ),
         "observe": (
             frozenset({"event_kind", "payload"}),
             frozenset(
@@ -437,7 +440,10 @@ class WitnessService:
     @staticmethod
     def _project_status(status: RuntimeStatus) -> dict[str, Any]:
         result = asdict(status)
-        sessions = list(status.active_sessions)
+        sessions = [
+            asdict(identity)
+            for identity in status.active_sessions
+        ]
         projected_sessions = WitnessService._bounded_json_list(
             sessions,
             max_items=_MAX_PUBLIC_ACTIVE_SESSIONS,
@@ -483,12 +489,12 @@ class WitnessService:
 
     @staticmethod
     def _bounded_json_list(
-        values: list[str],
+        values: list[Any],
         *,
         max_items: int,
         max_bytes: int,
-    ) -> list[str]:
-        projected: list[str] = []
+    ) -> list[Any]:
+        projected: list[Any] = []
         for value in values[:max_items]:
             candidate = [*projected, value]
             if len(canonical_json_bytes(candidate)) > max_bytes:

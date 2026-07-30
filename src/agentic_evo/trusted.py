@@ -29,9 +29,33 @@ from .evidence import EVIDENCE_SCHEMA_VERSION, EvidenceLedger, EvidenceRecord
 from .kernel import KernelSnapshot
 
 
-TRUSTED_SCHEMA_VERSION = "agentic-evo-trusted-v1"
+TRUSTED_SCHEMA_VERSION = "agentic-evo-trusted-v2"
 CHECKPOINT_SCHEMA_VERSION = "agentic-evo-checkpoint-v1"
+SESSIONS_SCHEMA_VERSION = "agentic-evo-sessions-v2"
 _AUTHORITY_OFF_EVENT_KINDS = frozenset({"host_off", "control_rehearsal_off"})
+SessionKey = tuple[str, str]
+
+
+def _session_commitment(
+    sessions: Mapping[SessionKey, Mapping[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "schema_version": SESSIONS_SCHEMA_VERSION,
+        "sessions": [
+            {
+                "execution_surface": execution_surface,
+                "session_id": session_id,
+                "value": dict(value),
+            }
+            for (execution_surface, session_id), value in sorted(sessions.items())
+        ],
+    }
+
+
+def _session_commitment_hash(
+    sessions: Mapping[SessionKey, Mapping[str, Any]],
+) -> str:
+    return sha256_hex(canonical_json_bytes(_session_commitment(sessions)))
 
 
 class TrustedState:
@@ -85,7 +109,7 @@ class TrustedState:
             ).fetchone()
             if existing is not None:
                 raise GenesisExistsError("runtime Genesis already exists")
-            empty_sessions_hash = sha256_hex(canonical_json_bytes({}))
+            empty_sessions_hash = _session_commitment_hash({})
             state: dict[str, Any] = {
                 "schema_version": TRUSTED_SCHEMA_VERSION,
                 "who": sha256_hex(host_binding),
@@ -189,7 +213,7 @@ class TrustedState:
         cls.load(path)
         return True
 
-    def current(self) -> tuple[KernelSnapshot, dict[str, dict[str, Any]]]:
+    def current(self) -> tuple[KernelSnapshot, dict[SessionKey, dict[str, Any]]]:
         with self._read_transaction() as connection:
             state, _, sessions = self._verify_connection(connection)
         return self._snapshot_from_state(state), sessions
@@ -288,6 +312,11 @@ class TrustedState:
         activation_artifact: str,
         activation_digest: str,
     ) -> EvidenceRecord:
+        self._require_session_identity(execution_surface, session_id)
+        if value.get("execution_surface") != execution_surface:
+            raise IntegrityError(
+                "trusted session value does not match its execution surface"
+            )
         with self._write_transaction() as connection:
             state = self._read_state(connection)
             self._require_on(state)
@@ -295,11 +324,18 @@ class TrustedState:
                 raise HeadConflictError("Head changed before session activation")
             connection.execute(
                 """
-                INSERT INTO sessions (session_id, value_json)
-                VALUES (?, ?)
-                ON CONFLICT(session_id) DO UPDATE SET value_json = excluded.value_json
+                INSERT INTO sessions (
+                    execution_surface, session_id, value_json
+                )
+                VALUES (?, ?, ?)
+                ON CONFLICT(execution_surface, session_id)
+                DO UPDATE SET value_json = excluded.value_json
                 """,
-                (session_id, canonical_json_bytes(dict(value))),
+                (
+                    execution_surface,
+                    session_id,
+                    canonical_json_bytes(dict(value)),
+                ),
             )
             state["sessions_hash"] = self._sessions_hash(connection)
             return self._finish_transition(
@@ -322,18 +358,31 @@ class TrustedState:
                 },
             )
 
-    def end_session(self, *, session_id: str) -> EvidenceRecord:
+    def end_session(
+        self,
+        *,
+        execution_surface: str,
+        session_id: str,
+    ) -> EvidenceRecord:
+        self._require_session_identity(execution_surface, session_id)
         with self._write_transaction() as connection:
             state = self._read_state(connection)
             self._require_on(state)
             row = connection.execute(
-                "SELECT value_json FROM sessions WHERE session_id = ?",
-                (session_id,),
+                """
+                SELECT value_json
+                FROM sessions
+                WHERE execution_surface = ? AND session_id = ?
+                """,
+                (execution_surface, session_id),
             ).fetchone()
             session = self._decode_mapping(row[0], "session") if row else None
             connection.execute(
-                "DELETE FROM sessions WHERE session_id = ?",
-                (session_id,),
+                """
+                DELETE FROM sessions
+                WHERE execution_surface = ? AND session_id = ?
+                """,
+                (execution_surface, session_id),
             )
             state["sessions_hash"] = self._sessions_hash(connection)
             return self._finish_transition(
@@ -344,9 +393,7 @@ class TrustedState:
                 head_after=state["head"],
                 source_kind="execution_surface",
                 author_kind="surface_unverified",
-                execution_surface=(
-                    str(session.get("execution_surface")) if session else None
-                ),
+                execution_surface=execution_surface,
                 session_id=session_id,
                 project_environment=(
                     str(session.get("project_environment")) if session else None
@@ -596,7 +643,7 @@ class TrustedState:
     ) -> tuple[
         dict[str, Any],
         list[EvidenceRecord],
-        dict[str, dict[str, Any]],
+        dict[SessionKey, dict[str, Any]],
     ]:
         state = self._read_state(connection)
         records = self._read_records(connection)
@@ -613,7 +660,7 @@ class TrustedState:
             raise IntegrityError("trusted evidence tail sequence does not match")
         if state["checkpoint_sequence"] != len(checkpoints):
             raise IntegrityError("trusted checkpoint tail sequence does not match")
-        if state["sessions_hash"] != sha256_hex(canonical_json_bytes(sessions)):
+        if state["sessions_hash"] != _session_commitment_hash(sessions):
             raise IntegrityError("trusted session commitment mismatch")
         if state["authority"] == "off" and sessions:
             raise IntegrityError("off trusted state cannot retain active sessions")
@@ -743,23 +790,42 @@ class TrustedState:
     def _read_sessions(
         self,
         connection: sqlite3.Connection,
-    ) -> dict[str, dict[str, Any]]:
-        sessions: dict[str, dict[str, Any]] = {}
+    ) -> dict[SessionKey, dict[str, Any]]:
+        sessions: dict[SessionKey, dict[str, Any]] = {}
         rows = connection.execute(
-            "SELECT session_id, value_json FROM sessions ORDER BY session_id"
+            """
+            SELECT execution_surface, session_id, value_json
+            FROM sessions
+            ORDER BY execution_surface, session_id
+            """
         ).fetchall()
         for row in rows:
+            execution_surface = row["execution_surface"]
             session_id = row["session_id"]
-            if not isinstance(session_id, str) or not session_id:
-                raise IntegrityError("invalid trusted session id")
-            sessions[session_id] = self._decode_mapping(
+            self._require_session_identity(execution_surface, session_id)
+            value = self._decode_mapping(
                 row["value_json"],
                 "session",
             )
+            if value.get("execution_surface") != execution_surface:
+                raise IntegrityError(
+                    "trusted session value does not match its execution surface"
+                )
+            sessions[(execution_surface, session_id)] = value
         return sessions
 
     def _sessions_hash(self, connection: sqlite3.Connection) -> str:
-        return sha256_hex(canonical_json_bytes(self._read_sessions(connection)))
+        return _session_commitment_hash(self._read_sessions(connection))
+
+    @staticmethod
+    def _require_session_identity(
+        execution_surface: Any,
+        session_id: Any,
+    ) -> None:
+        if not isinstance(execution_surface, str) or not execution_surface:
+            raise IntegrityError("invalid trusted execution surface")
+        if not isinstance(session_id, str) or not session_id:
+            raise IntegrityError("invalid trusted session id")
 
     @staticmethod
     def _decode_mapping(raw: Any, kind: str) -> dict[str, Any]:
@@ -880,9 +946,11 @@ class TrustedState:
                 connection.execute(
                     """
                     CREATE TABLE IF NOT EXISTS sessions (
-                        session_id TEXT PRIMARY KEY,
-                        value_json BLOB NOT NULL
-                    )
+                        execution_surface TEXT NOT NULL,
+                        session_id TEXT NOT NULL,
+                        value_json BLOB NOT NULL,
+                        PRIMARY KEY (execution_surface, session_id)
+                    ) WITHOUT ROWID
                     """
                 )
                 connection.execute(

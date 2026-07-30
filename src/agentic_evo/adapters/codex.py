@@ -50,7 +50,10 @@ def handle_codex_hook(
             }
 
         if event_name == "SessionEnd":
-            surface.sleep(session_id=session_id)
+            surface.sleep(
+                execution_surface="codex",
+                session_id=session_id,
+            )
             return None
 
         event_kind, event_payload = _map_event(event_name, payload)

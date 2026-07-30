@@ -18,7 +18,7 @@ from ._util import canonical_json_bytes, sha256_hex
 from .errors import AgenticEvoError
 
 
-PUBLIC_PROTOCOL = "agentic-evo-public-v1"
+PUBLIC_PROTOCOL = "agentic-evo-public-v2"
 CONTROL_PROTOCOL = "agentic-evo-off-rehearsal-v1"
 MAX_PUBLIC_FRAME_BYTES = 64 * 1024
 PUBLIC_IO_TIMEOUT_SECONDS = 2.0
@@ -248,8 +248,19 @@ class SurfaceClient:
             },
         )
 
-    def sleep(self, *, session_id: str) -> dict[str, Any]:
-        return self._request("sleep", {"session_id": session_id})
+    def sleep(
+        self,
+        *,
+        execution_surface: str,
+        session_id: str,
+    ) -> dict[str, Any]:
+        return self._request(
+            "sleep",
+            {
+                "execution_surface": execution_surface,
+                "session_id": session_id,
+            },
+        )
 
     def observe(
         self,

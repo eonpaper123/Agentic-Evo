@@ -28,8 +28,12 @@ from agentic_evo.ipc import (
     send_public_message,
     service_endpoint,
 )
-from agentic_evo.runtime import DevelopmentalRuntime, RuntimeStatus
-from agentic_evo.service import WitnessService
+from agentic_evo.runtime import (
+    DevelopmentalRuntime,
+    RuntimeStatus,
+    SessionIdentity,
+)
+from agentic_evo.service import PublicRequestError, WitnessService
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -199,7 +203,10 @@ class WitnessServiceTests(unittest.TestCase):
             session_id="surface-session-1",
             project_environment="project-a",
         )
-        client.sleep(session_id="surface-session-1")
+        client.sleep(
+            execution_surface="codex",
+            session_id="surface-session-1",
+        )
 
         record = self.runtime.evidence.records()[receipt["sequence"] - 1]
         self.assertEqual(record.event_id, receipt["event_id"])
@@ -296,6 +303,28 @@ class WitnessServiceTests(unittest.TestCase):
     ) -> None:
         self.assertEqual(PUBLIC_PROTOCOL, "agentic-evo-public-v2")
 
+    def test_pre_composite_public_protocol_fails_closed_without_mutation(
+        self,
+    ) -> None:
+        service = WitnessService(self.home)
+        self.addCleanup(service.witness.close)
+        before_status = self.runtime.status()
+        before_records = self.runtime.evidence.records()
+
+        with self.assertRaises(PublicRequestError) as caught:
+            service.dispatch_public(
+                {
+                    "protocol": "agentic-evo-public-v1",
+                    "request_id": "removed-v1",
+                    "operation": "status",
+                    "params": {},
+                }
+            )
+
+        self.assertEqual(caught.exception.code, "invalid_protocol")
+        self.assertEqual(self.runtime.status(), before_status)
+        self.assertEqual(self.runtime.evidence.records(), before_records)
+
     def test_many_file_head_has_a_bounded_public_wake_projection(self) -> None:
         many_home = Path(self.tempdir.name) / "many-file-runtime"
         files = {
@@ -333,7 +362,13 @@ class WitnessServiceTests(unittest.TestCase):
     def test_public_status_bounds_active_session_projection(self) -> None:
         service = WitnessService(self.home)
         self.addCleanup(service.witness.close)
-        sessions = tuple(f"session-{index:04d}-" + "\0" * 1000 for index in range(100))
+        sessions = tuple(
+            SessionIdentity(
+                execution_surface="codex",
+                session_id=f"session-{index:04d}-" + "\0" * 1000,
+            )
+            for index in range(100)
+        )
         status = RuntimeStatus(
             root="r" * 64,
             head="h" * 64,
@@ -345,7 +380,7 @@ class WitnessServiceTests(unittest.TestCase):
             protocol_version="protocol-test-v1",
         )
         request = {
-            "protocol": "agentic-evo-public-v1",
+            "protocol": PUBLIC_PROTOCOL,
             "request_id": "bounded-status",
             "operation": "status",
             "params": {},
@@ -361,7 +396,7 @@ class WitnessServiceTests(unittest.TestCase):
         self.assertTrue(result["active_sessions_truncated"])
         self.assertLessEqual(len(result["active_sessions"]), 32)
         response = {
-            "protocol": "agentic-evo-public-v1",
+            "protocol": PUBLIC_PROTOCOL,
             "request_id": "bounded-status",
             "ok": True,
             "result": result,
@@ -1448,7 +1483,7 @@ class WitnessServiceTests(unittest.TestCase):
             send_public_message(
                 connection,
                 {
-                    "protocol": "agentic-evo-public-v1",
+                    "protocol": PUBLIC_PROTOCOL,
                     "request_id": "still-alive",
                     "operation": "status",
                     "params": {},

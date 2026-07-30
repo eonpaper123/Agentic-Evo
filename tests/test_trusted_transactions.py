@@ -221,7 +221,10 @@ with patch.object(TrustedState, "_insert_checkpoint", side_effect=lambda *a, **k
         before_counts = self._trusted_counts()
 
         with self.assertRaises(RuntimeOffError):
-            self.runtime.sleep(session_id="late-session")
+            self.runtime.sleep(
+                execution_surface="codex",
+                session_id="late-session",
+            )
 
         reloaded = DevelopmentalRuntime.load(self.home)
         self.assertEqual(reloaded.status(), before_status)
