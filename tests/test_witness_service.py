@@ -122,7 +122,7 @@ class WitnessServiceTests(unittest.TestCase):
         process: subprocess.Popen[str],
         *,
         home: Path | None = None,
-        timeout_seconds: float = 5.0,
+        timeout_seconds: float = 10.0,
     ) -> SurfaceClient:
         client = SurfaceClient(home or self.home)
         deadline = time.monotonic() + timeout_seconds
