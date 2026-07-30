@@ -443,9 +443,11 @@ class WitnessServiceTests(unittest.TestCase):
                 "agentic_evo.ipc.CONTROL_RESPONSE_TIMEOUT_SECONDS",
                 0.1,
             ):
+                started = time.monotonic()
                 client.start()
                 self.assertTrue(partial_sent.wait(timeout=1))
                 client.join(timeout=0.75)
+                elapsed = time.monotonic() - started
                 completed_within_deadline = not client.is_alive()
         finally:
             release_server.set()
@@ -456,6 +458,8 @@ class WitnessServiceTests(unittest.TestCase):
                 Path(endpoint.address).unlink(missing_ok=True)
 
         self.assertTrue(completed_within_deadline)
+        if endpoint.family == "AF_UNIX":
+            self.assertGreaterEqual(elapsed, 0.08)
         self.assertFalse(server_failures)
         self.assertEqual(len(client_failures), 1)
         self.assertIsInstance(client_failures[0], ServiceUnavailableError)

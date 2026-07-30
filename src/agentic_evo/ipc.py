@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
+import socket
 import sys
 import tempfile
 import threading
@@ -140,10 +141,30 @@ def receive_public_message(
     close_on_timeout: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     deadline: threading.Timer | None = None
+    interrupt_socket: socket.socket | None = None
     if timeout_seconds is not None:
+        close = close_on_timeout or connection.close
+        if sys.platform != "win32":
+            try:
+                interrupt_socket = socket.fromfd(
+                    connection.fileno(),
+                    socket.AF_UNIX,
+                    socket.SOCK_STREAM,
+                )
+            except (AttributeError, OSError, ValueError):
+                pass
+
+        def interrupt_receive() -> None:
+            if interrupt_socket is not None:
+                try:
+                    interrupt_socket.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+            close()
+
         deadline = threading.Timer(
             timeout_seconds,
-            close_on_timeout if close_on_timeout is not None else connection.close,
+            interrupt_receive,
         )
         deadline.daemon = True
         deadline.start()
@@ -158,6 +179,9 @@ def receive_public_message(
     finally:
         if deadline is not None:
             deadline.cancel()
+            deadline.join()
+        if interrupt_socket is not None:
+            interrupt_socket.close()
     try:
         value = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
