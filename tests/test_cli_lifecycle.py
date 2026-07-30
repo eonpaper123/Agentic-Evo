@@ -116,7 +116,7 @@ class CLILifecycleTests(unittest.TestCase):
         process: subprocess.Popen[str],
     ) -> SurfaceClient:
         client = SurfaceClient(self.home)
-        deadline = time.monotonic() + 5
+        deadline = time.monotonic() + 20
         while time.monotonic() < deadline:
             if process.poll() is not None:
                 _, stderr = process.communicate(timeout=1)

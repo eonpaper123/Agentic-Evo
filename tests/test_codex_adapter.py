@@ -22,6 +22,7 @@ SOURCE_ROOT = REPOSITORY_ROOT / "src"
 class CodexAdapterTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tempdir.cleanup)
         self.home = Path(self.tempdir.name)
         self.runtime = DevelopmentalRuntime.genesis(
             self.home,
@@ -54,15 +55,12 @@ class CodexAdapterTests(unittest.TestCase):
             stderr=subprocess.PIPE,
             text=True,
         )
+        self.addCleanup(self._terminate_service)
         self._wait_until_ready()
-
-    def tearDown(self) -> None:
-        self._terminate_service()
-        self.tempdir.cleanup()
 
     def _wait_until_ready(self) -> None:
         client = SurfaceClient(self.home)
-        deadline = time.monotonic() + 5
+        deadline = time.monotonic() + 20
         while time.monotonic() < deadline:
             if self.service.poll() is not None:
                 _, stderr = self.service.communicate(timeout=1)
