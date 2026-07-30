@@ -139,7 +139,7 @@ class InstallPlanTests(unittest.TestCase):
                 "native_security_verified": False,
                 "portable_protocol_complete": True,
                 "ready_to_install": False,
-                "windows_gate_a_artifacts": "ready",
+                "windows_gate_a_status": "scm_probe_bundle_ready",
             },
         )
 

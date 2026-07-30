@@ -49,9 +49,10 @@ class WindowsGateABundleTests(unittest.TestCase):
             )
             self.assertEqual(manifest["schema"], "agentic-evo.windows-gate-a.v1")
             self.assertEqual(manifest["gate"], "A")
-            self.assertEqual(manifest["status"], "passed")
+            self.assertEqual(manifest["status"], "partial")
             self.assertEqual(report, manifest)
-            self.assertTrue(manifest["claims"]["gate_a_artifacts_ready"])
+            self.assertTrue(manifest["claims"]["scm_probe_bundle_ready"])
+            self.assertFalse(manifest["claims"]["gate_a_complete"])
             for claim in (
                 "privileged_installation_executed",
                 "scm_observed",
@@ -107,32 +108,19 @@ class WindowsGateABundleTests(unittest.TestCase):
                 },
             )
 
-            harness = manifest["gate_b_harness"]
+            harness = manifest["gate_b_case_matrix"]
             self.assertEqual(
-                {case["id"] for case in harness["cases"]},
+                {case["id"] for case in harness},
                 EXPECTED_CASE_IDS,
             )
             self.assertEqual(
-                harness["verifier"]["command"],
+                manifest["missing_gate_a_components"],
                 [
-                    "AgenticEvo.ScmProbe.exe",
-                    "verify",
-                    "--manifest",
-                    "gate-a-manifest.json",
+                    "executable_gate_b_cleanup",
+                    "independent_verifier",
+                    "real_attacker",
+                    "trusted_elevated_handoff",
                 ],
-            )
-            self.assertEqual(
-                harness["attacker"]["command"],
-                [
-                    "AgenticEvo.ScmProbe.exe",
-                    "attack",
-                    "--manifest",
-                    "gate-a-manifest.json",
-                ],
-            )
-            self.assertEqual(
-                harness["result_states"],
-                ["not_run", "pending_reboot", "not_proven", "pass", "fail"],
             )
             self.assertEqual(
                 manifest["cleanup"]["ordered_operations"],
@@ -215,6 +203,38 @@ class WindowsGateABundleTests(unittest.TestCase):
 
             self.assertEqual(sentinel.read_text(encoding="utf-8"), "outside")
             self.assertTrue(bundle.exists())
+
+    def test_cleanup_rejects_a_junction_instead_of_following_its_target(self) -> None:
+        from agentic_evo.windows_gate_a import (
+            GateABundleError,
+            cleanup_gate_a_bundle,
+            prepare_gate_a_bundle,
+            verify_gate_a_bundle,
+        )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            parent = Path(temporary)
+            bundle = parent / "gate-a"
+            junction = parent / "bundle-junction"
+            prepare_gate_a_bundle(bundle)
+            linked = subprocess.run(
+                ["cmd.exe", "/d", "/c", "mklink", "/J", str(junction), str(bundle)],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+            if linked.returncode != 0:
+                self.skipTest(f"junction creation unavailable: {linked.stderr}")
+            try:
+                with self.assertRaises(GateABundleError):
+                    cleanup_gate_a_bundle(junction)
+                self.assertEqual(
+                    verify_gate_a_bundle(bundle)["status"],
+                    "partial",
+                )
+            finally:
+                junction.rmdir()
 
 
 class WindowsGateAPlatformTests(unittest.TestCase):
