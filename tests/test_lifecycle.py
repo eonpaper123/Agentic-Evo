@@ -147,6 +147,68 @@ class MachineLifecycleTests(unittest.TestCase):
             ("execution_surface", "session_id"),
         )
 
+    def test_session_commitment_is_versioned_and_structurally_unambiguous(
+        self,
+    ) -> None:
+        self.runtime.wake(
+            execution_surface="codex",
+            session_id="shared:session",
+            project_environment="project-a",
+        )
+        with closing(
+            sqlite3.connect(self.home / "trusted" / "state.sqlite3")
+        ) as connection:
+            session_id, raw_value = connection.execute(
+                "SELECT session_id, value_json FROM sessions"
+            ).fetchone()
+            sessions_hash = connection.execute(
+                "SELECT sessions_hash FROM state WHERE id = 1"
+            ).fetchone()[0]
+
+        expected_commitment = {
+            "schema_version": "agentic-evo-sessions-v2",
+            "sessions": [
+                {
+                    "execution_surface": "codex",
+                    "session_id": session_id,
+                    "value": json.loads(raw_value),
+                }
+            ],
+        }
+        self.assertEqual(
+            sessions_hash,
+            sha256_hex(canonical_json_bytes(expected_commitment)),
+        )
+
+    def test_trusted_session_rejects_surface_value_mismatch_atomically(
+        self,
+    ) -> None:
+        before_status = self.runtime.status()
+        before_records = self.runtime.evidence.records()
+        manifest = self.runtime.body_store.read_manifest(before_status.head)
+
+        with self.assertRaises(IntegrityError):
+            self.runtime.trusted.start_session(
+                expected_head=before_status.head,
+                session_id="mismatched-session",
+                value={
+                    "execution_surface": "other-coding-agent",
+                    "project_environment": "project-a",
+                },
+                execution_surface="codex",
+                project_environment="project-a",
+                model=None,
+                body_generation=manifest.generation,
+                activation_kind=str(manifest.activation_kind),
+                activation_artifact=str(manifest.activation_artifact),
+                activation_digest=dict(manifest.files)[
+                    str(manifest.activation_artifact)
+                ],
+            )
+
+        self.assertEqual(self.runtime.status(), before_status)
+        self.assertEqual(self.runtime.evidence.records(), before_records)
+
     def test_wake_describes_activation_material_from_the_exact_current_head(self) -> None:
         before = self.runtime.status()
         candidate = self._prepare_successor(
