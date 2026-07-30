@@ -2,10 +2,14 @@ from __future__ import annotations
 
 from contextlib import closing
 import json
+import os
 from pathlib import Path
 import sqlite3
+import subprocess
+import sys
 import tempfile
 import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -151,6 +155,105 @@ class MachineLifecycleTests(unittest.TestCase):
         session_end = self.runtime.evidence.records()[-1]
         self.assertEqual(session_end.execution_surface, "codex")
         self.assertFalse(session_end.payload["session_was_active"])
+
+    def test_independent_processes_keep_same_raw_id_on_distinct_surfaces(
+        self,
+    ) -> None:
+        start = self.home / "start-concurrent-wake"
+        ready_paths = [
+            self.home / "codex-ready",
+            self.home / "other-ready",
+        ]
+        script = """
+from pathlib import Path
+import sys
+import time
+
+from agentic_evo.runtime import DevelopmentalRuntime
+
+home = Path(sys.argv[1])
+surface = sys.argv[2]
+ready = Path(sys.argv[3])
+start = Path(sys.argv[4])
+runtime = DevelopmentalRuntime.load(home)
+ready.write_text("ready", encoding="utf-8")
+deadline = time.monotonic() + 10
+while not start.exists():
+    if time.monotonic() >= deadline:
+        raise TimeoutError("concurrent wake start signal was not observed")
+    time.sleep(0.01)
+runtime.wake(
+    execution_surface=surface,
+    session_id="shared-process-session",
+    project_environment=surface,
+)
+"""
+        environment = dict(os.environ)
+        source_path = str(Path(__file__).resolve().parents[1] / "src")
+        prior_pythonpath = environment.get("PYTHONPATH")
+        environment["PYTHONPATH"] = (
+            source_path
+            if not prior_pythonpath
+            else os.pathsep.join((source_path, prior_pythonpath))
+        )
+        surfaces = ("codex", "other-coding-agent")
+        processes = [
+            subprocess.Popen(
+                [
+                    sys.executable,
+                    "-c",
+                    script,
+                    str(self.home),
+                    surface,
+                    str(ready),
+                    str(start),
+                ],
+                env=environment,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            for surface, ready in zip(surfaces, ready_paths, strict=True)
+        ]
+        try:
+            deadline = time.monotonic() + 10
+            while not all(path.exists() for path in ready_paths):
+                exited = [
+                    process
+                    for process in processes
+                    if process.poll() is not None
+                ]
+                if exited or time.monotonic() >= deadline:
+                    self.fail("concurrent wake workers did not reach the barrier")
+                time.sleep(0.01)
+            start.touch()
+            results = [
+                process.communicate(timeout=15)
+                for process in processes
+            ]
+            for process, (_, stderr) in zip(processes, results, strict=True):
+                self.assertEqual(process.returncode, 0, stderr)
+        finally:
+            for process in processes:
+                if process.poll() is None:
+                    process.kill()
+                    process.wait(timeout=5)
+                if process.stdout is not None:
+                    process.stdout.close()
+                if process.stderr is not None:
+                    process.stderr.close()
+
+        active = DevelopmentalRuntime.load(self.home).status().active_sessions
+        self.assertEqual(
+            {
+                (identity.execution_surface, identity.session_id)
+                for identity in active
+            },
+            {
+                ("codex", "shared-process-session"),
+                ("other-coding-agent", "shared-process-session"),
+            },
+        )
 
     def test_repeated_composite_wake_is_a_recorded_reattach(self) -> None:
         before_records = self.runtime.evidence.records()
