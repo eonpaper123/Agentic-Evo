@@ -25,11 +25,11 @@ def prepare_gate_a_bundle(output_dir: Path) -> dict[str, Any]:
     """Build one exact, no-UAC Windows SCM probe bundle."""
 
     _require_windows()
-    output = Path(output_dir).resolve()
+    output = _absolute_path(output_dir)
     parent = output.parent
-    if output.exists():
+    if output.exists() or output.is_symlink() or _is_reparse_point(output):
         raise GateABundleError("output directory already exists")
-    if not parent.is_dir() or _is_reparse_point(parent):
+    if _is_reparse_point(parent) or not parent.is_dir():
         raise GateABundleError("output parent must be an existing ordinary directory")
 
     staging = parent / f".{output.name}.gate-a-{uuid4().hex}.tmp"
@@ -70,7 +70,7 @@ def verify_gate_a_bundle(bundle_dir: Path) -> dict[str, Any]:
     """Independently re-hash and exercise one uninstalled Gate A bundle."""
 
     _require_windows()
-    bundle = Path(bundle_dir).resolve()
+    bundle = _absolute_path(bundle_dir)
     return _verify_bundle_contents(bundle)
 
 
@@ -78,7 +78,7 @@ def cleanup_gate_a_bundle(bundle_dir: Path) -> dict[str, str]:
     """Remove only a verified local Gate A bundle; never touch SCM or state."""
 
     _require_windows()
-    bundle = Path(bundle_dir).resolve()
+    bundle = _absolute_path(bundle_dir)
     if not bundle.exists():
         return {"status": "already_absent"}
     _verify_bundle_contents(bundle)
@@ -93,7 +93,7 @@ def _verify_bundle_contents(
     *,
     expected: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    if not bundle.is_dir() or _is_reparse_point(bundle):
+    if _is_reparse_point(bundle) or not bundle.is_dir():
         raise GateABundleError("bundle must be an ordinary directory")
     entries = {entry.name: entry for entry in bundle.iterdir()}
     if set(entries) != {ARTIFACT_NAME, MANIFEST_NAME}:
@@ -116,6 +116,13 @@ def _verify_bundle_contents(
     if expected is not None and manifest != expected:
         raise GateABundleError("manifest changed while preparing the bundle")
     _validate_manifest_contract(manifest)
+    if manifest["build"]["source"]["sha256"] != _sha256_file(_source_path()):
+        raise GateABundleError("packaged source no longer matches the manifest")
+    compiler = _find_system_compiler()
+    if manifest["build"]["compiler"]["sha256"] != _sha256_file(compiler):
+        raise GateABundleError("system compiler no longer matches the manifest")
+    if manifest["build"]["compiler"]["version"] != _compiler_version(compiler):
+        raise GateABundleError("system compiler version no longer matches the manifest")
 
     artifact = entries[ARTIFACT_NAME]
     artifact_contract = manifest["artifact"]
@@ -125,8 +132,6 @@ def _verify_bundle_contents(
         raise GateABundleError("artifact digest does not match the manifest")
     _assert_portable_executable(artifact)
     _run_console_probe(artifact)
-    _run_unbound_harness_probe(artifact, manifest_path, role="verify")
-    _run_unbound_harness_probe(artifact, manifest_path, role="attack")
     return manifest
 
 
@@ -134,12 +139,14 @@ def _validate_manifest_contract(manifest: dict[str, Any]) -> None:
     try:
         if manifest["schema"] != "agentic-evo.windows-gate-a.v1":
             raise GateABundleError("unexpected manifest schema")
-        if manifest["gate"] != "A" or manifest["status"] != "passed":
-            raise GateABundleError("Gate A manifest is not passed")
+        if manifest["gate"] != "A" or manifest["status"] != "partial":
+            raise GateABundleError("unexpected Gate A probe status")
         if manifest["artifact"]["file"] != ARTIFACT_NAME:
             raise GateABundleError("unexpected artifact path")
-        if manifest["claims"]["gate_a_artifacts_ready"] is not True:
-            raise GateABundleError("Gate A readiness is not asserted")
+        if manifest["claims"]["scm_probe_bundle_ready"] is not True:
+            raise GateABundleError("SCM probe bundle readiness is not asserted")
+        if manifest["claims"]["gate_a_complete"] is not False:
+            raise GateABundleError("Gate A completion is overclaimed")
         for false_claim in (
             "privileged_installation_executed",
             "scm_observed",
@@ -152,9 +159,7 @@ def _validate_manifest_contract(manifest: dict[str, Any]) -> None:
                 raise GateABundleError(f"forbidden claim is true: {false_claim}")
         if any(manifest["effects"].values()):
             raise GateABundleError("Gate A manifest contains an installation effect")
-        case_ids = {
-            case["id"] for case in manifest["gate_b_harness"]["cases"]
-        }
+        case_ids = {case["id"] for case in manifest["gate_b_case_matrix"]}
         if case_ids != {
             "C01",
             "C02",
@@ -170,16 +175,14 @@ def _validate_manifest_contract(manifest: dict[str, Any]) -> None:
             "U01",
         }:
             raise GateABundleError("Gate B case matrix is incomplete")
-        for role in ("verifier", "attacker"):
-            command = manifest["gate_b_harness"][role]["command"]
-            if command[0] != ARTIFACT_NAME:
-                raise GateABundleError("harness command escapes the exact artifact")
-        for path_text in (
-            manifest["artifact"]["file"],
-            manifest["gate_b_harness"]["verifier"]["command"][0],
-            manifest["gate_b_harness"]["attacker"]["command"][0],
-        ):
-            _validate_relative_name(path_text)
+        if manifest["missing_gate_a_components"] != [
+            "executable_gate_b_cleanup",
+            "independent_verifier",
+            "real_attacker",
+            "trusted_elevated_handoff",
+        ]:
+            raise GateABundleError("Gate A missing-component boundary changed")
+        _validate_relative_name(manifest["artifact"]["file"])
     except (KeyError, TypeError, ValueError) as error:
         raise GateABundleError("manifest contract is malformed") from error
 
@@ -237,10 +240,11 @@ def _build_manifest(
             },
         },
         "claims": {
-            "gate_a_artifacts_ready": True,
+            "gate_a_complete": False,
             "native_security_verified": False,
             "privileged_installation_executed": False,
             "ready_to_install": False,
+            "scm_probe_bundle_ready": True,
             "scm_observed": False,
             "service_token_observed": False,
             "state_acl_attacked": False,
@@ -267,39 +271,13 @@ def _build_manifest(
             "start_service": False,
         },
         "gate": "A",
-        "gate_b_harness": {
-            "attacker": {
-                "command": [
-                    ARTIFACT_NAME,
-                    "attack",
-                    "--manifest",
-                    MANIFEST_NAME,
-                ],
-                "pre_install_result": "not_run",
-            },
-            "cases": cases,
-            "install_receipt": {
-                "file": "gate-b-install-receipt.json",
-                "required_before_observation": True,
-            },
-            "result_states": [
-                "not_run",
-                "pending_reboot",
-                "not_proven",
-                "pass",
-                "fail",
-            ],
-            "verifier": {
-                "command": [
-                    ARTIFACT_NAME,
-                    "verify",
-                    "--manifest",
-                    MANIFEST_NAME,
-                ],
-                "evidence_source": "windows_kernel_and_scm_not_service_self_report",
-                "pre_install_result": "not_run",
-            },
-        },
+        "gate_b_case_matrix": cases,
+        "missing_gate_a_components": [
+            "executable_gate_b_cleanup",
+            "independent_verifier",
+            "real_attacker",
+            "trusted_elevated_handoff",
+        ],
         "protected_target_contract": {
             "account": "NT AUTHORITY\\LocalService",
             "artifact_dacl": {
@@ -313,9 +291,10 @@ def _build_manifest(
             },
             "body_service_sid_access": "forbidden",
             "image_path": (
-                "<protected_artifact_root>/AgenticEvo.ScmProbe.exe service "
+                "\"<protected_artifact_root>\\AgenticEvo.ScmProbe.exe\" service "
                 "--service-name <random_service_name> "
-                "--probe-path <protected_state_root>/scm-write.probe"
+                "--probe-path "
+                "\"<protected_state_root>\\scm-write.probe\""
             ),
             "service_name": {
                 "pattern": "AgenticEvoGateB_<32_lower_hex>",
@@ -343,7 +322,7 @@ def _build_manifest(
             "start_type": "demand",
         },
         "schema": "agentic-evo.windows-gate-a.v1",
-        "status": "passed",
+        "status": "partial",
     }
 
 
@@ -403,45 +382,6 @@ def _run_console_probe(artifact: Path) -> None:
     )
     if result.returncode != 1063 or result.stdout or result.stderr:
         raise GateABundleError("SCM entrypoint did not fail closed outside SCM")
-
-
-def _run_unbound_harness_probe(
-    artifact: Path,
-    manifest: Path,
-    *,
-    role: str,
-) -> None:
-    result = subprocess.run(
-        [str(artifact), role, "--manifest", str(manifest)],
-        cwd=artifact.parent,
-        capture_output=True,
-        text=True,
-        timeout=10,
-        check=False,
-    )
-    try:
-        payload = json.loads(result.stdout)
-    except json.JSONDecodeError as error:
-        raise GateABundleError(f"{role} pre-install probe returned invalid JSON") from error
-    if (
-        result.returncode != 3
-        or result.stderr
-        or payload.get("role") != role
-        or payload.get("status") != "not_run"
-        or payload.get("reason") != "target_unbound"
-        or any(
-            payload.get(key) is not False
-            for key in (
-                "native_security_verified",
-                "privileged_installation_executed",
-                "ready_to_install",
-                "scm_observed",
-                "service_token_observed",
-                "state_acl_attacked",
-            )
-        )
-    ):
-        raise GateABundleError(f"{role} did not fail closed before Gate B")
 
 
 def _find_system_compiler() -> Path:
@@ -549,6 +489,10 @@ def _validate_relative_name(value: str) -> None:
         or "\\" in value
     ):
         raise GateABundleError("manifest contains an unsafe relative path")
+
+
+def _absolute_path(value: Path) -> Path:
+    return Path(os.path.abspath(os.fspath(value)))
 
 
 def _is_reparse_point(path: Path) -> bool:

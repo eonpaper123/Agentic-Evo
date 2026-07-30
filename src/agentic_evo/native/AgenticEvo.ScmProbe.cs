@@ -88,11 +88,6 @@ internal static class AgenticEvoScmProbe
                 }
                 return RunDispatcher();
             }
-            if (arguments.Length > 0 &&
-                (arguments[0] == "verify" || arguments[0] == "attack"))
-            {
-                return RunUnprivilegedHarness(arguments[0], arguments);
-            }
             return ErrorInvalidParameter;
         }
         catch
@@ -230,42 +225,4 @@ internal static class AgenticEvoScmProbe
         }
     }
 
-    private static int RunUnprivilegedHarness(string role, string[] arguments)
-    {
-        string manifest = ReadOption(arguments, "--manifest");
-        if (String.IsNullOrWhiteSpace(manifest) || !File.Exists(manifest))
-        {
-            return ErrorInvalidParameter;
-        }
-
-        string receipt = Path.Combine(
-            Path.GetDirectoryName(Path.GetFullPath(manifest)),
-            "gate-b-install-receipt.json");
-        if (!File.Exists(receipt))
-        {
-            Console.Out.Write(
-                "{\"native_security_verified\":false," +
-                "\"privileged_installation_executed\":false," +
-                "\"ready_to_install\":false," +
-                "\"reason\":\"target_unbound\"," +
-                "\"role\":\"" + role + "\"," +
-                "\"scm_observed\":false," +
-                "\"service_token_observed\":false," +
-                "\"state_acl_attacked\":false," +
-                "\"status\":\"not_run\"}\n");
-            return 3;
-        }
-
-        Console.Out.Write(
-            "{\"native_security_verified\":false," +
-            "\"privileged_installation_executed\":false," +
-            "\"ready_to_install\":false," +
-            "\"reason\":\"gate_b_authorization_required\"," +
-            "\"role\":\"" + role + "\"," +
-            "\"scm_observed\":false," +
-            "\"service_token_observed\":false," +
-            "\"state_acl_attacked\":false," +
-            "\"status\":\"not_proven\"}\n");
-        return 4;
-    }
 }
