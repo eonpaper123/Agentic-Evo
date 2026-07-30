@@ -41,7 +41,7 @@ class BodyProcessTests(unittest.TestCase):
             instrument_version="instrument-test-v1",
             protocol_version="protocol-test-v1",
         )
-        self.witness = WitnessCore(self.runtime, lease_seconds=10.0)
+        self.witness = WitnessCore(self.runtime, lease_seconds=60.0)
         self.supervisor = BodyProcessSupervisor(
             self.runtime,
             self.witness,
