@@ -36,6 +36,24 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOT = REPOSITORY_ROOT / "src"
 
 
+def _write_partial_transport_frame(connection) -> None:
+    import struct
+
+    fragments = (struct.pack("!i", 64), b"{")
+    if sys.platform == "win32":
+        import _winapi
+
+        for fragment in fragments:
+            pending, _ = _winapi.WriteFile(
+                connection.fileno(),
+                fragment,
+                overlapped=True,
+            )
+            assert pending.GetOverlappedResult(True) == (len(fragment), 0)
+    else:
+        os.write(connection.fileno(), b"".join(fragments))
+
+
 class WitnessServiceTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
@@ -388,7 +406,6 @@ class WitnessServiceTests(unittest.TestCase):
 
     def test_real_control_transport_cancels_a_partial_response(self) -> None:
         from multiprocessing.connection import Listener
-        import struct
 
         endpoint = control_endpoint(self.home)
         listener = Listener(
@@ -401,27 +418,12 @@ class WitnessServiceTests(unittest.TestCase):
         server_failures: list[Exception] = []
         client_failures: list[Exception] = []
 
-        def write_partial_frame(connection) -> None:
-            fragments = (struct.pack("!i", 64), b"{")
-            if sys.platform == "win32":
-                import _winapi
-
-                for fragment in fragments:
-                    pending, _ = _winapi.WriteFile(
-                        connection.fileno(),
-                        fragment,
-                        overlapped=True,
-                    )
-                    self.assertEqual(pending.GetOverlappedResult(True), (len(fragment), 0))
-            else:
-                os.write(connection.fileno(), b"".join(fragments))
-
         def serve_partial_response() -> None:
             try:
                 connection = listener.accept()
                 try:
                     receive_public_message(connection)
-                    write_partial_frame(connection)
+                    _write_partial_transport_frame(connection)
                     partial_sent.set()
                     release_server.wait(timeout=2)
                 finally:
@@ -463,6 +465,63 @@ class WitnessServiceTests(unittest.TestCase):
         self.assertFalse(server_failures)
         self.assertEqual(len(client_failures), 1)
         self.assertIsInstance(client_failures[0], ServiceUnavailableError)
+
+    def test_real_control_transport_recovers_from_a_partial_request(self) -> None:
+        service = WitnessService(self.home)
+        service_failures: list[Exception] = []
+
+        def serve() -> None:
+            try:
+                service.serve_forever()
+            except Exception as exc:
+                service_failures.append(exc)
+
+        service_thread = threading.Thread(target=serve, daemon=True)
+        with patch("agentic_evo.service.PUBLIC_IO_TIMEOUT_SECONDS", 0.1):
+            service_thread.start()
+            try:
+                client = SurfaceClient(self.home)
+                deadline = time.monotonic() + 5
+                while True:
+                    if service_failures:
+                        self.fail(f"Witness service failed: {service_failures[0]!r}")
+                    try:
+                        client.status()
+                        break
+                    except ServiceUnavailableError:
+                        if time.monotonic() >= deadline:
+                            self.fail("Witness service did not become ready")
+                        time.sleep(0.02)
+
+                endpoint = control_endpoint(self.home)
+                with open_public_connection(endpoint) as partial:
+                    _write_partial_transport_frame(partial)
+                    started = time.monotonic()
+                    with open_public_connection(endpoint) as probe:
+                        send_public_message(
+                            probe,
+                            {
+                                "protocol": CONTROL_PROTOCOL,
+                                "request_id": "after-partial",
+                                "operation": "status",
+                                "params": {},
+                            },
+                        )
+                        response = receive_public_message(
+                            probe,
+                            timeout_seconds=0.75,
+                        )
+                    elapsed = time.monotonic() - started
+            finally:
+                service.request_stop()
+                service_thread.join(timeout=5)
+
+        self.assertFalse(service_thread.is_alive())
+        self.assertFalse(service_failures)
+        self.assertFalse(response["ok"])
+        self.assertEqual(response["error"]["code"], "operation_not_control")
+        if endpoint.family == "AF_UNIX":
+            self.assertGreaterEqual(elapsed, 0.08)
 
     def test_service_never_performs_genesis_for_an_empty_home(self) -> None:
         empty_home = Path(self.tempdir.name) / "empty"
