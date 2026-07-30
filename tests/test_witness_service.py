@@ -1179,7 +1179,10 @@ class WitnessServiceTests(unittest.TestCase):
         self.assertEqual(self.runtime.status(), before_status)
 
         with open_public_connection(endpoint) as connection:
-            connection.send_bytes(b"x" * (MAX_PUBLIC_FRAME_BYTES + 1))
+            try:
+                connection.send_bytes(b"x" * (MAX_PUBLIC_FRAME_BYTES + 1))
+            except (BrokenPipeError, OSError):
+                pass
         self.assertEqual(self.runtime.status(), before_status)
 
         control = OffRehearsalClient(self.home)
