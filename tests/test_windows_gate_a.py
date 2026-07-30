@@ -214,11 +214,21 @@ class WindowsGateABundleTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temporary:
             parent = Path(temporary)
-            bundle = parent / "gate-a"
-            junction = parent / "bundle-junction"
+            real_root = parent / "real-root"
+            real_root.mkdir()
+            bundle = real_root / "gate-a"
+            junction = parent / "root-junction"
             prepare_gate_a_bundle(bundle)
             linked = subprocess.run(
-                ["cmd.exe", "/d", "/c", "mklink", "/J", str(junction), str(bundle)],
+                [
+                    "cmd.exe",
+                    "/d",
+                    "/c",
+                    "mklink",
+                    "/J",
+                    str(junction),
+                    str(real_root),
+                ],
                 capture_output=True,
                 text=True,
                 timeout=10,
@@ -228,7 +238,7 @@ class WindowsGateABundleTests(unittest.TestCase):
                 self.skipTest(f"junction creation unavailable: {linked.stderr}")
             try:
                 with self.assertRaises(GateABundleError):
-                    cleanup_gate_a_bundle(junction)
+                    cleanup_gate_a_bundle(junction / "gate-a")
                 self.assertEqual(
                     verify_gate_a_bundle(bundle)["status"],
                     "partial",
