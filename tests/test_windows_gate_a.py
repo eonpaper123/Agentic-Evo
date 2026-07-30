@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 EXPECTED_CASE_IDS = {
@@ -163,6 +164,10 @@ class WindowsGateABundleTests(unittest.TestCase):
             cleanup_gate_a_bundle(bundle)
             self.assertFalse(bundle.exists())
             self.assertTrue(parent.exists())
+            self.assertEqual(
+                cleanup_gate_a_bundle(bundle),
+                {"status": "already_absent"},
+            )
 
     def test_prepare_and_cleanup_refuse_ambiguous_targets(self) -> None:
         from agentic_evo.windows_gate_a import (
@@ -184,6 +189,50 @@ class WindowsGateABundleTests(unittest.TestCase):
                 cleanup_gate_a_bundle(occupied)
 
             self.assertEqual(marker.read_text(encoding="utf-8"), "keep")
+
+    def test_tamper_fails_closed_and_cleanup_preserves_external_files(self) -> None:
+        from agentic_evo.windows_gate_a import (
+            GateABundleError,
+            cleanup_gate_a_bundle,
+            prepare_gate_a_bundle,
+            verify_gate_a_bundle,
+        )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            parent = Path(temporary)
+            sentinel = parent / "outside.txt"
+            sentinel.write_text("outside", encoding="utf-8")
+            bundle = parent / "gate-a"
+            prepare_gate_a_bundle(bundle)
+            artifact = bundle / "AgenticEvo.ScmProbe.exe"
+            original = artifact.read_bytes()
+            artifact.write_bytes(original[:-1] + bytes([original[-1] ^ 0x01]))
+
+            with self.assertRaises(GateABundleError):
+                verify_gate_a_bundle(bundle)
+            with self.assertRaises(GateABundleError):
+                cleanup_gate_a_bundle(bundle)
+
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "outside")
+            self.assertTrue(bundle.exists())
+
+
+class WindowsGateAPlatformTests(unittest.TestCase):
+    def test_non_windows_host_is_rejected_before_output_creation(self) -> None:
+        from agentic_evo.windows_gate_a import (
+            GateABundleError,
+            prepare_gate_a_bundle,
+        )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "gate-a"
+            with mock.patch("agentic_evo.windows_gate_a.sys.platform", "linux"):
+                with self.assertRaisesRegex(
+                    GateABundleError,
+                    "unsupported_host_platform",
+                ):
+                    prepare_gate_a_bundle(output)
+            self.assertFalse(output.exists())
 
 
 if __name__ == "__main__":
