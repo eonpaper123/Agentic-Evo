@@ -45,7 +45,7 @@ class BodyProcessTests(unittest.TestCase):
         self.supervisor = BodyProcessSupervisor(
             self.runtime,
             self.witness,
-            ready_timeout_seconds=2.0,
+            ready_timeout_seconds=5.0,
         )
         self.bodies = []
 

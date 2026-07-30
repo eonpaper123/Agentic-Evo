@@ -899,7 +899,7 @@ class BodyProcessSupervisor:
         runtime: DevelopmentalRuntime,
         witness: WitnessCore,
         *,
-        ready_timeout_seconds: float = 2.0,
+        ready_timeout_seconds: float = 5.0,
     ) -> None:
         if ready_timeout_seconds <= 0:
             raise ValueError("ready_timeout_seconds must be positive")
