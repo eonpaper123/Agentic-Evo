@@ -63,11 +63,21 @@ class WindowsGateBPlanTests(unittest.TestCase):
                     "temporary_service": True,
                 },
             )
+            self.assertEqual(plan["claim_ceiling"]["gate_b"], "not_established")
+            self.assertEqual(
+                plan["claim_ceiling"]["restricted_service_sid_configuration"],
+                "configuration_probe_only",
+            )
+            self.assertEqual(plan["claim_ceiling"]["C01"], "not_run")
+            self.assertEqual(
+                plan["claim_ceiling"]["U01"],
+                "partial_cleanup_if_service_lifecycle_occurs",
+            )
             self.assertFalse(evidence.exists())
             self.assertFalse(Path(plan["artifact_root"]).exists())
             self.assertFalse(Path(plan["state_root"]).exists())
 
-    def test_plan_rejects_non_random_namespace(self) -> None:
+    def test_plan_rejects_invalid_run_id_format(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             artifact = root / "AgenticEvo.ScmProbe.exe"
@@ -78,6 +88,136 @@ class WindowsGateBPlanTests(unittest.TestCase):
             result = self._run_plan("not-random", artifact, digest, evidence)
 
             self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(evidence.exists())
+
+    def test_run_requires_externally_pinned_script_before_any_effect(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            artifact = root / "AgenticEvo.ScmProbe.exe"
+            artifact.write_bytes(b"MZgate-b-plan-test")
+            digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
+            evidence = root / "evidence"
+            run_id = uuid4().hex
+
+            result = subprocess.run(
+                [
+                    "powershell.exe",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    str(self.script),
+                    "-Mode",
+                    "Run",
+                    "-RunId",
+                    run_id,
+                    "-ArtifactPath",
+                    str(artifact),
+                    "-ExpectedArtifactSha256",
+                    digest,
+                    "-EvidenceRoot",
+                    str(evidence),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=20,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("run_requires_externally_pinned_script", result.stderr)
+            self.assertFalse(evidence.exists())
+
+    def test_plan_uses_os_system_directory_not_spoofed_environment(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            artifact = root / "AgenticEvo.ScmProbe.exe"
+            artifact.write_bytes(b"MZgate-b-plan-test")
+            digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
+            evidence = root / "evidence"
+            fake_windows = root / "fake-windows"
+            run_id = uuid4().hex
+            quote = lambda value: "'" + str(value).replace("'", "''") + "'"
+            command = (
+                f"$env:SystemRoot={quote(fake_windows)}; "
+                f"& {quote(self.script)} -Mode Plan -RunId {quote(run_id)} "
+                f"-ArtifactPath {quote(artifact)} "
+                f"-ExpectedArtifactSha256 {quote(digest)} "
+                f"-EvidenceRoot {quote(evidence)}"
+            )
+
+            result = subprocess.run(
+                [
+                    "powershell.exe",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-Command",
+                    command,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=20,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            plan = json.loads(result.stdout)
+            self.assertEqual(
+                Path(plan["trusted_system_directory"]),
+                Path(os.environ["SystemRoot"]) / "System32",
+            )
+            self.assertNotEqual(
+                Path(plan["trusted_system_directory"]),
+                fake_windows / "System32",
+            )
+            self.assertFalse(evidence.exists())
+
+    def test_plan_ignores_user_supplied_module_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            artifact = root / "AgenticEvo.ScmProbe.exe"
+            artifact.write_bytes(b"MZgate-b-plan-test")
+            digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
+            evidence = root / "evidence"
+            fake_modules = root / "fake-modules"
+            fake_modules.mkdir()
+            run_id = uuid4().hex
+            environment = os.environ.copy()
+            environment["PSModulePath"] = str(fake_modules)
+
+            result = subprocess.run(
+                [
+                    "powershell.exe",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    str(self.script),
+                    "-Mode",
+                    "Plan",
+                    "-RunId",
+                    run_id,
+                    "-ArtifactPath",
+                    str(artifact),
+                    "-ExpectedArtifactSha256",
+                    digest,
+                    "-EvidenceRoot",
+                    str(evidence),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=20,
+                check=False,
+                env=environment,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            plan = json.loads(result.stdout)
+            self.assertEqual(plan["run_id"], run_id)
             self.assertFalse(evidence.exists())
 
     def _run_plan(
