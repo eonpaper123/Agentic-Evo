@@ -280,28 +280,26 @@ def exercise_gate_b_evidence_attacks(
 ) -> dict[str, Any]:
     """Exercise real mutations only in disposable copies, using fresh processes."""
 
-    source_paths = (Path(bundle_dir), Path(evidence_dir), Path(script_path))
-    for path in source_paths:
-        if not path.exists() or _has_reparse_component(path):
-            raise ValueError("attack sources must be existing ordinary paths")
-    preflight_failures: list[dict[str, str]] = []
-
-    def preflight_fail(code: str, detail: str) -> None:
-        preflight_failures.append({"code": code, "detail": detail})
-
-    source_result = _read_canonical_object(
-        Path(evidence_dir) / "result.json", "result", preflight_fail
+    source_verification = verify_gate_b_evidence(
+        Path(bundle_dir),
+        Path(evidence_dir),
+        Path(script_path),
+        expected_manifest_sha256=expected.get("expected_manifest_sha256"),
+        expected_script_sha256=expected.get("expected_script_sha256"),
+        expected_result_sha256=expected.get("expected_result_sha256"),
+        expected_lab_id=expected.get("expected_lab_id"),
+        expected_run_id=expected.get("expected_run_id"),
+        expected_challenge=expected.get("expected_challenge"),
     )
-    if source_result is not None:
-        _validate_result_contract(source_result, preflight_fail)
-        _validate_receipt_ceiling(source_result, preflight_fail)
-    if preflight_failures:
+    if source_verification["status"] != "passed":
+        source_failures = source_verification["failures"]
         return {
             "schema": "agentic-evo.windows-gate-b-evidence-attack.v1",
             "status": "failed",
             "cases": {},
-            "source_failures": preflight_failures,
-            "preflight_failures": preflight_failures,
+            "source_verification": source_verification,
+            "source_failures": source_failures,
+            "preflight_failures": source_failures,
             "effects": {
                 "request_elevation": False, "install_service": False,
                 "start_service": False, "perform_genesis": False,
@@ -602,6 +600,18 @@ def _attack_worker(case_id: str, bundle: Path, evidence: Path) -> dict[str, Any]
         outcome = {"blocked": False, "swapped": False}
         def swap(path: Path, *, expected: dict[str, Any] | None = None) -> dict[str, Any]:
             verified = original_verify(path, expected=expected)
+            (bundle.parent / "cleanup-attempt.json").write_bytes(_canonical_json({
+                "schema": "agentic-evo.windows-gate-b-cleanup-attempt.v1",
+                "case_id": "A07_cleanup_root_swap",
+                "phase": "after_bundle_verification_before_rename",
+                "target": str(path),
+                "backup": str(backup),
+                "external_target": str(external),
+                "external_sha256": {
+                    name: _sha256(external / name)
+                    for name in (ARTIFACT_NAME, MANIFEST_NAME, "sentinel.txt")
+                },
+            }))
             try:
                 path.rename(backup)
             except OSError:
@@ -622,21 +632,96 @@ def _attack_worker(case_id: str, bundle: Path, evidence: Path) -> dict[str, Any]
 
 def _cleanup_attack_verifier(case_root: Path, attack: dict[str, Any]) -> dict[str, Any]:
     del attack
+    marker_path = case_root / "cleanup-attempt.json"
+    marker = _read_cleanup_attempt_marker(marker_path)
     external = case_root / "external-target"
-    sentinel = external / "sentinel.txt"
-    intact = sentinel.is_file() and sentinel.read_text(encoding="utf-8") == "must survive"
+    bundle = case_root / "bundle"
+    backup = case_root / "bundle-before-swap"
+    marker_valid = _cleanup_attempt_marker_matches(
+        marker,
+        bundle=bundle,
+        backup=backup,
+        external=external,
+    )
+    external_files = (ARTIFACT_NAME, MANIFEST_NAME, "sentinel.txt")
     exact_external = (
         external.is_dir()
-        and {entry.name for entry in external.iterdir()}
-        == {ARTIFACT_NAME, MANIFEST_NAME, "sentinel.txt"}
+        and not external.is_symlink()
+        and not _has_reparse_component(external)
+        and (entries := _ordinary_entries(external, "external", lambda _code, _detail: None)) is not None
+        and set(entries) == set(external_files)
+        and all(
+            entry.is_file() and not entry.is_symlink() and not _is_reparse_point(entry)
+            for entry in entries.values()
+        )
     )
-    blocked = not (case_root / "bundle-before-swap").exists()
-    original_removed = not (case_root / "bundle").exists()
+    intact = (
+        exact_external
+        and (external / "sentinel.txt").read_text(encoding="utf-8") == "must survive"
+    )
+    checksums = marker.get("external_sha256") if isinstance(marker, dict) else None
+    if checksums is not None:
+        intact = intact and (
+            isinstance(checksums, dict)
+            and set(checksums) == set(external_files)
+            and all(
+                _is_sha256(checksums.get(name))
+                and _sha256(external / name) == checksums[name]
+                for name in external_files
+            )
+        )
+    blocked = not backup.exists() and not backup.is_symlink() and not _is_reparse_point(backup)
+    original_removed = not bundle.exists() and not bundle.is_symlink() and not _is_reparse_point(bundle)
     return {
         "failure_codes": [
             "cleanup_root_swap_blocked"
-        ] if intact and exact_external and blocked and original_removed else []
+        ] if marker_valid and intact and blocked and original_removed else []
     }
+
+
+def _read_cleanup_attempt_marker(path: Path) -> dict[str, Any] | None:
+    failures: list[dict[str, str]] = []
+    marker = _read_canonical_object(
+        path,
+        "cleanup_attempt",
+        lambda code, detail: failures.append({"code": code, "detail": detail}),
+    )
+    return marker if not failures else None
+
+
+def _cleanup_attempt_marker_matches(
+    marker: dict[str, Any] | None,
+    *,
+    bundle: Path,
+    backup: Path,
+    external: Path,
+) -> bool:
+    if not isinstance(marker, dict):
+        return False
+    required = {
+        "schema", "case_id", "phase", "target", "backup", "external_target",
+        "external_sha256",
+    }
+    legacy_required = {"schema", "case_id", "bundle", "backup", "external_target"}
+    if set(marker) == required:
+        target = marker.get("target")
+        phase_valid = marker.get("phase") == "after_bundle_verification_before_rename"
+    elif set(marker) == legacy_required:
+        # Earlier bounded fixtures used ``bundle`` for the same fixed target.
+        # Preserve their evidence interpretation while fresh workers record the
+        # explicit phase and verifier-side checksum snapshot above.
+        target = marker.get("bundle")
+        phase_valid = True
+    else:
+        return False
+    return (
+        marker.get("schema") == "agentic-evo.windows-gate-b-cleanup-attempt.v1"
+        and marker.get("case_id") == "A07_cleanup_root_swap"
+        and phase_valid
+        and _same_path_text(target, str(bundle))
+        and _same_path_text(marker.get("backup"), str(backup))
+        and _same_path_text(marker.get("external_target"), str(external))
+    )
 
 
 def _validate_result_contract(result: dict[str, Any], fail: Any) -> None:
