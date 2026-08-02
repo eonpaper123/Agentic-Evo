@@ -134,6 +134,8 @@ def verify_gate_b_evidence(
             fail("undeclared_evidence_entry", "evidence closure is not exact")
         plan = _read_canonical_object(plan_path, "plan", fail)
         result = _read_canonical_object(result_path, "result", fail)
+        if result is not None:
+            _validate_result_contract(result, fail)
 
     anchor_paths = {
         "manifest": manifest_path,
@@ -311,10 +313,23 @@ def _validate_plan_result_binding(plan: dict[str, Any], result: dict[str, Any], 
     run_id = result.get("run_id")
     if not isinstance(run_id, str) or plan.get("run_id") != run_id:
         fail("plan_run_id_mismatch", "plan and result run IDs differ")
-    if plan.get("service_name") != f"AgenticEvoGateB_{run_id}":
+    expected_paths = _expected_plan_paths(run_id)
+    if plan.get("service_name") != expected_paths["service_name"]:
         fail("plan_target_derivation_invalid", "service name is not derived from run ID")
-    if not isinstance(plan.get("artifact_path"), str) or not plan["artifact_path"].endswith("\\" + ARTIFACT_NAME):
-        fail("plan_target_derivation_invalid", "artifact path is not the expected probe")
+    if not _same_path_text(plan.get("artifact_product_base"), expected_paths["artifact_product_base"]):
+        fail("plan_target_derivation_invalid", "artifact product base is not verifier-derived")
+    if not _same_path_text(plan.get("artifact_root"), expected_paths["artifact_root"]):
+        fail("plan_target_derivation_invalid", "artifact root is not verifier-derived")
+    if not _same_path_text(plan.get("artifact_path"), expected_paths["artifact_path"]):
+        fail("plan_target_derivation_invalid", "artifact path is not verifier-derived")
+    if not _same_path_text(plan.get("state_product_base"), expected_paths["state_product_base"]):
+        fail("plan_target_derivation_invalid", "state product base is not verifier-derived")
+    if not _same_path_text(plan.get("state_root"), expected_paths["state_root"]):
+        fail("plan_target_derivation_invalid", "state root is not verifier-derived")
+    if not _same_path_text(plan.get("probe_path"), expected_paths["probe_path"]):
+        fail("plan_target_derivation_invalid", "probe path is not verifier-derived")
+    if not _same_path_text(plan.get("trusted_system_directory"), expected_paths["trusted_system_directory"]):
+        fail("trusted_scm_query_unavailable", "trusted system directory is not verifier-derived")
     raw_plan = (Path(plan.get("evidence_root", "")) / "plan.json")
     # The evidence path in a plan is descriptive; digest the verified sibling instead.
     del raw_plan
@@ -323,6 +338,8 @@ def _validate_plan_result_binding(plan: dict[str, Any], result: dict[str, Any], 
     if not isinstance(report, dict):
         fail("result_report_missing", "result has no report object")
         return
+    if report.get("schema") != "agentic-evo.windows-gate-b-config-probe.v1":
+        fail("report_contract_invalid", "unexpected report schema")
     if report.get("plan_sha256") != plan_digest:
         fail("report_plan_binding_mismatch", "report plan digest did not match")
     if report.get("script_sha256") != _sha256(script):
@@ -344,8 +361,10 @@ def _validate_receipt_ceiling(result: dict[str, Any], fail: Any) -> None:
     claims = report.get("claims") if isinstance(report, dict) else None
     forbidden = (
         result.get("gate_b_outcome") != "not_established"
+        or result.get("schema") != "agentic-evo.windows-gate-b-result.v1"
         or not isinstance(claims, dict)
         or claims.get("gate_a_complete") is not False
+        or claims.get("gate_b_outcome") != "not_established"
         or claims.get("native_security_verified") is not False
         or claims.get("ready_to_install") is not False
     )
@@ -361,7 +380,7 @@ def _observe_current_zero_residue(plan: dict[str, Any], fail: Any) -> bool:
         fail("plan_target_derivation_invalid", "plan lacks current-residue targets")
         return False
     paths_absent = not Path(artifact_root).exists() and not Path(state_root).exists()
-    sc = Path(plan.get("trusted_system_directory", "")) / "sc.exe"
+    sc = _trusted_sc_path()
     if not sc.is_file() or _is_reparse_point(sc):
         fail("trusted_scm_query_unavailable", "trusted sc.exe is unavailable")
         return False
@@ -488,10 +507,70 @@ def _attack_worker(case_id: str, bundle: Path, evidence: Path) -> dict[str, Any]
 
 
 def _cleanup_attack_verifier(case_root: Path, attack: dict[str, Any]) -> dict[str, Any]:
-    sentinel = Path(str(attack.get("sentinel", "")))
-    blocked = attack.get("blocked") is True and attack.get("swapped") is False
+    del attack
+    external = case_root / "external-target"
+    sentinel = external / "sentinel.txt"
     intact = sentinel.is_file() and sentinel.read_text(encoding="utf-8") == "must survive"
-    return {"failure_codes": ["cleanup_root_swap_blocked"] if blocked and intact else []}
+    exact_external = (
+        external.is_dir()
+        and {entry.name for entry in external.iterdir()}
+        == {ARTIFACT_NAME, MANIFEST_NAME, "sentinel.txt"}
+    )
+    blocked = not (case_root / "bundle-before-swap").exists()
+    original_removed = not (case_root / "bundle").exists()
+    return {
+        "failure_codes": [
+            "cleanup_root_swap_blocked"
+        ] if intact and exact_external and blocked and original_removed else []
+    }
+
+
+def _validate_result_contract(result: dict[str, Any], fail: Any) -> None:
+    if result.get("schema") != "agentic-evo.windows-gate-b-result.v1":
+        fail("result_contract_invalid", "unexpected result schema")
+    report = result.get("report")
+    if not isinstance(report, dict):
+        fail("result_report_missing", "result has no report object")
+        return
+    if report.get("schema") != "agentic-evo.windows-gate-b-config-probe.v1":
+        fail("report_contract_invalid", "unexpected report schema")
+
+
+def _expected_plan_paths(run_id: str) -> dict[str, str]:
+    artifact_product_base = str(Path(_program_files_dir()) / "Agentic-Evo")
+    state_product_base = str(Path(_program_data_dir()) / "Agentic-Evo")
+    artifact_root = str(Path(artifact_product_base) / "GateB" / run_id)
+    state_root = str(Path(state_product_base) / "GateB" / run_id)
+    return {
+        "service_name": f"AgenticEvoGateB_{run_id}",
+        "artifact_product_base": artifact_product_base,
+        "artifact_root": artifact_root,
+        "artifact_path": str(Path(artifact_root) / ARTIFACT_NAME),
+        "state_product_base": state_product_base,
+        "state_root": state_root,
+        "probe_path": str(Path(state_root) / "scm-write.probe"),
+        "trusted_system_directory": str(_trusted_system_directory()),
+    }
+
+
+def _same_path_text(actual: Any, expected: str) -> bool:
+    return isinstance(actual, str) and os.path.normcase(os.path.normpath(actual)) == os.path.normcase(os.path.normpath(expected))
+
+
+def _program_files_dir() -> str:
+    return os.environ.get("ProgramFiles", r"C:\Program Files")
+
+
+def _program_data_dir() -> str:
+    return os.environ.get("ProgramData", r"C:\ProgramData")
+
+
+def _trusted_system_directory() -> Path:
+    return Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32"
+
+
+def _trusted_sc_path() -> Path:
+    return _trusted_system_directory() / "sc.exe"
 
 
 def _canonical_json(value: dict[str, Any], *, sort_keys: bool = False) -> bytes:
