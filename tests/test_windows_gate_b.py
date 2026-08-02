@@ -11,6 +11,68 @@ import unittest
 from uuid import uuid4
 
 
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+LAB_ID = "3060-computer"
+LAB_DECLARATION_PATH = f"experiments/labs/{LAB_ID}.json"
+PLAN_V2_KEYS = {
+    "schema",
+    "mode",
+    "lab_id",
+    "run_id",
+    "service_name",
+    "source_artifact",
+    "artifact_sha256",
+    "artifact_product_base",
+    "artifact_root",
+    "artifact_path",
+    "state_product_base",
+    "state_root",
+    "probe_path",
+    "evidence_root",
+    "trusted_system_directory",
+    "lab_declaration_path",
+    "lab_declaration_sha256",
+    "evidence_namespace",
+    "environment",
+    "environment_sha256",
+    "authorized_effects",
+    "claim_ceiling",
+}
+ENVIRONMENT_KEYS = {
+    "os_family",
+    "os_version",
+    "os_architecture",
+    "powershell_edition",
+    "powershell_version",
+    "trusted_system_directory",
+}
+AUTHORIZED_EFFECTS = {
+    "genesis": False,
+    "hook": False,
+    "permanent_service": False,
+    "system_restart": False,
+    "temporary_service": True,
+}
+CLAIM_CEILING = {
+    "gate_b": "not_established",
+    "restricted_service_sid_configuration": "configuration_probe_only",
+    "C01": "not_run",
+    "C02": "not_run",
+    "I01": "not_run",
+    "S01": "not_run",
+    "S02": "not_run",
+    "S03": "not_run",
+    "P01": "not_run",
+    "P02": "not_run",
+    "L01": "not_run",
+    "R01": "not_run",
+    "R02": "not_run",
+    "U01": "partial_cleanup_if_service_lifecycle_occurs",
+    "native_security_verified": False,
+    "ready_to_install": False,
+}
+
+
 @unittest.skipUnless(sys.platform == "win32", "Windows Gate B plan contract")
 class WindowsGateBPlanTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -29,12 +91,18 @@ class WindowsGateBPlanTests(unittest.TestCase):
             evidence = root / "evidence"
             run_id = uuid4().hex
 
-            result = self._run_plan(run_id, artifact, digest, evidence)
+            result = self._run_plan(
+                run_id,
+                artifact,
+                digest,
+                evidence,
+                lab_id=LAB_ID,
+            )
 
             self.assertEqual(result.returncode, 0, result.stderr)
             plan = json.loads(result.stdout)
             service_name = f"AgenticEvoGateB_{run_id}"
-            self.assertEqual(plan["schema"], "agentic-evo.windows-gate-b-plan.v1")
+            self.assertEqual(plan["schema"], "agentic-evo.windows-gate-b-plan.v2")
             self.assertEqual(plan["mode"], "plan")
             self.assertEqual(plan["run_id"], run_id)
             self.assertEqual(plan["service_name"], service_name)
@@ -77,6 +145,92 @@ class WindowsGateBPlanTests(unittest.TestCase):
             self.assertFalse(Path(plan["artifact_root"]).exists())
             self.assertFalse(Path(plan["state_root"]).exists())
 
+    def test_plan_requires_lab_id_for_v2_producer(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            artifact = root / "AgenticEvo.ScmProbe.exe"
+            artifact.write_bytes(b"MZgate-b-plan-test")
+            digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
+            evidence = root / "caller-evidence"
+
+            result = self._run_plan(uuid4().hex, artifact, digest, evidence)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(evidence.exists())
+
+    def test_lab_bound_plan_is_exact_v2_and_has_no_effect(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            artifact = root / "AgenticEvo.ScmProbe.exe"
+            artifact.write_bytes(b"MZgate-b-plan-test")
+            digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
+            caller_evidence = root / "caller-evidence"
+            run_id = uuid4().hex
+            declaration_file = REPOSITORY_ROOT / Path(LAB_DECLARATION_PATH)
+            declaration = json.loads(declaration_file.read_text(encoding="utf-8"))
+
+            result = self._run_plan(
+                run_id,
+                artifact,
+                digest,
+                caller_evidence,
+                lab_id=LAB_ID,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            plan = json.loads(result.stdout)
+            self.assertEqual(set(plan), PLAN_V2_KEYS)
+            self.assertEqual(plan["schema"], "agentic-evo.windows-gate-b-plan.v2")
+            self.assertEqual(plan["mode"], "plan")
+            self.assertEqual(plan["lab_id"], declaration["lab_id"])
+            self.assertEqual(plan["lab_declaration_path"], str(LAB_DECLARATION_PATH))
+            self.assertEqual(
+                plan["lab_declaration_sha256"],
+                hashlib.sha256(declaration_file.read_bytes()).hexdigest(),
+            )
+            self.assertEqual(plan["evidence_namespace"], declaration["evidence_namespace"])
+            self.assertEqual(
+                Path(plan["evidence_root"]),
+                REPOSITORY_ROOT.resolve()
+                / declaration["evidence_namespace"]
+                / "windows-gate-b"
+                / run_id,
+            )
+            self.assertNotEqual(Path(plan["evidence_root"]), caller_evidence)
+            self.assertEqual(set(plan["environment"]), ENVIRONMENT_KEYS)
+            environment_json = json.dumps(
+                plan["environment"],
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+            self.assertEqual(
+                plan["environment_sha256"],
+                hashlib.sha256(environment_json.encode("utf-8")).hexdigest(),
+            )
+            self.assertEqual(
+                plan["environment"]["trusted_system_directory"],
+                plan["trusted_system_directory"],
+            )
+            self.assertEqual(plan["authorized_effects"], AUTHORIZED_EFFECTS)
+            self.assertEqual(plan["claim_ceiling"], CLAIM_CEILING)
+            self.assertFalse(caller_evidence.exists())
+            self.assertFalse(Path(plan["evidence_root"]).exists())
+            self.assertFalse(Path(plan["artifact_root"]).exists())
+            self.assertFalse(Path(plan["state_root"]).exists())
+            service = subprocess.run(
+                [
+                    str(Path(plan["trusted_system_directory"]) / "sc.exe"),
+                    "query",
+                    plan["service_name"],
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+            self.assertEqual(service.returncode, 1060, service.stderr)
+            self._assert_environment_excludes_pii(plan["environment"])
+
     def test_plan_rejects_invalid_run_id_format(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -85,7 +239,13 @@ class WindowsGateBPlanTests(unittest.TestCase):
             digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
             evidence = root / "evidence"
 
-            result = self._run_plan("not-random", artifact, digest, evidence)
+            result = self._run_plan(
+                "not-random",
+                artifact,
+                digest,
+                evidence,
+                lab_id=LAB_ID,
+            )
 
             self.assertNotEqual(result.returncode, 0)
             self.assertFalse(evidence.exists())
@@ -112,6 +272,8 @@ class WindowsGateBPlanTests(unittest.TestCase):
                     "Run",
                     "-RunId",
                     run_id,
+                    "-LabId",
+                    LAB_ID,
                     "-ArtifactPath",
                     str(artifact),
                     "-ExpectedArtifactSha256",
@@ -142,6 +304,7 @@ class WindowsGateBPlanTests(unittest.TestCase):
             command = (
                 f"$env:SystemRoot={quote(fake_windows)}; "
                 f"& {quote(self.script)} -Mode Plan -RunId {quote(run_id)} "
+                f"-LabId {quote(LAB_ID)} "
                 f"-ArtifactPath {quote(artifact)} "
                 f"-ExpectedArtifactSha256 {quote(digest)} "
                 f"-EvidenceRoot {quote(evidence)}"
@@ -201,6 +364,8 @@ class WindowsGateBPlanTests(unittest.TestCase):
                     "Plan",
                     "-RunId",
                     run_id,
+                    "-LabId",
+                    LAB_ID,
                     "-ArtifactPath",
                     str(artifact),
                     "-ExpectedArtifactSha256",
@@ -226,32 +391,50 @@ class WindowsGateBPlanTests(unittest.TestCase):
         artifact: Path,
         digest: str,
         evidence: Path,
+        *,
+        lab_id: str | None = None,
     ) -> subprocess.CompletedProcess[str]:
+        command = [
+            "powershell.exe",
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(self.script),
+            "-Mode",
+            "Plan",
+            "-RunId",
+            run_id,
+            "-ArtifactPath",
+            str(artifact),
+            "-ExpectedArtifactSha256",
+            digest,
+            "-EvidenceRoot",
+            str(evidence),
+        ]
+        if lab_id is not None:
+            command.extend(("-LabId", lab_id))
         return subprocess.run(
-            [
-                "powershell.exe",
-                "-NoProfile",
-                "-NonInteractive",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-File",
-                str(self.script),
-                "-Mode",
-                "Plan",
-                "-RunId",
-                run_id,
-                "-ArtifactPath",
-                str(artifact),
-                "-ExpectedArtifactSha256",
-                digest,
-                "-EvidenceRoot",
-                str(evidence),
-            ],
+            command,
             capture_output=True,
             text=True,
             timeout=20,
             check=False,
         )
+
+    def _assert_environment_excludes_pii(self, environment: object) -> None:
+        serialized = json.dumps(environment, ensure_ascii=False).casefold()
+        for identifier in (
+            "hostname",
+            "username",
+            "sid",
+            "serial",
+            "mac",
+            "gpu",
+            str(REPOSITORY_ROOT).casefold(),
+        ):
+            self.assertNotIn(identifier, serialized)
 
 
 if __name__ == "__main__":
