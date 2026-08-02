@@ -10,17 +10,24 @@ The project is not a Codex plugin or a Codex-specific optimization system. The u
 
 See [实现状态：Pre-Genesis](docs/engineering/实现状态_Pre-Genesis.md).
 
-## Canonical specification
+## Document map
 
-[Agent Runtime Intelligence：最终产品与科研说明](docs/Agent_Runtime_Intelligence_最终产品与科研说明.md)
+This README is a navigation aid, not an authority source. Resolve conflicts using the authority order in [GOAL.md](GOAL.md):
 
-[文档索引](docs/README.md)
+1. Real evidence: current code, tests, run results, and immutable raw records.
+2. Current implementation state: [实现状态：Pre-Genesis](docs/engineering/实现状态_Pre-Genesis.md).
+3. Method, product, and planning documents.
 
-[开发框架：让 Agent 成为最终实验者](docs/开发框架.md)
+Key references:
 
-[工具与实验共生开发计划](docs/engineering/工具与实验共生开发计划.md)
+- [GOAL.md](GOAL.md) — v1.0 goal contract and the governing authority order.
+- [实现状态：Pre-Genesis](docs/engineering/实现状态_Pre-Genesis.md) — current verified implementation state.
+- [开发框架：让 Agent 成为最终实验者](docs/开发框架.md) — method and development framework.
+- [Agent Runtime Intelligence：最终产品与科研说明](docs/Agent_Runtime_Intelligence_最终产品与科研说明.md) — product and research framing.
+- [工具与实验共生开发计划](docs/engineering/工具与实验共生开发计划.md) — implementation planning.
+- [文档索引](docs/README.md) — broader document index.
 
-[实现状态：Pre-Genesis](docs/engineering/实现状态_Pre-Genesis.md)
+Supporting references:
 
 [最小可信边界与来源证明](docs/engineering/最小可信边界与来源证明.md)
 
@@ -72,13 +79,6 @@ See [实现状态：Pre-Genesis](docs/engineering/实现状态_Pre-Genesis.md).
 
 [元进化：研究问题与证伪纲要](docs/research/元进化_研究问题与证伪纲要.md)
 
-This document is the current single source of truth for:
-
-- the final product form;
-- the scientific hypothesis;
-- the research and development framework;
-- the definition of zero human learning intervention;
-- Agent identity, lineage, inheritance and meta-evolution;
-- experimental, falsification and publication standards.
+For the final product form, scientific hypotheses, research framework, learning-intervention definition, Agent identity and lineage, and experimental standards, use the applicable documents above under the [GOAL.md](GOAL.md) authority order.
 
 Raw recordings, private task data, credentials and unbounded conversation logs do not belong in this repository.
