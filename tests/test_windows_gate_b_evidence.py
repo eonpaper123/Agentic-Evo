@@ -632,6 +632,114 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
                         {failure["code"] for failure in verification["failures"]},
                     )
 
+    def test_attack_harness_fails_closed_when_source_plan_is_semantically_invalid_even_if_repinned(
+        self,
+    ) -> None:
+        from agentic_evo.windows_gate_b_evidence import (
+            exercise_gate_b_evidence_attacks,
+        )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = self._create_fixture(Path(temporary))
+            plan_path = Path(fixture["evidence"]) / "plan.json"
+            result_path = Path(fixture["evidence"]) / "result.json"
+            plan = json.loads(plan_path.read_text(encoding="utf-8"))
+            plan["artifact_root"] = r"C:\totally\unrelated-artifact-root"
+            plan["artifact_path"] = (
+                r"C:\totally\unrelated-artifact-root\AgenticEvo.ScmProbe.exe"
+            )
+            plan_path.write_bytes(_canonical_json(plan))
+
+            result = json.loads(result_path.read_text(encoding="utf-8"))
+            result["report"]["plan_sha256"] = hashlib.sha256(
+                _canonical_json(plan)[:-1]
+            ).hexdigest()
+            result_path.write_bytes(_canonical_json(result))
+            fixture["result_sha256"] = _sha256(result_path)
+
+            verification = self._verify(fixture)
+            self.assertEqual(verification["status"], "failed")
+            self.assertIn(
+                "plan_target_derivation_invalid",
+                {failure["code"] for failure in verification["failures"]},
+            )
+
+            attack = exercise_gate_b_evidence_attacks(
+                Path(fixture["bundle"]),
+                Path(fixture["evidence"]),
+                GATE_B_SCRIPT,
+                expected_manifest_sha256=str(fixture["manifest_sha256"]),
+                expected_script_sha256=str(fixture["script_sha256"]),
+                expected_result_sha256=str(fixture["result_sha256"]),
+                expected_lab_id=str(fixture["lab_id"]),
+                expected_run_id=str(fixture["run_id"]),
+                expected_challenge=str(fixture["challenge"]),
+            )
+
+            self.assertEqual(attack["status"], "failed")
+            self.assertEqual(attack["cases"], {})
+            self.assertIn(
+                "plan_target_derivation_invalid",
+                {failure["code"] for failure in attack["preflight_failures"]},
+            )
+
+    def test_attack_harness_preflight_uses_same_external_bindings_as_verifier(
+        self,
+    ) -> None:
+        from agentic_evo.windows_gate_b_evidence import (
+            exercise_gate_b_evidence_attacks,
+        )
+
+        wrong_bindings = (
+            ("expected_manifest_sha256", "0" * 64, "manifest_commitment_mismatch"),
+            ("expected_script_sha256", "0" * 64, "script_commitment_mismatch"),
+            ("expected_result_sha256", "0" * 64, "result_commitment_mismatch"),
+            ("expected_lab_id", "other-lab", "lab_id_mismatch"),
+            ("expected_run_id", "other-run", "run_id_mismatch"),
+            ("expected_challenge", "other-challenge", "challenge_mismatch"),
+        )
+        for field, wrong_value, expected_code in wrong_bindings:
+            with self.subTest(binding=field):
+                with tempfile.TemporaryDirectory() as temporary:
+                    fixture = self._create_fixture(Path(temporary))
+                    verification = self._verify(
+                        fixture,
+                        **{field: wrong_value},
+                    )
+                    self.assertEqual(verification["status"], "failed")
+                    self.assertIn(
+                        expected_code,
+                        {failure["code"] for failure in verification["failures"]},
+                    )
+
+                    expected = {
+                        "expected_manifest_sha256": str(
+                            fixture["manifest_sha256"]
+                        ),
+                        "expected_script_sha256": str(fixture["script_sha256"]),
+                        "expected_result_sha256": str(fixture["result_sha256"]),
+                        "expected_lab_id": str(fixture["lab_id"]),
+                        "expected_run_id": str(fixture["run_id"]),
+                        "expected_challenge": str(fixture["challenge"]),
+                    }
+                    expected[field] = wrong_value
+                    attack = exercise_gate_b_evidence_attacks(
+                        Path(fixture["bundle"]),
+                        Path(fixture["evidence"]),
+                        GATE_B_SCRIPT,
+                        **expected,
+                    )
+
+                    self.assertEqual(attack["status"], "failed")
+                    self.assertEqual(attack["cases"], {})
+                    self.assertIn(
+                        expected_code,
+                        {
+                            failure["code"]
+                            for failure in attack["preflight_failures"]
+                        },
+                    )
+
     def test_plan_authorized_effects_and_claim_ceiling_must_match_contract(
         self,
     ) -> None:
@@ -902,6 +1010,62 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
             )
 
             self.assertNotIn(
+                "cleanup_root_swap_blocked",
+                verification["failure_codes"],
+            )
+
+    def test_cleanup_attack_verifier_rejects_no_attempt_false_positive(
+        self,
+    ) -> None:
+        from agentic_evo.windows_gate_b_evidence import _cleanup_attack_verifier
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            external = root / "external-target"
+            external.mkdir()
+            (external / ARTIFACT_NAME).write_bytes(b"fixture artifact")
+            (external / MANIFEST_NAME).write_text("fixture manifest", encoding="utf-8")
+            (external / "sentinel.txt").write_text(
+                "must survive",
+                encoding="utf-8",
+            )
+
+            verification = _cleanup_attack_verifier(root, {})
+
+            self.assertNotIn(
+                "cleanup_root_swap_blocked",
+                verification["failure_codes"],
+            )
+
+    def test_cleanup_attack_verifier_accepts_only_verifier_observed_attempt_marker(
+        self,
+    ) -> None:
+        from agentic_evo.windows_gate_b_evidence import _cleanup_attack_verifier
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            external = root / "external-target"
+            external.mkdir()
+            (external / ARTIFACT_NAME).write_bytes(b"fixture artifact")
+            (external / MANIFEST_NAME).write_text("fixture manifest", encoding="utf-8")
+            (external / "sentinel.txt").write_text(
+                "must survive",
+                encoding="utf-8",
+            )
+            attempt_marker = {
+                "schema": "agentic-evo.windows-gate-b-cleanup-attempt.v1",
+                "case_id": "A07_cleanup_root_swap",
+                "bundle": str(root / "bundle"),
+                "backup": str(root / "bundle-before-swap"),
+                "external_target": str(external),
+            }
+            (root / "cleanup-attempt.json").write_bytes(
+                _canonical_json(attempt_marker)
+            )
+
+            verification = _cleanup_attack_verifier(root, {})
+
+            self.assertIn(
                 "cleanup_root_swap_blocked",
                 verification["failure_codes"],
             )
