@@ -982,7 +982,11 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
                     case["observed_failure_codes"],
                 )
             cleanup_case = report["cases"]["A07_cleanup_root_swap"]
-            self.assertEqual(cleanup_case["role"], "same_principal_harness")
+            self.assertEqual(cleanup_case["role"], "cleanup_defender")
+            self.assertEqual(
+                cleanup_case["trust_boundary"],
+                "same_principal_harness",
+            )
             self.assertNotIn("verifier_report", cleanup_case)
             self.assertFalse(any(report["effects"].values()))
             self.assertEqual(
