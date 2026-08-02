@@ -928,6 +928,31 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
                 "failed",
             )
 
+    def test_cli_verifier_and_attacker_refuse_failed_completed_receipt(
+        self,
+    ) -> None:
+        """A child receipt's explicit failure cannot be treated as harness success."""
+
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = self._create_fixture(Path(temporary))
+            result_path = Path(fixture["evidence"]) / "result.json"
+            result = json.loads(result_path.read_text(encoding="utf-8"))
+            result["status"] = "failed"
+            result_path.write_bytes(_canonical_json(result))
+            fixture["result_sha256"] = _sha256(result_path)
+
+            for command in (
+                "verify-windows-gate-b-evidence",
+                "attack-windows-gate-b-evidence",
+            ):
+                with self.subTest(command=command):
+                    completed = self._run_gate_b_cli(command, fixture)
+
+                    self.assertEqual(completed.returncode, 7, completed.stderr)
+                    payload = json.loads(completed.stderr)
+                    self.assertFalse(payload["ok"])
+                    self.assertEqual(payload["result"]["status"], "failed")
+
 
 if __name__ == "__main__":
     unittest.main()
