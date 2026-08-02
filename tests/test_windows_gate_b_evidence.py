@@ -31,6 +31,13 @@ GATE_B_CASE_IDS = {
     "R02",
     "U01",
 }
+EXPECTED_ATTACK_FAILURE_CODES = {
+    "A01_artifact_tamper": "artifact_commitment_mismatch",
+    "A03_coordinated_bundle_substitution": "manifest_commitment_mismatch",
+    "A04_forged_passed_receipt": "receipt_claim_ceiling_exceeded",
+    "A05_undeclared_bundle_entry": "undeclared_bundle_entry",
+    "A07_cleanup_root_swap": "cleanup_root_swap_blocked",
+}
 
 
 def _canonical_json(value: dict[str, object]) -> bytes:
@@ -86,7 +93,9 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
         manifest_path = bundle / MANIFEST_NAME
         artifact = bundle / ARTIFACT_NAME
         script_sha256 = _sha256(GATE_B_SCRIPT)
+        lab_id = "3060-computer"
         run_id = uuid4().hex
+        challenge = uuid4().hex
         evidence = root / "evidence"
         plan_process = subprocess.run(
             [
@@ -244,8 +253,9 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
         }
         report = {
             "schema": "agentic-evo.windows-gate-b-config-probe.v1",
+            "lab_id": lab_id,
             "run_id": run_id,
-            "challenge": uuid4().hex,
+            "challenge": challenge,
             "plan_sha256": plan_sha256,
             "script_sha256": script_sha256,
             "status": "configuration_probe_completed",
@@ -278,7 +288,9 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
         }
         result = {
             "schema": "agentic-evo.windows-gate-b-result.v1",
+            "lab_id": lab_id,
             "run_id": run_id,
+            "challenge": challenge,
             "status": "configuration_probe_completed",
             "gate_b_outcome": "not_established",
             "elevated_exit_code": 0,
@@ -295,18 +307,32 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
             "manifest_sha256": _sha256(manifest_path),
             "script_sha256": script_sha256,
             "result_sha256": _sha256(result_path),
+            "lab_id": lab_id,
+            "run_id": run_id,
+            "challenge": challenge,
         }
 
-    def _verify(self, fixture: dict[str, object]) -> dict[str, object]:
+    def _verify(
+        self,
+        fixture: dict[str, object],
+        **expected_overrides: object,
+    ) -> dict[str, object]:
         from agentic_evo.windows_gate_b_evidence import verify_gate_b_evidence
 
+        expected = {
+            "expected_manifest_sha256": str(fixture["manifest_sha256"]),
+            "expected_script_sha256": str(fixture["script_sha256"]),
+            "expected_result_sha256": str(fixture["result_sha256"]),
+            "expected_lab_id": str(fixture["lab_id"]),
+            "expected_run_id": str(fixture["run_id"]),
+            "expected_challenge": str(fixture["challenge"]),
+        }
+        expected.update(expected_overrides)
         return verify_gate_b_evidence(
             Path(fixture["bundle"]),
             Path(fixture["evidence"]),
             GATE_B_SCRIPT,
-            expected_manifest_sha256=str(fixture["manifest_sha256"]),
-            expected_script_sha256=str(fixture["script_sha256"]),
-            expected_result_sha256=str(fixture["result_sha256"]),
+            **expected,
         )
 
     def test_verifier_recomputes_bounded_evidence_without_writes_or_overclaim(
@@ -337,6 +363,9 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
             self.assertFalse(verification["verifier_context"]["elevated"])
             self.assertFalse(any(verification["verifier_context"]["effects"].values()))
             self.assertTrue(all(item["match"] for item in verification["anchors"].values()))
+            self.assertEqual(verification["lab_id"], fixture["lab_id"])
+            self.assertEqual(verification["run_id"], fixture["run_id"])
+            self.assertEqual(verification["challenge"], fixture["challenge"])
             self.assertEqual(
                 set(verification["case_matrix"]),
                 GATE_B_CASE_IDS,
@@ -364,6 +393,39 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
                 {str(path): _sha256(path) for path in tracked},
                 before,
             )
+
+    def test_verifier_fails_closed_for_missing_external_anchor_or_identity_mismatch(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = self._create_fixture(Path(temporary))
+            missing_anchors = (
+                "expected_manifest_sha256",
+                "expected_script_sha256",
+                "expected_result_sha256",
+            )
+            for field in missing_anchors:
+                with self.subTest(missing_anchor=field):
+                    verification = self._verify(fixture, **{field: None})
+                    self.assertEqual(verification["status"], "failed")
+                    self.assertIn(
+                        "external_anchor_missing",
+                        {failure["code"] for failure in verification["failures"]},
+                    )
+
+            identity_mismatches = {
+                "expected_lab_id": "other-lab",
+                "expected_run_id": "other-run",
+                "expected_challenge": "other-challenge",
+            }
+            for field, wrong_value in identity_mismatches.items():
+                with self.subTest(identity=field):
+                    verification = self._verify(fixture, **{field: wrong_value})
+                    self.assertEqual(verification["status"], "failed")
+                    self.assertIn(
+                        field.removeprefix("expected_") + "_mismatch",
+                        {failure["code"] for failure in verification["failures"]},
+                    )
 
     def test_external_anchor_rejects_coordinated_artifact_manifest_substitution(
         self,
@@ -534,6 +596,9 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
                 expected_manifest_sha256=str(fixture["manifest_sha256"]),
                 expected_script_sha256=str(fixture["script_sha256"]),
                 expected_result_sha256=str(fixture["result_sha256"]),
+                expected_lab_id=str(fixture["lab_id"]),
+                expected_run_id=str(fixture["run_id"]),
+                expected_challenge=str(fixture["challenge"]),
             )
 
             self.assertEqual(
@@ -552,12 +617,26 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
                 },
             )
             self.assertTrue(all(case["status"] == "passed" for case in report["cases"].values()))
-            for case in report["cases"].values():
+            for case_id, case in report["cases"].items():
                 self.assertNotEqual(
                     case["attacker"]["pid"],
                     case["verifier"]["pid"],
                 )
+                self.assertEqual(case["attacker"]["exit_code"], 0)
+                self.assertEqual(case["verifier"]["exit_code"], 0)
+                self.assertTrue(case["attacker"]["isolated_copy_mutation"])
                 self.assertTrue(case["attacker"]["action_observed"])
+                self.assertEqual(
+                    case["expected_failure_code"],
+                    EXPECTED_ATTACK_FAILURE_CODES[case_id],
+                )
+                self.assertIn(
+                    case["expected_failure_code"],
+                    case["observed_failure_codes"],
+                )
+            cleanup_case = report["cases"]["A07_cleanup_root_swap"]
+            self.assertEqual(cleanup_case["role"], "cleanup_defender")
+            self.assertNotIn("verifier_report", cleanup_case)
             self.assertFalse(any(report["effects"].values()))
             self.assertEqual(
                 {str(path): _sha256(path) for path in source_paths},
