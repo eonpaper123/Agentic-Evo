@@ -982,7 +982,7 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
                     case["observed_failure_codes"],
                 )
             cleanup_case = report["cases"]["A07_cleanup_root_swap"]
-            self.assertEqual(cleanup_case["role"], "cleanup_defender")
+            self.assertEqual(cleanup_case["role"], "same_principal_harness")
             self.assertNotIn("verifier_report", cleanup_case)
             self.assertFalse(any(report["effects"].values()))
             self.assertEqual(
@@ -990,85 +990,164 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
                 before,
             )
 
-    def test_cleanup_attack_verifier_rejects_forged_attacker_self_report(
+    def _a07_case(
+        self,
+        root: Path,
+        *,
+        nonce: str = "a" * 32,
+        spawned_pid: int | None = None,
+        blocked: bool = True,
+    ) -> tuple[dict[str, object], str, int]:
+        external = root / "external-target"
+        external.mkdir()
+        (external / ARTIFACT_NAME).write_bytes(b"fixture artifact")
+        (external / MANIFEST_NAME).write_text("fixture manifest", encoding="utf-8")
+        (external / "sentinel.txt").write_text("must survive", encoding="utf-8")
+        expected_pid = os.getpid() if spawned_pid is None else spawned_pid
+        attempt = {
+            "schema": "agentic-evo.windows-gate-b-cleanup-attempt.v2",
+            "case_id": "A07_cleanup_root_swap",
+            "nonce": nonce,
+            "phase": "after_bundle_verification_before_rename",
+            "target": str(root / "bundle"),
+            "backup": str(root / "bundle-before-swap"),
+            "external_target": str(external),
+            "external_sha256": {
+                name: _sha256(external / name)
+                for name in (ARTIFACT_NAME, MANIFEST_NAME, "sentinel.txt")
+            },
+            "spawned_pid": expected_pid,
+            "blocked": blocked,
+            "swapped": False,
+        }
+        return {
+            "isolated_copy_mutation": True,
+            "action_observed": blocked,
+            "cleanup_attempt": attempt,
+        }, "a" * 32, os.getpid()
+
+    def test_cleanup_attack_verifier_rejects_forged_disk_marker_with_matching_poststate(
         self,
     ) -> None:
         from agentic_evo.windows_gate_b_evidence import _cleanup_attack_verifier
 
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            sentinel = root / "sentinel.txt"
-            sentinel.write_text("must survive", encoding="utf-8")
+            attack, expected_nonce, expected_pid = self._a07_case(root)
+            (root / "cleanup-attempt.json").write_bytes(
+                _canonical_json(attack["cleanup_attempt"])
+            )
 
             verification = _cleanup_attack_verifier(
                 root,
-                {
-                    "sentinel": str(sentinel),
-                    "blocked": True,
-                    "swapped": False,
-                },
+                {},
+                expected_nonce=expected_nonce,
+                expected_spawned_pid=expected_pid,
             )
 
-            self.assertNotIn(
-                "cleanup_root_swap_blocked",
-                verification["failure_codes"],
-            )
+            self.assertIn("cleanup_attempt_not_observed", verification["failure_codes"])
+            self.assertNotIn("cleanup_root_swap_blocked", verification["failure_codes"])
 
-    def test_cleanup_attack_verifier_rejects_no_attempt_false_positive(
+    def test_a07_pass_requires_nonce_and_spawned_pid_bound_worker_report(
         self,
     ) -> None:
         from agentic_evo.windows_gate_b_evidence import _cleanup_attack_verifier
 
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            external = root / "external-target"
-            external.mkdir()
-            (external / ARTIFACT_NAME).write_bytes(b"fixture artifact")
-            (external / MANIFEST_NAME).write_text("fixture manifest", encoding="utf-8")
-            (external / "sentinel.txt").write_text(
-                "must survive",
-                encoding="utf-8",
+            attack, expected_nonce, expected_pid = self._a07_case(root)
+
+            verification = _cleanup_attack_verifier(
+                root,
+                attack,
+                expected_nonce=expected_nonce,
+                expected_spawned_pid=expected_pid,
             )
 
-            verification = _cleanup_attack_verifier(root, {})
-
-            self.assertNotIn(
-                "cleanup_root_swap_blocked",
+            self.assertEqual(
                 verification["failure_codes"],
+                ["cleanup_root_swap_blocked"],
             )
 
-    def test_cleanup_attack_verifier_accepts_only_verifier_observed_attempt_marker(
-        self,
-    ) -> None:
+    def test_a07_fails_when_worker_report_nonce_mismatches(self) -> None:
         from agentic_evo.windows_gate_b_evidence import _cleanup_attack_verifier
 
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            external = root / "external-target"
-            external.mkdir()
-            (external / ARTIFACT_NAME).write_bytes(b"fixture artifact")
-            (external / MANIFEST_NAME).write_text("fixture manifest", encoding="utf-8")
-            (external / "sentinel.txt").write_text(
-                "must survive",
-                encoding="utf-8",
-            )
-            attempt_marker = {
-                "schema": "agentic-evo.windows-gate-b-cleanup-attempt.v1",
-                "case_id": "A07_cleanup_root_swap",
-                "bundle": str(root / "bundle"),
-                "backup": str(root / "bundle-before-swap"),
-                "external_target": str(external),
-            }
-            (root / "cleanup-attempt.json").write_bytes(
-                _canonical_json(attempt_marker)
+            attack, _expected_nonce, expected_pid = self._a07_case(
+                root,
+                nonce="b" * 32,
             )
 
-            verification = _cleanup_attack_verifier(root, {})
+            verification = _cleanup_attack_verifier(
+                root,
+                attack,
+                expected_nonce="a" * 32,
+                expected_spawned_pid=expected_pid,
+            )
 
             self.assertIn(
-                "cleanup_root_swap_blocked",
+                "cleanup_attempt_binding_invalid",
                 verification["failure_codes"],
             )
+
+    def test_a07_fails_when_worker_report_pid_mismatches(self) -> None:
+        from agentic_evo.windows_gate_b_evidence import _cleanup_attack_verifier
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            attack, expected_nonce, expected_pid = self._a07_case(
+                root,
+                spawned_pid=os.getpid() + 1,
+            )
+
+            verification = _cleanup_attack_verifier(
+                root,
+                attack,
+                expected_nonce=expected_nonce,
+                expected_spawned_pid=expected_pid,
+            )
+
+            self.assertIn(
+                "cleanup_attempt_binding_invalid",
+                verification["failure_codes"],
+            )
+
+    def test_a07_fails_when_poststate_is_inconsistent(self) -> None:
+        from agentic_evo.windows_gate_b_evidence import _cleanup_attack_verifier
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            attack, expected_nonce, expected_pid = self._a07_case(root)
+            (root / "bundle").mkdir()
+
+            verification = _cleanup_attack_verifier(
+                root,
+                attack,
+                expected_nonce=expected_nonce,
+                expected_spawned_pid=expected_pid,
+            )
+
+            self.assertIn(
+                "cleanup_poststate_inconsistent",
+                verification["failure_codes"],
+            )
+
+    def test_a07_fails_when_worker_does_not_report_blocked_rename(self) -> None:
+        from agentic_evo.windows_gate_b_evidence import _cleanup_attack_verifier
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            attack, expected_nonce, expected_pid = self._a07_case(root, blocked=False)
+
+            verification = _cleanup_attack_verifier(
+                root,
+                attack,
+                expected_nonce=expected_nonce,
+                expected_spawned_pid=expected_pid,
+            )
+
+            self.assertIn("cleanup_attempt_not_observed", verification["failure_codes"])
 
     def test_cli_returns_nonzero_when_verifier_reports_failed_status(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
