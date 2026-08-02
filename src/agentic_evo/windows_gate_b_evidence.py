@@ -34,6 +34,62 @@ _ATTACKS = {
     "A05_undeclared_bundle_entry": "undeclared_bundle_entry",
     "A07_cleanup_root_swap": "cleanup_root_swap_blocked",
 }
+_PLAN_KEYS = {
+    "schema", "mode", "run_id", "service_name", "source_artifact",
+    "artifact_sha256", "artifact_product_base", "artifact_root",
+    "artifact_path", "state_product_base", "state_root", "probe_path",
+    "evidence_root", "trusted_system_directory", "authorized_effects",
+    "claim_ceiling",
+}
+_RESULT_KEYS = {
+    "schema", "lab_id", "run_id", "challenge", "status", "gate_b_outcome",
+    "elevated_exit_code", "elevated_pipe_client_pid", "report",
+    "independent_cleanup",
+}
+_REPORT_KEYS = {
+    "schema", "lab_id", "run_id", "challenge", "plan_sha256",
+    "script_sha256", "status", "error", "elevated_administrator",
+    "observation", "cleanup", "claims",
+}
+_EXPECTED_AUTHORIZED_EFFECTS = {
+    "temporary_service": True,
+    "permanent_service": False,
+    "hook": False,
+    "genesis": False,
+    "system_restart": False,
+}
+_EXPECTED_CLAIM_CEILING = {
+    "gate_b": "not_established",
+    "restricted_service_sid_configuration": "configuration_probe_only",
+    "C01": "not_run",
+    "C02": "not_run",
+    "I01": "not_run",
+    "S01": "not_run",
+    "S02": "not_run",
+    "S03": "not_run",
+    "P01": "not_run",
+    "P02": "not_run",
+    "L01": "not_run",
+    "R01": "not_run",
+    "R02": "not_run",
+    "U01": "partial_cleanup_if_service_lifecycle_occurs",
+    "native_security_verified": False,
+    "ready_to_install": False,
+}
+_EXPECTED_REPORT_CLAIMS = {
+    "gate_a_complete": False,
+    "gate_b_outcome": "not_established",
+    "native_security_verified": False,
+    "ready_to_install": False,
+    "temporary_service_created": True,
+    "restricted_sid_configured": True,
+    "restricted_service_sid_configuration_write": "accepted_before_cleanup",
+    "reboot_validation": "not_performed_service_removed",
+    "genesis_requested": False,
+    "genesis_count": "not_measured",
+    "all_attack_cases": "not_run",
+    "U01": "partial_cleanup_pass_genesis_not_measured",
+}
 
 
 @dataclass(frozen=True)
@@ -165,7 +221,15 @@ def verify_gate_b_evidence(
             fail(f"{label}_mismatch", "receipt identity does not match external binding")
 
     if plan is not None and result is not None:
-        _validate_plan_result_binding(plan, result, script, fail)
+        _validate_plan_result_binding(
+            plan,
+            result,
+            script,
+            evidence,
+            artifact_path,
+            manifest,
+            fail,
+        )
         _validate_receipt_ceiling(result, fail)
     zero_residue = _observe_current_zero_residue(plan, fail) if plan is not None else False
     if not zero_residue:
@@ -306,16 +370,35 @@ def _validate_artifact(path: Path, manifest: dict[str, Any] | None, fail: Any) -
         fail("artifact_console_probe_invalid", "artifact did not fail closed outside SCM")
 
 
-def _validate_plan_result_binding(plan: dict[str, Any], result: dict[str, Any], script: Path, fail: Any) -> None:
+def _validate_plan_result_binding(
+    plan: dict[str, Any],
+    result: dict[str, Any],
+    script: Path,
+    evidence_dir: Path,
+    bundle_artifact: Path,
+    manifest: dict[str, Any] | None,
+    fail: Any,
+) -> None:
     if plan.get("schema") != "agentic-evo.windows-gate-b-plan.v1" or plan.get("mode") != "plan":
         fail("plan_contract_invalid", "unexpected plan schema or mode")
         return
+    if set(plan) != _PLAN_KEYS:
+        fail("plan_contract_invalid", "plan field set changed")
     run_id = result.get("run_id")
     if not isinstance(run_id, str) or plan.get("run_id") != run_id:
         fail("plan_run_id_mismatch", "plan and result run IDs differ")
-    expected_paths = _expected_plan_paths(run_id)
+    expected_paths = _expected_plan_paths(
+        run_id,
+        evidence_dir=evidence_dir,
+        bundle_artifact=bundle_artifact,
+        manifest=manifest,
+    )
     if plan.get("service_name") != expected_paths["service_name"]:
         fail("plan_target_derivation_invalid", "service name is not derived from run ID")
+    if not _same_path_text(plan.get("source_artifact"), expected_paths["source_artifact"]):
+        fail("plan_target_derivation_invalid", "source artifact is not verifier-derived")
+    if plan.get("artifact_sha256") != expected_paths["artifact_sha256"]:
+        fail("plan_target_derivation_invalid", "artifact sha256 is not verifier-derived")
     if not _same_path_text(plan.get("artifact_product_base"), expected_paths["artifact_product_base"]):
         fail("plan_target_derivation_invalid", "artifact product base is not verifier-derived")
     if not _same_path_text(plan.get("artifact_root"), expected_paths["artifact_root"]):
@@ -328,8 +411,14 @@ def _validate_plan_result_binding(plan: dict[str, Any], result: dict[str, Any], 
         fail("plan_target_derivation_invalid", "state root is not verifier-derived")
     if not _same_path_text(plan.get("probe_path"), expected_paths["probe_path"]):
         fail("plan_target_derivation_invalid", "probe path is not verifier-derived")
+    if not _same_path_text(plan.get("evidence_root"), expected_paths["evidence_root"]):
+        fail("plan_target_derivation_invalid", "evidence root is not verifier-derived")
     if not _same_path_text(plan.get("trusted_system_directory"), expected_paths["trusted_system_directory"]):
         fail("trusted_scm_query_unavailable", "trusted system directory is not verifier-derived")
+    if plan.get("authorized_effects") != _EXPECTED_AUTHORIZED_EFFECTS:
+        fail("plan_contract_invalid", "authorized effects changed")
+    if plan.get("claim_ceiling") != _EXPECTED_CLAIM_CEILING:
+        fail("plan_contract_invalid", "claim ceiling changed")
     raw_plan = (Path(plan.get("evidence_root", "")) / "plan.json")
     # The evidence path in a plan is descriptive; digest the verified sibling instead.
     del raw_plan
@@ -367,6 +456,8 @@ def _validate_receipt_ceiling(result: dict[str, Any], fail: Any) -> None:
         or claims.get("gate_b_outcome") != "not_established"
         or claims.get("native_security_verified") is not False
         or claims.get("ready_to_install") is not False
+        or set(claims) != set(_EXPECTED_REPORT_CLAIMS)
+        or any(claims.get(key) != value for key, value in _EXPECTED_REPORT_CLAIMS.items())
     )
     if forbidden:
         fail("receipt_claim_ceiling_exceeded", "receipt asserted a claim above the bounded ceiling")
@@ -526,29 +617,44 @@ def _cleanup_attack_verifier(case_root: Path, attack: dict[str, Any]) -> dict[st
 
 
 def _validate_result_contract(result: dict[str, Any], fail: Any) -> None:
+    if set(result) != _RESULT_KEYS:
+        fail("result_contract_invalid", "result field set changed")
     if result.get("schema") != "agentic-evo.windows-gate-b-result.v1":
         fail("result_contract_invalid", "unexpected result schema")
     report = result.get("report")
     if not isinstance(report, dict):
         fail("result_report_missing", "result has no report object")
         return
+    if set(report) != _REPORT_KEYS:
+        fail("report_contract_invalid", "report field set changed")
     if report.get("schema") != "agentic-evo.windows-gate-b-config-probe.v1":
         fail("report_contract_invalid", "unexpected report schema")
 
 
-def _expected_plan_paths(run_id: str) -> dict[str, str]:
+def _expected_plan_paths(
+    run_id: str,
+    *,
+    evidence_dir: Path,
+    bundle_artifact: Path,
+    manifest: dict[str, Any] | None,
+) -> dict[str, str]:
     artifact_product_base = str(Path(_program_files_dir()) / "Agentic-Evo")
     state_product_base = str(Path(_program_data_dir()) / "Agentic-Evo")
     artifact_root = str(Path(artifact_product_base) / "GateB" / run_id)
     state_root = str(Path(state_product_base) / "GateB" / run_id)
+    artifact_contract = manifest.get("artifact") if isinstance(manifest, dict) else None
+    artifact_sha256 = artifact_contract.get("sha256") if isinstance(artifact_contract, dict) else None
     return {
         "service_name": f"AgenticEvoGateB_{run_id}",
+        "source_artifact": str(bundle_artifact),
+        "artifact_sha256": artifact_sha256,
         "artifact_product_base": artifact_product_base,
         "artifact_root": artifact_root,
         "artifact_path": str(Path(artifact_root) / ARTIFACT_NAME),
         "state_product_base": state_product_base,
         "state_root": state_root,
         "probe_path": str(Path(state_root) / "scm-write.probe"),
+        "evidence_root": str(evidence_dir),
         "trusted_system_directory": str(_trusted_system_directory()),
     }
 

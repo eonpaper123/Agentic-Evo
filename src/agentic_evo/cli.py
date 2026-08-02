@@ -188,6 +188,9 @@ def _gate_b_evidence(arguments: argparse.Namespace, *, attack: bool) -> int:
             stream=sys.stderr,
         )
         return 6
+    if result.get("status") != "passed":
+        _write_json({"ok": False, "result": result}, stream=sys.stderr)
+        return 7
     _write_json({"ok": True, "result": result})
     return 0
 
