@@ -284,6 +284,29 @@ def exercise_gate_b_evidence_attacks(
     for path in source_paths:
         if not path.exists() or _has_reparse_component(path):
             raise ValueError("attack sources must be existing ordinary paths")
+    preflight_failures: list[dict[str, str]] = []
+
+    def preflight_fail(code: str, detail: str) -> None:
+        preflight_failures.append({"code": code, "detail": detail})
+
+    source_result = _read_canonical_object(
+        Path(evidence_dir) / "result.json", "result", preflight_fail
+    )
+    if source_result is not None:
+        _validate_result_contract(source_result, preflight_fail)
+        _validate_receipt_ceiling(source_result, preflight_fail)
+    if preflight_failures:
+        return {
+            "schema": "agentic-evo.windows-gate-b-evidence-attack.v1",
+            "status": "failed",
+            "cases": {},
+            "source_failures": preflight_failures,
+            "preflight_failures": preflight_failures,
+            "effects": {
+                "request_elevation": False, "install_service": False,
+                "start_service": False, "perform_genesis": False,
+            },
+        }
     cases: dict[str, dict[str, Any]] = {}
     with tempfile.TemporaryDirectory(prefix="agentic-evo-gate-b-attacks-") as temporary:
         root = Path(temporary)
@@ -621,6 +644,17 @@ def _validate_result_contract(result: dict[str, Any], fail: Any) -> None:
         fail("result_contract_invalid", "result field set changed")
     if result.get("schema") != "agentic-evo.windows-gate-b-result.v1":
         fail("result_contract_invalid", "unexpected result schema")
+    if result.get("status") != "configuration_probe_completed":
+        fail("result_contract_invalid", "result status is not a completed configuration probe")
+    if result.get("gate_b_outcome") != "not_established":
+        fail("result_contract_invalid", "result gate B outcome exceeds the bounded contract")
+    if type(result.get("elevated_exit_code")) is not int or result.get("elevated_exit_code") != 0:
+        fail("result_contract_invalid", "result elevated exit code is not the expected success code")
+    if (
+        type(result.get("elevated_pipe_client_pid")) is not int
+        or result.get("elevated_pipe_client_pid") <= 0
+    ):
+        fail("result_contract_invalid", "result elevated pipe client PID is invalid")
     report = result.get("report")
     if not isinstance(report, dict):
         fail("result_report_missing", "result has no report object")
@@ -629,6 +663,12 @@ def _validate_result_contract(result: dict[str, Any], fail: Any) -> None:
         fail("report_contract_invalid", "report field set changed")
     if report.get("schema") != "agentic-evo.windows-gate-b-config-probe.v1":
         fail("report_contract_invalid", "unexpected report schema")
+    if report.get("status") != "configuration_probe_completed":
+        fail("report_contract_invalid", "report status is not a completed configuration probe")
+    if report.get("error") != "":
+        fail("report_contract_invalid", "report recorded an error")
+    if report.get("elevated_administrator") is not True:
+        fail("report_contract_invalid", "report does not attest an elevated administrator")
 
 
 def _expected_plan_paths(
