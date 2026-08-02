@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import subprocess
 import sys
 from typing import Any, Mapping
 
@@ -97,6 +98,100 @@ def _codex_hook(home: Path) -> int:
     return 0
 
 
+def _gate_b_evidence_arguments(command: argparse.ArgumentParser) -> None:
+    """Add the complete, externally pinned Gate B evidence contract."""
+
+    command.add_argument(
+        "--bundle-dir",
+        type=Path,
+        required=True,
+        help="Existing local Gate A bundle to verify; never installs a service.",
+    )
+    command.add_argument(
+        "--evidence-dir",
+        type=Path,
+        required=True,
+        help="Existing Gate B evidence directory; verification never writes it.",
+    )
+    command.add_argument(
+        "--gate-b-script",
+        "--script",
+        dest="gate_b_script",
+        type=Path,
+        required=True,
+        help="Exact Windows Gate B experiment script to verify by digest.",
+    )
+    command.add_argument(
+        "--expected-manifest-sha256",
+        required=True,
+        help="Externally pinned SHA-256 for gate-a-manifest.json.",
+    )
+    command.add_argument(
+        "--expected-script-sha256",
+        required=True,
+        help="Externally pinned SHA-256 for the Gate B script.",
+    )
+    command.add_argument(
+        "--expected-result-sha256",
+        required=True,
+        help="Externally pinned SHA-256 for evidence/result.json.",
+    )
+    command.add_argument(
+        "--lab-id",
+        required=True,
+        help="Non-secret declared laboratory identifier.",
+    )
+    command.add_argument(
+        "--expected-run-id",
+        required=True,
+        help="Expected experiment run identifier.",
+    )
+    command.add_argument(
+        "--expected-challenge",
+        required=True,
+        help="Expected experiment challenge identifier.",
+    )
+
+
+def _gate_b_evidence(arguments: argparse.Namespace, *, attack: bool) -> int:
+    """Run the read-only verifier or its isolated-copy attacker harness."""
+
+    from .windows_gate_b_evidence import (
+        exercise_gate_b_evidence_attacks,
+        verify_gate_b_evidence,
+    )
+
+    operation = (
+        exercise_gate_b_evidence_attacks if attack else verify_gate_b_evidence
+    )
+    try:
+        result = operation(
+            arguments.bundle_dir,
+            arguments.evidence_dir,
+            arguments.gate_b_script,
+            expected_manifest_sha256=arguments.expected_manifest_sha256,
+            expected_script_sha256=arguments.expected_script_sha256,
+            expected_result_sha256=arguments.expected_result_sha256,
+            expected_lab_id=arguments.lab_id,
+            expected_run_id=arguments.expected_run_id,
+            expected_challenge=arguments.expected_challenge,
+        )
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        _write_json(
+            {
+                "ok": False,
+                "error": {
+                    "code": "windows_gate_b_evidence_error",
+                    "message": str(error),
+                },
+            },
+            stream=sys.stderr,
+        )
+        return 6
+    _write_json({"ok": True, "result": result})
+    return 0
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="agentic-evo",
@@ -141,6 +236,18 @@ def _parser() -> argparse.ArgumentParser:
             required=True,
             help="Explicit local Gate A bundle directory.",
         )
+    for name, help_text in (
+        (
+            "verify-windows-gate-b-evidence",
+            "Verify externally pinned Gate B evidence without privileged effects.",
+        ),
+        (
+            "attack-windows-gate-b-evidence",
+            "Exercise Gate B evidence attacks in isolated temporary copies.",
+        ),
+    ):
+        command = commands.add_parser(name, help=help_text)
+        _gate_b_evidence_arguments(command)
     return parser
 
 
@@ -183,6 +290,10 @@ def main(argv: list[str] | None = None) -> int:
             return 5
         _write_json({"ok": True, "result": result})
         return 0
+    if arguments.command == "verify-windows-gate-b-evidence":
+        return _gate_b_evidence(arguments, attack=False)
+    if arguments.command == "attack-windows-gate-b-evidence":
+        return _gate_b_evidence(arguments, attack=True)
     raise AssertionError("argparse accepted an unknown command")
 
 

@@ -15,6 +15,19 @@ ARTIFACT_NAME = "AgenticEvo.ScmProbe.exe"
 MANIFEST_NAME = "gate-a-manifest.json"
 _MAX_MANIFEST_BYTES = 1024 * 1024
 _REPARSE_POINT = 0x400
+_INVALID_HANDLE_VALUE = -1
+_DELETE = 0x0001_0000
+_FILE_LIST_DIRECTORY = 0x0001
+_FILE_READ_ATTRIBUTES = 0x0080
+_SYNCHRONIZE = 0x0010_0000
+_FILE_SHARE_READ = 0x0001
+_FILE_SHARE_WRITE = 0x0002
+_OPEN_EXISTING = 3
+_FILE_FLAG_BACKUP_SEMANTICS = 0x0200_0000
+_FILE_FLAG_OPEN_REPARSE_POINT = 0x0020_0000
+_FILE_ATTRIBUTE_DIRECTORY = 0x0010
+_FILE_ATTRIBUTE_REPARSE_POINT = 0x0400
+_FILE_DISPOSITION_INFO = 4
 
 
 class GateABundleError(RuntimeError):
@@ -83,11 +96,124 @@ def cleanup_gate_a_bundle(bundle_dir: Path) -> dict[str, str]:
         raise GateABundleError("bundle cannot be a link or reparse path")
     if not bundle.exists():
         return {"status": "already_absent"}
-    _verify_bundle_contents(bundle)
-    for name in (ARTIFACT_NAME, MANIFEST_NAME):
-        (bundle / name).unlink()
-    bundle.rmdir()
+    handle = _open_bundle_directory_handle(bundle)
+    try:
+        _assert_ordinary_directory_handle(handle)
+        # The handle excludes FILE_SHARE_DELETE.  Keep it open while the
+        # path-based verifier and exact two-file cleanup run so the bundle
+        # root cannot be renamed and replaced by a junction between them.
+        _verify_bundle_contents(bundle)
+        for name in (ARTIFACT_NAME, MANIFEST_NAME):
+            (bundle / name).unlink()
+        _mark_directory_for_deletion(handle)
+    finally:
+        _close_handle(handle)
     return {"status": "local_artifacts_removed"}
+
+
+def _open_bundle_directory_handle(bundle: Path) -> int:
+    import ctypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    create_file = kernel32.CreateFileW
+    create_file.argtypes = (
+        ctypes.c_wchar_p,
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+        ctypes.c_void_p,
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+        ctypes.c_void_p,
+    )
+    create_file.restype = ctypes.c_void_p
+    handle = create_file(
+        str(bundle),
+        _DELETE | _FILE_LIST_DIRECTORY | _FILE_READ_ATTRIBUTES | _SYNCHRONIZE,
+        _FILE_SHARE_READ | _FILE_SHARE_WRITE,
+        None,
+        _OPEN_EXISTING,
+        _FILE_FLAG_BACKUP_SEMANTICS | _FILE_FLAG_OPEN_REPARSE_POINT,
+        None,
+    )
+    if handle == ctypes.c_void_p(_INVALID_HANDLE_VALUE).value:
+        error = ctypes.get_last_error()
+        if error in {2, 3}:
+            raise GateABundleError("bundle disappeared before cleanup")
+        raise GateABundleError(f"could not lock bundle directory for cleanup ({error})")
+    return int(handle)
+
+
+def _assert_ordinary_directory_handle(handle: int) -> None:
+    import ctypes
+
+    class _ByHandleFileInformation(ctypes.Structure):
+        _fields_ = [
+            ("dwFileAttributes", ctypes.c_uint32),
+            ("ftCreationTimeLowDateTime", ctypes.c_uint32),
+            ("ftCreationTimeHighDateTime", ctypes.c_uint32),
+            ("ftLastAccessTimeLowDateTime", ctypes.c_uint32),
+            ("ftLastAccessTimeHighDateTime", ctypes.c_uint32),
+            ("ftLastWriteTimeLowDateTime", ctypes.c_uint32),
+            ("ftLastWriteTimeHighDateTime", ctypes.c_uint32),
+            ("dwVolumeSerialNumber", ctypes.c_uint32),
+            ("nFileSizeHigh", ctypes.c_uint32),
+            ("nFileSizeLow", ctypes.c_uint32),
+            ("nNumberOfLinks", ctypes.c_uint32),
+            ("nFileIndexHigh", ctypes.c_uint32),
+            ("nFileIndexLow", ctypes.c_uint32),
+        ]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    information = _ByHandleFileInformation()
+    get_information = kernel32.GetFileInformationByHandle
+    get_information.argtypes = (ctypes.c_void_p, ctypes.POINTER(_ByHandleFileInformation))
+    get_information.restype = ctypes.c_int
+    if not get_information(ctypes.c_void_p(handle), ctypes.byref(information)):
+        raise GateABundleError(
+            f"could not inspect locked bundle directory ({ctypes.get_last_error()})"
+        )
+    if not information.dwFileAttributes & _FILE_ATTRIBUTE_DIRECTORY:
+        raise GateABundleError("bundle handle is not a directory")
+    if information.dwFileAttributes & _FILE_ATTRIBUTE_REPARSE_POINT:
+        raise GateABundleError("bundle cannot be a link or reparse path")
+
+
+def _mark_directory_for_deletion(handle: int) -> None:
+    import ctypes
+
+    class _FileDispositionInfo(ctypes.Structure):
+        _fields_ = [("DeleteFile", ctypes.c_int)]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    disposition = _FileDispositionInfo(1)
+    set_information = kernel32.SetFileInformationByHandle
+    set_information.argtypes = (
+        ctypes.c_void_p,
+        ctypes.c_int,
+        ctypes.c_void_p,
+        ctypes.c_uint32,
+    )
+    set_information.restype = ctypes.c_int
+    if not set_information(
+        ctypes.c_void_p(handle),
+        _FILE_DISPOSITION_INFO,
+        ctypes.byref(disposition),
+        ctypes.sizeof(disposition),
+    ):
+        raise GateABundleError(
+            f"could not delete locked bundle directory ({ctypes.get_last_error()})"
+        )
+
+
+def _close_handle(handle: int) -> None:
+    import ctypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    close_handle = kernel32.CloseHandle
+    close_handle.argtypes = (ctypes.c_void_p,)
+    close_handle.restype = ctypes.c_int
+    if not close_handle(ctypes.c_void_p(handle)):
+        raise GateABundleError(f"could not close bundle handle ({ctypes.get_last_error()})")
 
 
 def _verify_bundle_contents(
