@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import secrets
 import shutil
 import subprocess
 import sys
@@ -317,7 +318,14 @@ def exercise_gate_b_evidence_attacks(
             shutil.copytree(bundle_dir, copied_bundle)
             shutil.copytree(evidence_dir, copied_evidence)
             shutil.copy2(script_path, copied_script)
-            attacker = _run_module("--attack-worker", case_id, str(copied_bundle), str(copied_evidence))
+            cleanup_nonce = secrets.token_hex(16) if case_id == "A07_cleanup_root_swap" else None
+            attacker = _run_module(
+                "--attack-worker", case_id, str(copied_bundle), str(copied_evidence),
+                env_overrides=(
+                    {"AGENTIC_EVO_A07_CLEANUP_NONCE": cleanup_nonce}
+                    if cleanup_nonce is not None else None
+                ),
+            )
             attacker_data = _parse_child_json(attacker, "attacker")
             if case_id == "A04_forged_passed_receipt":
                 expected_for_case = dict(expected)
@@ -325,11 +333,18 @@ def exercise_gate_b_evidence_attacks(
             else:
                 expected_for_case = dict(expected)
             if case_id == "A07_cleanup_root_swap":
-                verifier = _run_module("--cleanup-attack-verifier", str(case_root), json.dumps(attacker_data))
+                verifier = _run_module(
+                    "--cleanup-attack-verifier", str(case_root), json.dumps(attacker_data),
+                    env_overrides={
+                        "AGENTIC_EVO_A07_EXPECTED_CLEANUP_NONCE": cleanup_nonce,
+                        "AGENTIC_EVO_A07_EXPECTED_WORKER_PID": str(attacker.pid),
+                    },
+                )
                 verifier_data = _parse_child_json(verifier, "cleanup verifier")
                 observed = verifier_data.get("failure_codes", [])
                 case = {
                     "role": "cleanup_defender",
+                    "trust_boundary": "same_principal_harness",
                     "status": "passed" if expected_code in observed else "failed",
                     "expected_failure_code": expected_code,
                     "observed_failure_codes": observed,
@@ -542,8 +557,13 @@ def _require_ordinary_file(path: Path, label: str, fail: Any) -> None:
         fail(f"{label}_unsafe_path", f"{label} must be an ordinary file")
 
 
-def _run_module(*args: str) -> _ChildProcessResult:
+def _run_module(
+    *args: str,
+    env_overrides: dict[str, str] | None = None,
+) -> _ChildProcessResult:
     environment = dict(os.environ)
+    if env_overrides:
+        environment.update(env_overrides)
     source_root = str(Path(__file__).resolve().parents[1])
     environment["PYTHONPATH"] = source_root + os.pathsep + environment.get("PYTHONPATH", "")
     child = subprocess.Popen(
@@ -567,7 +587,13 @@ def _parse_child_json(process: _ChildProcessResult, label: str) -> dict[str, Any
     return value if isinstance(value, dict) else {"error": f"{label} did not emit object"}
 
 
-def _attack_worker(case_id: str, bundle: Path, evidence: Path) -> dict[str, Any]:
+def _attack_worker(
+    case_id: str,
+    bundle: Path,
+    evidence: Path,
+    *,
+    cleanup_nonce: str | None = None,
+) -> dict[str, Any]:
     if case_id == "A01_artifact_tamper":
         artifact = bundle / ARTIFACT_NAME
         artifact.write_bytes(artifact.read_bytes() + b"attacker-tail")
@@ -589,8 +615,9 @@ def _attack_worker(case_id: str, bundle: Path, evidence: Path) -> dict[str, Any]
         (bundle / "undeclared-attacker-entry.txt").write_text("attack", encoding="utf-8")
     elif case_id == "A07_cleanup_root_swap":
         from agentic_evo import windows_gate_a as gate_a
-        backup = bundle.parent / "bundle-before-swap"
-        external = bundle.parent / "external-target"
+        target = _absolute(bundle)
+        backup = _absolute(bundle.parent / "bundle-before-swap")
+        external = _absolute(bundle.parent / "external-target")
         external.mkdir()
         shutil.copy2(bundle / ARTIFACT_NAME, external / ARTIFACT_NAME)
         shutil.copy2(bundle / MANIFEST_NAME, external / MANIFEST_NAME)
@@ -600,18 +627,6 @@ def _attack_worker(case_id: str, bundle: Path, evidence: Path) -> dict[str, Any]
         outcome = {"blocked": False, "swapped": False}
         def swap(path: Path, *, expected: dict[str, Any] | None = None) -> dict[str, Any]:
             verified = original_verify(path, expected=expected)
-            (bundle.parent / "cleanup-attempt.json").write_bytes(_canonical_json({
-                "schema": "agentic-evo.windows-gate-b-cleanup-attempt.v1",
-                "case_id": "A07_cleanup_root_swap",
-                "phase": "after_bundle_verification_before_rename",
-                "target": str(path),
-                "backup": str(backup),
-                "external_target": str(external),
-                "external_sha256": {
-                    name: _sha256(external / name)
-                    for name in (ARTIFACT_NAME, MANIFEST_NAME, "sentinel.txt")
-                },
-            }))
             try:
                 path.rename(backup)
             except OSError:
@@ -624,25 +639,104 @@ def _attack_worker(case_id: str, bundle: Path, evidence: Path) -> dict[str, Any]
         from unittest import mock
         with mock.patch.object(gate_a, "_verify_bundle_contents", side_effect=swap):
             gate_a.cleanup_gate_a_bundle(bundle)
-        return {"isolated_copy_mutation": True, "action_observed": outcome["blocked"] and not outcome["swapped"], "sentinel": str(sentinel), "blocked": outcome["blocked"], "swapped": outcome["swapped"]}
+        attempt = {
+            "schema": "agentic-evo.windows-gate-b-cleanup-attempt.v2",
+            "case_id": "A07_cleanup_root_swap",
+            "cleanup_nonce": cleanup_nonce,
+            "worker_pid": os.getpid(),
+            "phase": "after_bundle_verification_before_rename",
+            "target": str(target),
+            "backup": str(backup),
+            "external_target": str(external),
+            "external_sha256": {
+                name: _sha256(external / name)
+                for name in (ARTIFACT_NAME, MANIFEST_NAME, "sentinel.txt")
+            },
+            "blocked": outcome["blocked"],
+            "swapped": outcome["swapped"],
+        }
+        return {
+            "worker_pid": os.getpid(),
+            "cleanup_nonce": cleanup_nonce,
+            "cleanup_attempt": attempt,
+            "isolated_copy_mutation": True,
+            "action_observed": outcome["blocked"] and not outcome["swapped"],
+        }
     else:
         raise ValueError("unknown attack")
     return {"isolated_copy_mutation": True, "action_observed": True}
 
 
-def _cleanup_attack_verifier(case_root: Path, attack: dict[str, Any]) -> dict[str, Any]:
-    del attack
-    marker_path = case_root / "cleanup-attempt.json"
-    marker = _read_cleanup_attempt_marker(marker_path)
-    external = case_root / "external-target"
-    bundle = case_root / "bundle"
-    backup = case_root / "bundle-before-swap"
-    marker_valid = _cleanup_attempt_marker_matches(
-        marker,
-        bundle=bundle,
-        backup=backup,
-        external=external,
+def _cleanup_attack_verifier(
+    case_root: Path,
+    attack: dict[str, Any],
+    *,
+    expected_cleanup_nonce: str,
+    expected_worker_pid: int | str,
+) -> dict[str, Any]:
+    if not attack:
+        return {"failure_codes": ["cleanup_attempt_not_observed"]}
+    if not isinstance(attack, dict):
+        return {"failure_codes": ["cleanup_attempt_binding_invalid"]}
+
+    expected_bundle = _absolute(case_root / "bundle")
+    expected_backup = _absolute(case_root / "bundle-before-swap")
+    expected_external = _absolute(case_root / "external-target")
+    external_files = {ARTIFACT_NAME, MANIFEST_NAME, "sentinel.txt"}
+    report_keys = {
+        "worker_pid", "cleanup_nonce", "cleanup_attempt",
+        "isolated_copy_mutation", "action_observed",
+    }
+    attempt_keys = {
+        "schema", "case_id", "cleanup_nonce", "worker_pid", "phase",
+        "target", "backup", "external_target", "external_sha256", "blocked",
+        "swapped",
+    }
+    attempt = attack.get("cleanup_attempt")
+    try:
+        trusted_worker_pid = int(expected_worker_pid)
+    except (TypeError, ValueError):
+        trusted_worker_pid = -1
+    bindings_valid = (
+        set(attack) == report_keys
+        and isinstance(attempt, dict)
+        and set(attempt) == attempt_keys
+        and isinstance(expected_cleanup_nonce, str)
+        and trusted_worker_pid > 0
+        and type(attack.get("worker_pid")) is int
+        and attack.get("worker_pid") == trusted_worker_pid
+        and attack.get("cleanup_nonce") == expected_cleanup_nonce
+        and attempt.get("schema") == "agentic-evo.windows-gate-b-cleanup-attempt.v2"
+        and attempt.get("case_id") == "A07_cleanup_root_swap"
+        and attempt.get("cleanup_nonce") == expected_cleanup_nonce
+        and attempt.get("worker_pid") == trusted_worker_pid
+        and attempt.get("worker_pid") == attack.get("worker_pid")
+        and attempt.get("phase") == "after_bundle_verification_before_rename"
+        and isinstance(attempt.get("target"), str)
+        and isinstance(attempt.get("backup"), str)
+        and isinstance(attempt.get("external_target"), str)
+        and Path(attempt["target"]).is_absolute()
+        and Path(attempt["backup"]).is_absolute()
+        and Path(attempt["external_target"]).is_absolute()
+        and _same_path_text(attempt["target"], str(expected_bundle))
+        and _same_path_text(attempt["backup"], str(expected_backup))
+        and _same_path_text(attempt["external_target"], str(expected_external))
+        and isinstance(attempt.get("external_sha256"), dict)
+        and set(attempt["external_sha256"]) == external_files
+        and all(_is_sha256(value) for value in attempt["external_sha256"].values())
     )
+    if not bindings_valid:
+        return {"failure_codes": ["cleanup_attempt_binding_invalid"]}
+    if (
+        attack.get("action_observed") is not True
+        or attempt.get("blocked") is not True
+        or attempt.get("swapped") is not False
+    ):
+        return {"failure_codes": ["cleanup_attempt_not_observed"]}
+
+    external = Path(attempt["external_target"])
+    bundle = Path(attempt["target"])
+    backup = Path(attempt["backup"])
     external_files = (ARTIFACT_NAME, MANIFEST_NAME, "sentinel.txt")
     exact_external = (
         external.is_dir()
@@ -659,69 +753,18 @@ def _cleanup_attack_verifier(case_root: Path, attack: dict[str, Any]) -> dict[st
         exact_external
         and (external / "sentinel.txt").read_text(encoding="utf-8") == "must survive"
     )
-    checksums = marker.get("external_sha256") if isinstance(marker, dict) else None
-    if checksums is not None:
-        intact = intact and (
-            isinstance(checksums, dict)
-            and set(checksums) == set(external_files)
-            and all(
-                _is_sha256(checksums.get(name))
-                and _sha256(external / name) == checksums[name]
-                for name in external_files
-            )
-        )
+    checksums = attempt["external_sha256"]
+    intact = intact and all(
+        _sha256(external / name) == checksums[name]
+        for name in external_files
+    )
     blocked = not backup.exists() and not backup.is_symlink() and not _is_reparse_point(backup)
     original_removed = not bundle.exists() and not bundle.is_symlink() and not _is_reparse_point(bundle)
     return {
         "failure_codes": [
             "cleanup_root_swap_blocked"
-        ] if marker_valid and intact and blocked and original_removed else []
+        ] if intact and blocked and original_removed else ["cleanup_poststate_inconsistent"]
     }
-
-
-def _read_cleanup_attempt_marker(path: Path) -> dict[str, Any] | None:
-    failures: list[dict[str, str]] = []
-    marker = _read_canonical_object(
-        path,
-        "cleanup_attempt",
-        lambda code, detail: failures.append({"code": code, "detail": detail}),
-    )
-    return marker if not failures else None
-
-
-def _cleanup_attempt_marker_matches(
-    marker: dict[str, Any] | None,
-    *,
-    bundle: Path,
-    backup: Path,
-    external: Path,
-) -> bool:
-    if not isinstance(marker, dict):
-        return False
-    required = {
-        "schema", "case_id", "phase", "target", "backup", "external_target",
-        "external_sha256",
-    }
-    legacy_required = {"schema", "case_id", "bundle", "backup", "external_target"}
-    if set(marker) == required:
-        target = marker.get("target")
-        phase_valid = marker.get("phase") == "after_bundle_verification_before_rename"
-    elif set(marker) == legacy_required:
-        # Earlier bounded fixtures used ``bundle`` for the same fixed target.
-        # Preserve their evidence interpretation while fresh workers record the
-        # explicit phase and verifier-side checksum snapshot above.
-        target = marker.get("bundle")
-        phase_valid = True
-    else:
-        return False
-    return (
-        marker.get("schema") == "agentic-evo.windows-gate-b-cleanup-attempt.v1"
-        and marker.get("case_id") == "A07_cleanup_root_swap"
-        and phase_valid
-        and _same_path_text(target, str(bundle))
-        and _same_path_text(marker.get("backup"), str(backup))
-        and _same_path_text(marker.get("external_target"), str(external))
-    )
 
 
 def _validate_result_contract(result: dict[str, Any], fail: Any) -> None:
@@ -869,7 +912,12 @@ def _main() -> int:
     if mode == "--attack-worker":
         if len(arguments) != 3:
             raise SystemExit(2)
-        result = _attack_worker(arguments[0], Path(arguments[1]), Path(arguments[2]))
+        result = _attack_worker(
+            arguments[0],
+            Path(arguments[1]),
+            Path(arguments[2]),
+            cleanup_nonce=os.environ.get("AGENTIC_EVO_A07_CLEANUP_NONCE"),
+        )
     elif mode == "--verify-worker":
         if len(arguments) != 1:
             raise SystemExit(2)
@@ -878,7 +926,16 @@ def _main() -> int:
     else:
         if len(arguments) != 2:
             raise SystemExit(2)
-        result = _cleanup_attack_verifier(Path(arguments[0]), json.loads(arguments[1]))
+        result = _cleanup_attack_verifier(
+            Path(arguments[0]),
+            json.loads(arguments[1]),
+            expected_cleanup_nonce=os.environ.get(
+                "AGENTIC_EVO_A07_EXPECTED_CLEANUP_NONCE", "",
+            ),
+            expected_worker_pid=os.environ.get(
+                "AGENTIC_EVO_A07_EXPECTED_WORKER_PID", "",
+            ),
+        )
     print(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
     return 0
 
