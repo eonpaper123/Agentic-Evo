@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -335,6 +336,52 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
             **expected,
         )
 
+    def _run_gate_b_cli(
+        self,
+        command: str,
+        fixture: dict[str, object],
+    ) -> subprocess.CompletedProcess[str]:
+        environment = os.environ.copy()
+        prior = environment.get("PYTHONPATH")
+        environment["PYTHONPATH"] = (
+            str(REPOSITORY_ROOT / "src")
+            if not prior
+            else os.pathsep.join((str(REPOSITORY_ROOT / "src"), prior))
+        )
+        return subprocess.run(
+            [
+                sys.executable,
+                "-P",
+                "-m",
+                "agentic_evo.cli",
+                command,
+                "--bundle-dir",
+                str(fixture["bundle"]),
+                "--evidence-dir",
+                str(fixture["evidence"]),
+                "--gate-b-script",
+                str(GATE_B_SCRIPT),
+                "--expected-manifest-sha256",
+                str(fixture["manifest_sha256"]),
+                "--expected-script-sha256",
+                str(fixture["script_sha256"]),
+                "--expected-result-sha256",
+                str(fixture["result_sha256"]),
+                "--lab-id",
+                str(fixture["lab_id"]),
+                "--expected-run-id",
+                str(fixture["run_id"]),
+                "--expected-challenge",
+                str(fixture["challenge"]),
+            ],
+            cwd=REPOSITORY_ROOT,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+
     def test_verifier_recomputes_bounded_evidence_without_writes_or_overclaim(
         self,
     ) -> None:
@@ -554,6 +601,67 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
                 {failure["code"] for failure in verification["failures"]},
             )
 
+    def test_plan_binding_rejects_source_artifact_artifact_sha256_and_evidence_root_retarget(
+        self,
+    ) -> None:
+        for field, replacement in (
+            ("source_artifact", r"C:\totally\other-source\AgenticEvo.ScmProbe.exe"),
+            ("artifact_sha256", "0" * 64),
+            ("evidence_root", r"C:\totally\other-evidence-root"),
+        ):
+            with self.subTest(field=field):
+                with tempfile.TemporaryDirectory() as temporary:
+                    fixture = self._create_fixture(Path(temporary))
+                    plan_path = Path(fixture["evidence"]) / "plan.json"
+                    result_path = Path(fixture["evidence"]) / "result.json"
+                    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+                    plan[field] = replacement
+                    plan_path.write_bytes(_canonical_json(plan))
+                    result = json.loads(result_path.read_text(encoding="utf-8"))
+                    result["report"]["plan_sha256"] = hashlib.sha256(
+                        _canonical_json(plan)[:-1]
+                    ).hexdigest()
+                    result_path.write_bytes(_canonical_json(result))
+                    fixture["result_sha256"] = _sha256(result_path)
+
+                    verification = self._verify(fixture)
+
+                    self.assertEqual(verification["status"], "failed")
+                    self.assertIn(
+                        "plan_target_derivation_invalid",
+                        {failure["code"] for failure in verification["failures"]},
+                    )
+
+    def test_plan_authorized_effects_and_claim_ceiling_must_match_contract(
+        self,
+    ) -> None:
+        for mutate in ("authorized_effects", "claim_ceiling"):
+            with self.subTest(field=mutate):
+                with tempfile.TemporaryDirectory() as temporary:
+                    fixture = self._create_fixture(Path(temporary))
+                    plan_path = Path(fixture["evidence"]) / "plan.json"
+                    result_path = Path(fixture["evidence"]) / "result.json"
+                    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+                    if mutate == "authorized_effects":
+                        plan["authorized_effects"]["genesis"] = True
+                    else:
+                        plan["claim_ceiling"]["gate_b"] = "passed"
+                    plan_path.write_bytes(_canonical_json(plan))
+                    result = json.loads(result_path.read_text(encoding="utf-8"))
+                    result["report"]["plan_sha256"] = hashlib.sha256(
+                        _canonical_json(plan)[:-1]
+                    ).hexdigest()
+                    result_path.write_bytes(_canonical_json(result))
+                    fixture["result_sha256"] = _sha256(result_path)
+
+                    verification = self._verify(fixture)
+
+                    self.assertEqual(verification["status"], "failed")
+                    self.assertIn(
+                        "plan_contract_invalid",
+                        {failure["code"] for failure in verification["failures"]},
+                    )
+
     def test_nested_claim_overclaim_fails_closed_even_when_repinned(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             fixture = self._create_fixture(Path(temporary))
@@ -570,6 +678,29 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
                 "receipt_claim_ceiling_exceeded",
                 {failure["code"] for failure in verification["failures"]},
             )
+
+    def test_report_claims_shape_drift_fails_closed_even_when_repinned(self) -> None:
+        for mutation in ("extra", "missing"):
+            with self.subTest(mutation=mutation):
+                with tempfile.TemporaryDirectory() as temporary:
+                    fixture = self._create_fixture(Path(temporary))
+                    result_path = Path(fixture["evidence"]) / "result.json"
+                    forged = json.loads(result_path.read_text(encoding="utf-8"))
+                    claims = forged["report"]["claims"]
+                    if mutation == "extra":
+                        claims["future_unverified_gain"] = "passed"
+                    else:
+                        del claims["all_attack_cases"]
+                    result_path.write_bytes(_canonical_json(forged))
+                    fixture["result_sha256"] = _sha256(result_path)
+
+                    verification = self._verify(fixture)
+
+                    self.assertEqual(verification["status"], "failed")
+                    self.assertIn(
+                        "receipt_claim_ceiling_exceeded",
+                        {failure["code"] for failure in verification["failures"]},
+                    )
 
     def test_trusted_system_directory_must_not_be_plan_controlled(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -773,6 +904,28 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
             self.assertNotIn(
                 "cleanup_root_swap_blocked",
                 verification["failure_codes"],
+            )
+
+    def test_cli_returns_nonzero_when_verifier_reports_failed_status(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = self._create_fixture(Path(temporary))
+            result_path = Path(fixture["evidence"]) / "result.json"
+            forged = json.loads(result_path.read_text(encoding="utf-8"))
+            forged["report"]["claims"]["gate_b_outcome"] = "passed"
+            result_path.write_bytes(_canonical_json(forged))
+            fixture["result_sha256"] = _sha256(result_path)
+
+            result = self._run_gate_b_cli(
+                "verify-windows-gate-b-evidence",
+                fixture,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            payload = json.loads(result.stderr)
+            self.assertFalse(payload["ok"])
+            self.assertEqual(
+                payload["result"]["status"],
+                "failed",
             )
 
 
