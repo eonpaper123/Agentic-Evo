@@ -998,20 +998,25 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
         self,
         root: Path,
         *,
-        nonce: str = "a" * 32,
-        spawned_pid: int | None = None,
+        cleanup_nonce: str = "a" * 32,
+        worker_pid: int = 4242,
+        nested_worker_pid: int | None = None,
         blocked: bool = True,
+        swapped: bool = False,
     ) -> tuple[dict[str, object], str, int]:
         external = root / "external-target"
         external.mkdir()
         (external / ARTIFACT_NAME).write_bytes(b"fixture artifact")
         (external / MANIFEST_NAME).write_text("fixture manifest", encoding="utf-8")
         (external / "sentinel.txt").write_text("must survive", encoding="utf-8")
-        expected_pid = os.getpid() if spawned_pid is None else spawned_pid
+        observed_worker_pid = (
+            worker_pid if nested_worker_pid is None else nested_worker_pid
+        )
         attempt = {
             "schema": "agentic-evo.windows-gate-b-cleanup-attempt.v2",
             "case_id": "A07_cleanup_root_swap",
-            "nonce": nonce,
+            "cleanup_nonce": cleanup_nonce,
+            "worker_pid": observed_worker_pid,
             "phase": "after_bundle_verification_before_rename",
             "target": str(root / "bundle"),
             "backup": str(root / "bundle-before-swap"),
@@ -1020,15 +1025,47 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
                 name: _sha256(external / name)
                 for name in (ARTIFACT_NAME, MANIFEST_NAME, "sentinel.txt")
             },
-            "spawned_pid": expected_pid,
             "blocked": blocked,
-            "swapped": False,
+            "swapped": swapped,
         }
-        return {
-            "isolated_copy_mutation": True,
-            "action_observed": blocked,
+        report = {
+            "worker_pid": worker_pid,
+            "cleanup_nonce": cleanup_nonce,
             "cleanup_attempt": attempt,
-        }, "a" * 32, os.getpid()
+            "isolated_copy_mutation": True,
+            "action_observed": blocked and not swapped,
+        }
+        self.assertEqual(
+            set(report),
+            {
+                "worker_pid",
+                "cleanup_nonce",
+                "cleanup_attempt",
+                "isolated_copy_mutation",
+                "action_observed",
+            },
+        )
+        self.assertEqual(
+            set(attempt),
+            {
+                "schema",
+                "case_id",
+                "cleanup_nonce",
+                "worker_pid",
+                "phase",
+                "target",
+                "backup",
+                "external_target",
+                "external_sha256",
+                "blocked",
+                "swapped",
+            },
+        )
+        self.assertEqual(
+            set(attempt["external_sha256"]),
+            {ARTIFACT_NAME, MANIFEST_NAME, "sentinel.txt"},
+        )
+        return report, cleanup_nonce, worker_pid
 
     def test_cleanup_attack_verifier_rejects_forged_disk_marker_with_matching_poststate(
         self,
@@ -1037,7 +1074,7 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            attack, expected_nonce, expected_pid = self._a07_case(root)
+            attack, expected_cleanup_nonce, expected_worker_pid = self._a07_case(root)
             (root / "cleanup-attempt.json").write_bytes(
                 _canonical_json(attack["cleanup_attempt"])
             )
@@ -1045,27 +1082,27 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
             verification = _cleanup_attack_verifier(
                 root,
                 {},
-                expected_nonce=expected_nonce,
-                expected_spawned_pid=expected_pid,
+                expected_cleanup_nonce=expected_cleanup_nonce,
+                expected_worker_pid=expected_worker_pid,
             )
 
             self.assertIn("cleanup_attempt_not_observed", verification["failure_codes"])
             self.assertNotIn("cleanup_root_swap_blocked", verification["failure_codes"])
 
-    def test_a07_pass_requires_nonce_and_spawned_pid_bound_worker_report(
+    def test_a07_pass_requires_parent_bound_worker_report_and_safe_poststate(
         self,
     ) -> None:
         from agentic_evo.windows_gate_b_evidence import _cleanup_attack_verifier
 
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            attack, expected_nonce, expected_pid = self._a07_case(root)
+            attack, expected_cleanup_nonce, expected_worker_pid = self._a07_case(root)
 
             verification = _cleanup_attack_verifier(
                 root,
                 attack,
-                expected_nonce=expected_nonce,
-                expected_spawned_pid=expected_pid,
+                expected_cleanup_nonce=expected_cleanup_nonce,
+                expected_worker_pid=expected_worker_pid,
             )
 
             self.assertEqual(
@@ -1073,21 +1110,21 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
                 ["cleanup_root_swap_blocked"],
             )
 
-    def test_a07_fails_when_worker_report_nonce_mismatches(self) -> None:
+    def test_a07_fails_when_worker_report_cleanup_nonce_mismatches(self) -> None:
         from agentic_evo.windows_gate_b_evidence import _cleanup_attack_verifier
 
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            attack, _expected_nonce, expected_pid = self._a07_case(
+            attack, _expected_cleanup_nonce, expected_worker_pid = self._a07_case(
                 root,
-                nonce="b" * 32,
+                cleanup_nonce="b" * 32,
             )
 
             verification = _cleanup_attack_verifier(
                 root,
                 attack,
-                expected_nonce="a" * 32,
-                expected_spawned_pid=expected_pid,
+                expected_cleanup_nonce="a" * 32,
+                expected_worker_pid=expected_worker_pid,
             )
 
             self.assertIn(
@@ -1095,21 +1132,43 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
                 verification["failure_codes"],
             )
 
-    def test_a07_fails_when_worker_report_pid_mismatches(self) -> None:
+    def test_a07_fails_when_worker_report_expected_pid_mismatches(self) -> None:
         from agentic_evo.windows_gate_b_evidence import _cleanup_attack_verifier
 
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            attack, expected_nonce, expected_pid = self._a07_case(
+            attack, expected_cleanup_nonce, expected_worker_pid = self._a07_case(
                 root,
-                spawned_pid=os.getpid() + 1,
+                worker_pid=4243,
             )
 
             verification = _cleanup_attack_verifier(
                 root,
                 attack,
-                expected_nonce=expected_nonce,
-                expected_spawned_pid=expected_pid,
+                expected_cleanup_nonce=expected_cleanup_nonce,
+                expected_worker_pid=expected_worker_pid - 1,
+            )
+
+            self.assertIn(
+                "cleanup_attempt_binding_invalid",
+                verification["failure_codes"],
+            )
+
+    def test_a07_fails_when_top_level_and_nested_worker_pid_mismatch(self) -> None:
+        from agentic_evo.windows_gate_b_evidence import _cleanup_attack_verifier
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            attack, expected_cleanup_nonce, expected_worker_pid = self._a07_case(
+                root,
+                nested_worker_pid=4243,
+            )
+
+            verification = _cleanup_attack_verifier(
+                root,
+                attack,
+                expected_cleanup_nonce=expected_cleanup_nonce,
+                expected_worker_pid=expected_worker_pid,
             )
 
             self.assertIn(
@@ -1122,14 +1181,14 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            attack, expected_nonce, expected_pid = self._a07_case(root)
+            attack, expected_cleanup_nonce, expected_worker_pid = self._a07_case(root)
             (root / "bundle").mkdir()
 
             verification = _cleanup_attack_verifier(
                 root,
                 attack,
-                expected_nonce=expected_nonce,
-                expected_spawned_pid=expected_pid,
+                expected_cleanup_nonce=expected_cleanup_nonce,
+                expected_worker_pid=expected_worker_pid,
             )
 
             self.assertIn(
@@ -1142,16 +1201,43 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            attack, expected_nonce, expected_pid = self._a07_case(root, blocked=False)
+            attack, expected_cleanup_nonce, expected_worker_pid = self._a07_case(
+                root,
+                blocked=False,
+            )
 
             verification = _cleanup_attack_verifier(
                 root,
                 attack,
-                expected_nonce=expected_nonce,
-                expected_spawned_pid=expected_pid,
+                expected_cleanup_nonce=expected_cleanup_nonce,
+                expected_worker_pid=expected_worker_pid,
             )
 
             self.assertIn("cleanup_attempt_not_observed", verification["failure_codes"])
+
+    def test_a07_fails_when_worker_reports_swapped_or_no_report(self) -> None:
+        from agentic_evo.windows_gate_b_evidence import _cleanup_attack_verifier
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            attack, expected_cleanup_nonce, expected_worker_pid = self._a07_case(
+                root,
+                swapped=True,
+            )
+
+            for report in (attack, {}):
+                with self.subTest(report=bool(report)):
+                    verification = _cleanup_attack_verifier(
+                        root,
+                        report,
+                        expected_cleanup_nonce=expected_cleanup_nonce,
+                        expected_worker_pid=expected_worker_pid,
+                    )
+
+                    self.assertIn(
+                        "cleanup_attempt_not_observed",
+                        verification["failure_codes"],
+                    )
 
     def test_cli_returns_nonzero_when_verifier_reports_failed_status(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
