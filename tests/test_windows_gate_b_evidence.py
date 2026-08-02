@@ -496,6 +496,114 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
                 "not_established",
             )
 
+    def test_result_and_report_schema_drift_fail_closed_even_when_repinned(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = self._create_fixture(Path(temporary))
+            result_path = Path(fixture["evidence"]) / "result.json"
+            for field, expected_code in (
+                ("schema", "result_contract_invalid"),
+                ("report.schema", "report_contract_invalid"),
+            ):
+                with self.subTest(field=field):
+                    drifted = json.loads(result_path.read_text(encoding="utf-8"))
+                    if field == "schema":
+                        drifted["schema"] = "evil.result.v999"
+                    else:
+                        drifted["report"]["schema"] = "evil.report.v999"
+                    result_path.write_bytes(_canonical_json(drifted))
+                    fixture["result_sha256"] = _sha256(result_path)
+
+                    verification = self._verify(fixture)
+
+                    self.assertEqual(verification["status"], "failed")
+                    self.assertIn(
+                        expected_code,
+                        {failure["code"] for failure in verification["failures"]},
+                    )
+
+    def test_plan_namespace_retarget_fails_closed_even_when_repinned(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = self._create_fixture(Path(temporary))
+            plan_path = Path(fixture["evidence"]) / "plan.json"
+            result_path = Path(fixture["evidence"]) / "result.json"
+            plan = json.loads(plan_path.read_text(encoding="utf-8"))
+            plan["artifact_product_base"] = r"C:\totally\unrelated-artifact-base"
+            plan["artifact_root"] = r"C:\totally\unrelated-artifact-root"
+            plan["artifact_path"] = (
+                r"C:\totally\unrelated-artifact-root\AgenticEvo.ScmProbe.exe"
+            )
+            plan["state_product_base"] = r"C:\totally\unrelated-state-base"
+            plan["state_root"] = r"C:\totally\unrelated-state-root"
+            plan["probe_path"] = r"C:\totally\unrelated-state-root\scm-write.probe"
+            plan_path.write_bytes(_canonical_json(plan))
+
+            result = json.loads(result_path.read_text(encoding="utf-8"))
+            result["report"]["plan_sha256"] = hashlib.sha256(
+                _canonical_json(plan)[:-1]
+            ).hexdigest()
+            result_path.write_bytes(_canonical_json(result))
+            fixture["result_sha256"] = _sha256(result_path)
+
+            verification = self._verify(fixture)
+
+            self.assertEqual(verification["status"], "failed")
+            self.assertIn(
+                "plan_target_derivation_invalid",
+                {failure["code"] for failure in verification["failures"]},
+            )
+
+    def test_nested_claim_overclaim_fails_closed_even_when_repinned(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = self._create_fixture(Path(temporary))
+            result_path = Path(fixture["evidence"]) / "result.json"
+            forged = json.loads(result_path.read_text(encoding="utf-8"))
+            forged["report"]["claims"]["gate_b_outcome"] = "passed"
+            result_path.write_bytes(_canonical_json(forged))
+            fixture["result_sha256"] = _sha256(result_path)
+
+            verification = self._verify(fixture)
+
+            self.assertEqual(verification["status"], "failed")
+            self.assertIn(
+                "receipt_claim_ceiling_exceeded",
+                {failure["code"] for failure in verification["failures"]},
+            )
+
+    def test_trusted_system_directory_must_not_be_plan_controlled(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = self._create_fixture(Path(temporary))
+            root = Path(temporary)
+            plan_path = Path(fixture["evidence"]) / "plan.json"
+            result_path = Path(fixture["evidence"]) / "result.json"
+            copied_system_dir = root / "copied-system32"
+            copied_system_dir.mkdir()
+            shutil.copy2(
+                Path(json.loads(plan_path.read_text(encoding="utf-8"))[
+                    "trusted_system_directory"
+                ]) / "sc.exe",
+                copied_system_dir / "sc.exe",
+            )
+            plan = json.loads(plan_path.read_text(encoding="utf-8"))
+            plan["trusted_system_directory"] = str(copied_system_dir)
+            plan_path.write_bytes(_canonical_json(plan))
+
+            result = json.loads(result_path.read_text(encoding="utf-8"))
+            result["report"]["plan_sha256"] = hashlib.sha256(
+                _canonical_json(plan)[:-1]
+            ).hexdigest()
+            result_path.write_bytes(_canonical_json(result))
+            fixture["result_sha256"] = _sha256(result_path)
+
+            verification = self._verify(fixture)
+
+            self.assertEqual(verification["status"], "failed")
+            self.assertIn(
+                "trusted_scm_query_unavailable",
+                {failure["code"] for failure in verification["failures"]},
+            )
+
     def test_cleanup_holds_bundle_identity_across_verify_delete_boundary(
         self,
     ) -> None:
@@ -641,6 +749,30 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
             self.assertEqual(
                 {str(path): _sha256(path) for path in source_paths},
                 before,
+            )
+
+    def test_cleanup_attack_verifier_rejects_forged_attacker_self_report(
+        self,
+    ) -> None:
+        from agentic_evo.windows_gate_b_evidence import _cleanup_attack_verifier
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            sentinel = root / "sentinel.txt"
+            sentinel.write_text("must survive", encoding="utf-8")
+
+            verification = _cleanup_attack_verifier(
+                root,
+                {
+                    "sentinel": str(sentinel),
+                    "blocked": True,
+                    "swapped": False,
+                },
+            )
+
+            self.assertNotIn(
+                "cleanup_root_swap_blocked",
+                verification["failure_codes"],
             )
 
 
