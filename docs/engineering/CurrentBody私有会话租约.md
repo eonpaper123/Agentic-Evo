@@ -275,6 +275,8 @@ author_kind = in_process_rehearsal
 | Current Body 逻辑演练 | `body` | `in_process_rehearsal` | `ingress_path=in_process_rehearsal` |
 | 测试科研仪器私有入口 | 由测试明确声明 | `research_instrument` 等 | `ingress_path=test_instrument` |
 
+`prepare_successor` 现可携带一个由 Current Body 声明的可选、不透明 `causation_ref`；`source_kind / author_kind / ingress_path` 仍由 Witness 派生。私有 transport 只额外校验该值为 string / null 且不超过 1024 UTF-8 bytes；它不校验引用目标、因果语义或候选质量。
+
 `ingress_path` 是代码路径标签，不叫 `principal`，因为当前没有完成 principal authentication。
 
 ---

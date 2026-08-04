@@ -183,7 +183,7 @@ advance_head
 
 ### 4.1 权威字段不由 Body 自报
 
-Body request 可以携带候选内容或候选 Head，但不能决定：
+Body request 可以携带候选内容或候选 Head；`prepare_successor` 还可声明一个可选、不透明 `causation_ref`，但不能决定：
 
 - Root；
 - Current Head；
@@ -191,10 +191,12 @@ Body request 可以携带候选内容或候选 Head，但不能决定：
 - lease 是否有效；
 - `author_kind`；
 - `ingress_path`；
-- evidence 的最终字段；
+- 除该声明字段外的 evidence 派生字段；
 - transaction 是否提交。
 
 这些值由当前 `CurrentBodySession` 和 trusted state 派生。
+
+私有协议只对 `causation_ref` 做 string / null 与 1024 UTF-8 bytes 边界检查，并只把它记录在 `body_candidate_prepared`。`head_advanced` 不携带该引用；两条记录只由相同 candidate Head 结构关联。该声明不证明目标存在、因果成立、候选改善、学习发生或自主进化成立。
 
 ### 4.2 最小准入式
 
