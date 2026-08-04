@@ -1,7 +1,7 @@
 # Agentic-Evo 实现状态：Pre-Genesis
 
 更新时间：2026-08-04
-状态：Pre-Genesis Python 可移植层已到停止点；Windows foreground 四项局部证据、内部 supervisor stop、SCM-only probe bundle、一次零持久残留的 UAC 配置探针，以及无 UAC independent verifier/real-attacker harness 已形成，但 Gate B 未建立，native security 为 false，尚未 ready-to-install，也没有真实 UAC/SCM proof、运行中 SCM principal、service-owned protected state、distinct Body principal、HostPresence、原生安装或正式 Genesis
+状态：Pre-Genesis Python 可移植层已到停止点；Windows foreground 四项局部证据、内部 supervisor stop、SCM-only probe bundle、一次零持久残留的 UAC 配置探针，以及无 UAC independent verifier/real-attacker harness 已形成；Cycle 3 的 PII-safe 冻结 v1/v2 evidence corpus 与 public CLI/verifier regression 已完成，但 Gate B 未建立，native security 为 false，尚未 ready-to-install，也没有真实 UAC/SCM proof、运行中 SCM principal、service-owned protected state、distinct Body principal、HostPresence、原生安装或正式 Genesis
 适用范围：当前仓库中的真实实现、已验证性质、未成立性质和 Genesis 前阻断项
 
 ---
@@ -382,10 +382,9 @@ Authority
 [已完成] 一次 externally pinned、config-only、no-start/no-reboot 的 UAC SCM/ACL 配置探针与双重零残留复核
 [已完成] 把跨 coding-agent 会话身份改为 `(execution_surface, session_id)` 复合主键，并用 public-v2 与版本化结构承诺消除覆盖、误删和哈希二义性
 [已完成] 无 UAC independent verifier / real-attacker harness；活跃 receipt 族为 lab-bound v2，冻结 v1 仅兼容读取且 lab binding inconclusive，A07 仅为 `same_principal_harness`
-→ 冻结可复现的 v1/v2 evidence corpus，并做 CLI/verifier regression；不执行系统操作
-→ Windows 权限实验等待新的“保留临时 service + 重启”授权
-→ 用运行中 SCM service principal / service-owned protected state 形成机器生命周期边界
-→ 在临时安装中攻击并复验 public / Body capability / crash / uninstall
+[已完成] Cycle 3：PII-safe 冻结 v1/v2 evidence corpus 与 public CLI/verifier regression
+→ 下一项实质性 Windows evidence 需要用户精确授权一次、跨 system restart 的单个有保留期临时 SCM service 实验；不执行 Genesis，也不作永久安装
+→ 随后由独立 attacker-verifier 复验运行中 token、protected state、public / Body capability、crash recovery 与可逆 uninstall
 → 隔离 Authority、Witness、Current Body 与 probation principal
 → 冻结 I₀ 与 Protocol₀
 → 用户明确启动正式 Genesis

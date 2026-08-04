@@ -765,4 +765,4 @@ Windows foreground Job、public named pipe、restricted suspended Body、private
 
 下一项是：
 
-> 下一项是在不产生新增提权副作用的前提下，补齐独立 verifier/real-attacker 的最小合同与可执行证据入口；它必须区分 `not_run / inconclusive / failed / passed`，且不得用 receipt 存在或 service 自报替代外部观察。下一次 Windows 权限实验必须另获“保留临时 service + system restart”的明确授权，再读取运行中 token，并在临时可逆安装中复验 service-owned state、public peer、restricted Body capability、崩溃恢复、同账户攻击和完整卸载。之后再单独攻克 HostPresence。正式 Genesis 与用户级 Codex Hook 写入仍需单独授权。
+> Cycle 3 已完成 PII-safe 冻结 v1/v2 evidence corpus、独立 verifier/real-attacker harness 与 public CLI regression。下一项实质性 Windows evidence 需要用户精确授权一次、跨 system restart 的单个有保留期临时 SCM service 实验；随后由独立 attacker-verifier 复验运行中 token、protected state、public/Body capability、crash recovery 与可逆 uninstall。不得执行 Genesis，也不得作永久安装。之后再单独攻克 HostPresence。正式 Genesis 与用户级 Codex Hook 写入仍需单独授权。
