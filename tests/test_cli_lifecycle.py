@@ -14,9 +14,11 @@ import unittest
 
 from agentic_evo._util import canonical_json_bytes
 from agentic_evo.ipc import (
+    MAX_PUBLIC_FRAME_BYTES,
     PUBLIC_IO_TIMEOUT_SECONDS,
     ServiceUnavailableError,
     SurfaceClient,
+    build_public_request,
     service_endpoint,
 )
 from agentic_evo.runtime import DevelopmentalRuntime
@@ -518,6 +520,27 @@ class CLILifecycleTests(unittest.TestCase):
             * (60 * 1024 - len(canonical_json_bytes({"payload": ""})))
         }
         self.assertEqual(len(canonical_json_bytes(payload)), 60 * 1024)
+        self.assertGreater(
+            len(
+                canonical_json_bytes(
+                    build_public_request(
+                        "observe",
+                        {
+                            "event_kind": text,
+                            "payload": payload,
+                            "execution_surface": execution_surface,
+                            "session_id": text,
+                            "turn_id": text,
+                            "tool_call_id": text,
+                            "project_environment": text,
+                            "coverage_gap": text,
+                        },
+                        request_id="observe-public-frame-oversize",
+                    )
+                )
+            ),
+            MAX_PUBLIC_FRAME_BYTES,
+        )
         before_status = self.runtime.status()
         before_records = self.runtime.evidence.records()
         process = self._spawn_surface_stdio(execution_surface)

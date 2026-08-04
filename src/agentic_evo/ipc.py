@@ -134,6 +134,32 @@ def send_public_message(
     connection.send_bytes(raw)
 
 
+def build_public_request(
+    operation: str,
+    params: Mapping[str, Any],
+    *,
+    request_id: str,
+) -> dict[str, Any]:
+    return {
+        "protocol": PUBLIC_PROTOCOL,
+        "request_id": request_id,
+        "operation": operation,
+        "params": dict(params),
+    }
+
+
+def validate_public_request_frame(
+    operation: str,
+    params: Mapping[str, Any],
+    *,
+    request_id: str,
+) -> dict[str, Any]:
+    request = build_public_request(operation, params, request_id=request_id)
+    if len(canonical_json_bytes(request)) > MAX_PUBLIC_FRAME_BYTES:
+        raise InvalidPublicFrame("public IPC frame exceeds its byte bound")
+    return request
+
+
 def receive_public_message(
     connection: Connection,
     *,
@@ -294,12 +320,11 @@ class SurfaceClient:
         params: Mapping[str, Any],
     ) -> dict[str, Any]:
         request_id = uuid4().hex
-        request = {
-            "protocol": PUBLIC_PROTOCOL,
-            "request_id": request_id,
-            "operation": operation,
-            "params": dict(params),
-        }
+        request = validate_public_request_frame(
+            operation,
+            params,
+            request_id=request_id,
+        )
         with open_public_connection(
             self.endpoint,
             native_windows=True,

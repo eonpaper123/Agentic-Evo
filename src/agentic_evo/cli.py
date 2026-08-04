@@ -12,10 +12,12 @@ from ._util import canonical_json_bytes
 from .errors import AgenticEvoError
 from .install_plan import build_install_plan
 from .ipc import (
+    InvalidPublicFrame,
     OffRehearsalClient,
     ServiceRejectedError,
     ServiceUnavailableError,
     SurfaceClient,
+    validate_public_request_frame,
 )
 from .service import main as service_main
 from .windows_gate_a import (
@@ -132,13 +134,15 @@ def _surface_stdio_text(
 ) -> str | None:
     if optional and value is None:
         return None
-    if not isinstance(value, str) or not value:
+    if not isinstance(value, str):
         message = (
             f"{field} must be a string or null"
             if optional
             else f"{field} must be a non-empty string"
         )
         raise _SurfaceStdioInputError(message)
+    if not optional and not value:
+        raise _SurfaceStdioInputError(f"{field} must be a non-empty string")
     if len(value.encode("utf-8")) > MAX_SURFACE_STDIO_TEXT_BYTES:
         raise _SurfaceStdioInputError(
             f"{field} exceeds the stdio text byte bound"
@@ -224,17 +228,15 @@ def _surface_stdio_request(
         )
 
     try:
-        if operation == "status":
-            result = client.status()
-        elif operation == "wake":
-            result = client.wake(
-                execution_surface=execution_surface,
-                session_id=_surface_stdio_text(args.get("session_id"), "session_id"),
-                project_environment=_surface_stdio_text(
+        if operation == "wake":
+            params = {
+                "execution_surface": execution_surface,
+                "session_id": _surface_stdio_text(args.get("session_id"), "session_id"),
+                "project_environment": _surface_stdio_text(
                     args.get("project_environment"), "project_environment"
                 ),
-                model=_surface_stdio_text(args.get("model"), "model", optional=True),
-            )
+                "model": _surface_stdio_text(args.get("model"), "model", optional=True),
+            }
         elif operation == "observe":
             event_kind = _surface_stdio_text(args.get("event_kind"), "event_kind")
             payload = args.get("payload")
@@ -246,31 +248,57 @@ def _surface_stdio_request(
                 raise _SurfaceStdioInputError(
                     "payload exceeds the stdio payload byte bound"
                 )
-            result = client.observe(
-                event_kind=event_kind,
-                payload=payload,
-                execution_surface=execution_surface,
-                session_id=_surface_stdio_text(
+            params = {
+                "event_kind": event_kind,
+                "payload": payload,
+                "execution_surface": execution_surface,
+                "session_id": _surface_stdio_text(
                     args.get("session_id"), "session_id", optional=True
                 ),
-                turn_id=_surface_stdio_text(args.get("turn_id"), "turn_id", optional=True),
-                tool_call_id=_surface_stdio_text(
+                "turn_id": _surface_stdio_text(
+                    args.get("turn_id"), "turn_id", optional=True
+                ),
+                "tool_call_id": _surface_stdio_text(
                     args.get("tool_call_id"), "tool_call_id", optional=True
                 ),
-                project_environment=_surface_stdio_text(
+                "project_environment": _surface_stdio_text(
                     args.get("project_environment"),
                     "project_environment",
                     optional=True,
                 ),
-                coverage_gap=_surface_stdio_text(
+                "coverage_gap": _surface_stdio_text(
                     args.get("coverage_gap"), "coverage_gap", optional=True
                 ),
-            )
+            }
+        elif operation == "sleep":
+            params = {
+                "execution_surface": execution_surface,
+                "session_id": _surface_stdio_text(args.get("session_id"), "session_id"),
+            }
         else:
-            result = client.sleep(
-                execution_surface=execution_surface,
-                session_id=_surface_stdio_text(args.get("session_id"), "session_id"),
+            params = {}
+    except _SurfaceStdioInputError as error:
+        return _surface_stdio_error(request_id, "invalid_input", str(error))
+
+    if operation != "status":
+        try:
+            validate_public_request_frame(operation, params, request_id=request_id)
+        except InvalidPublicFrame:
+            return _surface_stdio_error(
+                request_id,
+                "invalid_input",
+                "operation arguments exceed the public frame byte bound",
             )
+
+    try:
+        if operation == "status":
+            result = client.status()
+        elif operation == "wake":
+            result = client.wake(**params)
+        elif operation == "observe":
+            result = client.observe(**params)
+        else:
+            result = client.sleep(**params)
     except ServiceRejectedError as error:
         return _surface_stdio_error(request_id, error.code, str(error))
     except ServiceUnavailableError:
@@ -279,8 +307,6 @@ def _surface_stdio_request(
             "service_unavailable",
             "Witness service is unavailable",
         )
-    except _SurfaceStdioInputError as error:
-        return _surface_stdio_error(request_id, "invalid_input", str(error))
     except ValueError:
         return _surface_stdio_error(
             request_id,
