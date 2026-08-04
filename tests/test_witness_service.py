@@ -236,6 +236,35 @@ class WitnessServiceTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "invalid_parameters")
         self.assertEqual(self.runtime.evidence.records(), before)
 
+    def test_public_surface_optional_text_fields_allow_empty_strings(self) -> None:
+        process = self._spawn()
+        client = self._wait_until_ready(process)
+
+        client.wake(
+            execution_surface="codex",
+            session_id="empty-optional-session",
+            project_environment="empty-optional-project",
+            model="",
+        )
+        self.assertEqual(self.runtime.evidence.records()[-1].payload["model_ref"], "")
+
+        receipt = client.observe(
+            event_kind="tool_result",
+            payload={"outcome": "ok"},
+            execution_surface="codex",
+            session_id="",
+            turn_id="",
+            tool_call_id="",
+            project_environment="",
+            coverage_gap="",
+        )
+        record = self.runtime.evidence.records()[receipt["sequence"] - 1]
+        self.assertEqual(record.session_id, "")
+        self.assertEqual(record.turn_id, "")
+        self.assertEqual(record.tool_call_id, "")
+        self.assertEqual(record.project_environment, "")
+        self.assertEqual(record.coverage_gap, "")
+
     def test_public_sleep_requires_surface_and_preserves_state_when_missing(
         self,
     ) -> None:

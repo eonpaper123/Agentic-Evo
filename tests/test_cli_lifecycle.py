@@ -12,6 +12,7 @@ import threading
 import time
 import unittest
 
+from agentic_evo._util import canonical_json_bytes
 from agentic_evo.ipc import (
     PUBLIC_IO_TIMEOUT_SECONDS,
     ServiceUnavailableError,
@@ -451,6 +452,121 @@ class CLILifecycleTests(unittest.TestCase):
         record = self.runtime.evidence.records()[-1]
         self.assertEqual(record.execution_surface, "generic-stdio")
         self.assertIsNone(record.session_id)
+
+    def test_surface_stdio_allows_empty_optional_text_fields(self) -> None:
+        service = self._spawn_service()
+        self._wait_until_ready(service)
+        process = self._spawn_surface_stdio("generic-stdio")
+
+        self._write_jsonl(
+            process,
+            {
+                "schema": "agentic-evo.surface-stdio.v1",
+                "id": "wake-empty-optional",
+                "op": "wake",
+                "args": {
+                    "session_id": "session-empty-optional",
+                    "project_environment": "project-empty-optional",
+                    "model": "",
+                },
+            },
+        )
+        self._assert_surface_response(
+            self._read_jsonl(process),
+            request_id="wake-empty-optional",
+            ok=True,
+        )
+        self.assertEqual(self.runtime.evidence.records()[-1].payload["model_ref"], "")
+
+        self._write_jsonl(
+            process,
+            {
+                "schema": "agentic-evo.surface-stdio.v1",
+                "id": "observe-empty-optional",
+                "op": "observe",
+                "args": {
+                    "event_kind": "tool_result",
+                    "payload": {"outcome": "ok"},
+                    "session_id": "",
+                    "turn_id": "",
+                    "tool_call_id": "",
+                    "project_environment": "",
+                    "coverage_gap": "",
+                },
+            },
+        )
+        receipt = self._assert_surface_response(
+            self._read_jsonl(process),
+            request_id="observe-empty-optional",
+            ok=True,
+        )
+        self._assert_observe_receipt_shape(receipt)
+        record = self.runtime.evidence.records()[receipt["sequence"] - 1]
+        self.assertEqual(record.session_id, "")
+        self.assertEqual(record.turn_id, "")
+        self.assertEqual(record.tool_call_id, "")
+        self.assertEqual(record.project_environment, "")
+        self.assertEqual(record.coverage_gap, "")
+
+    def test_surface_stdio_rejects_public_frame_oversize_locally(self) -> None:
+        service = self._spawn_service()
+        self._wait_until_ready(service)
+        execution_surface = "s" * 1024
+        text = "t" * 1024
+        payload = {
+            "payload": "x"
+            * (60 * 1024 - len(canonical_json_bytes({"payload": ""})))
+        }
+        self.assertEqual(len(canonical_json_bytes(payload)), 60 * 1024)
+        before_status = self.runtime.status()
+        before_records = self.runtime.evidence.records()
+        process = self._spawn_surface_stdio(execution_surface)
+
+        self._write_jsonl(
+            process,
+            {
+                "schema": "agentic-evo.surface-stdio.v1",
+                "id": "observe-public-frame-oversize",
+                "op": "observe",
+                "args": {
+                    "event_kind": text,
+                    "payload": payload,
+                    "session_id": text,
+                    "turn_id": text,
+                    "tool_call_id": text,
+                    "project_environment": text,
+                    "coverage_gap": text,
+                },
+            },
+        )
+        error = self._assert_surface_response(
+            self._read_jsonl(process),
+            request_id="observe-public-frame-oversize",
+            ok=False,
+        )
+        self.assertEqual(error["code"], "invalid_input")
+        self.assertEqual(
+            error["message"],
+            "operation arguments exceed the public frame byte bound",
+        )
+        self.assertEqual(self.runtime.status(), before_status)
+        self.assertEqual(self.runtime.evidence.records(), before_records)
+        self.assertIsNone(process.poll())
+
+        self._write_jsonl(
+            process,
+            {
+                "schema": "agentic-evo.surface-stdio.v1",
+                "id": "status-after-public-frame-oversize",
+                "op": "status",
+                "args": {},
+            },
+        )
+        self._assert_surface_response(
+            self._read_jsonl(process),
+            request_id="status-after-public-frame-oversize",
+            ok=True,
+        )
 
     def test_surface_stdio_invalid_line_returns_invalid_input_without_mutation(self) -> None:
         service = self._spawn_service()
