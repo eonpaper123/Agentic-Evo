@@ -174,7 +174,7 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
         manifest_path = bundle / MANIFEST_NAME
         artifact = bundle / ARTIFACT_NAME
         script_sha256 = _sha256(GATE_B_SCRIPT)
-        lab_id = "3060-computer"
+        lab_id = TEST_LAB_ID
         run_id = uuid4().hex
         challenge = uuid4().hex
         evidence = root / "evidence"
