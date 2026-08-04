@@ -112,6 +112,8 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
                 "Plan",
                 "-RunId",
                 run_id,
+                "-LabId",
+                lab_id,
                 "-ArtifactPath",
                 str(artifact),
                 "-ExpectedArtifactSha256",
@@ -126,7 +128,9 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
         )
         self.assertEqual(plan_process.returncode, 0, plan_process.stderr)
         plan = json.loads(plan_process.stdout)
-        evidence.mkdir()
+        evidence = Path(plan["evidence_root"])
+        evidence.mkdir(parents=True)
+        self.addCleanup(shutil.rmtree, evidence, ignore_errors=True)
         plan_bytes = _canonical_json(plan)
         (evidence / "plan.json").write_bytes(plan_bytes)
         plan_sha256 = hashlib.sha256(plan_bytes[:-1]).hexdigest()
@@ -254,12 +258,13 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
             "errors": [],
         }
         report = {
-            "schema": "agentic-evo.windows-gate-b-config-probe.v1",
+            "schema": "agentic-evo.windows-gate-b-config-probe.v2",
             "lab_id": lab_id,
             "run_id": run_id,
             "challenge": challenge,
             "plan_sha256": plan_sha256,
             "script_sha256": script_sha256,
+            "environment_sha256": plan["environment_sha256"],
             "status": "configuration_probe_completed",
             "error": "",
             "elevated_administrator": True,
@@ -289,7 +294,7 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
             "state_tree_absent": True,
         }
         result = {
-            "schema": "agentic-evo.windows-gate-b-result.v1",
+            "schema": "agentic-evo.windows-gate-b-result.v2",
             "lab_id": lab_id,
             "run_id": run_id,
             "challenge": challenge,
@@ -297,6 +302,8 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
             "gate_b_outcome": "not_established",
             "elevated_exit_code": 0,
             "elevated_pipe_client_pid": 1234,
+            "plan_sha256": plan_sha256,
+            "environment_sha256": plan["environment_sha256"],
             "report": report,
             "independent_cleanup": independent_cleanup,
         }
@@ -347,58 +354,7 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
         fixture["result_sha256"] = _sha256(result_path)
 
     def _create_v2_synthetic_fixture(self, root: Path) -> dict[str, object]:
-        fixture = self._create_fixture(root)
-        plan_path = Path(fixture["evidence"]) / "plan.json"
-        result_path = Path(fixture["evidence"]) / "result.json"
-        plan = json.loads(plan_path.read_text(encoding="utf-8"))
-        result = json.loads(result_path.read_text(encoding="utf-8"))
-        lab_declaration = REPOSITORY_ROOT / "experiments" / "labs" / "3060-computer.json"
-        environment = {
-            "os_family": "Windows",
-            "os_version": "synthetic",
-            "os_architecture": "x64",
-            "powershell_edition": "Desktop",
-            "powershell_version": "5.1",
-            "trusted_system_directory": plan["trusted_system_directory"],
-        }
-        environment_sha256 = hashlib.sha256(
-            json.dumps(
-                environment,
-                ensure_ascii=False,
-                separators=(",", ":"),
-            ).encode("utf-8")
-        ).hexdigest()
-        plan.update(
-            {
-                "schema": "agentic-evo.windows-gate-b-plan.v2",
-                "lab_id": fixture["lab_id"],
-                "lab_declaration_path": "experiments/labs/3060-computer.json",
-                "lab_declaration_sha256": _sha256(lab_declaration),
-                "evidence_namespace": "artifacts/labs/3060-computer",
-                "environment": environment,
-                "environment_sha256": environment_sha256,
-            }
-        )
-        plan_path.write_bytes(_canonical_json(plan))
-        plan_sha256 = hashlib.sha256(_canonical_json(plan)[:-1]).hexdigest()
-        report = result["report"]
-        report.update(
-            {
-                "schema": "agentic-evo.windows-gate-b-config-probe.v2",
-                "plan_sha256": plan_sha256,
-                "script_sha256": _sha256(GATE_B_SCRIPT),
-                "environment_sha256": environment_sha256,
-            }
-        )
-        result.update(
-            {
-                "schema": "agentic-evo.windows-gate-b-result.v2",
-                "plan_sha256": plan_sha256,
-                "environment_sha256": environment_sha256,
-            }
-        )
-        self._rewrite_result(fixture, result)
-        return fixture
+        return self._create_fixture(root)
 
     def _materialize_historical_v1_synthetic(
         self,
@@ -429,6 +385,15 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
         plan = json.loads(plan_path.read_text(encoding="utf-8"))
         result = json.loads(result_path.read_text(encoding="utf-8"))
         plan.update(synthetic["plan"])
+        for field in (
+            "lab_id",
+            "lab_declaration_path",
+            "lab_declaration_sha256",
+            "evidence_namespace",
+            "environment",
+            "environment_sha256",
+        ):
+            del plan[field]
         plan["run_id"] = fixture["run_id"]
         plan["artifact_sha256"] = synthetic["manifest"]["artifact"]["sha256"]
         plan_path.write_bytes(_canonical_json(plan))
@@ -444,10 +409,13 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
         result["run_id"] = fixture["run_id"]
         result.pop("lab_id", None)
         result.pop("challenge", None)
+        result.pop("plan_sha256", None)
+        result.pop("environment_sha256", None)
         report = result["report"]
         report.update(synthetic["result"]["report"])
         report["run_id"] = fixture["run_id"]
         report["challenge"] = fixture["challenge"]
+        report.pop("environment_sha256", None)
         report["plan_sha256"] = plan_sha256
         report["script_sha256"] = _sha256(GATE_B_SCRIPT)
         report["observation"]["artifact_sha256"] = plan["artifact_sha256"]
