@@ -678,8 +678,6 @@ AdvanceHead
 37. stop、worker cleanup 与 control receive deadline 共享每条 transport 的单一 raw-close owner；
 38. Windows 与 WSL Ubuntu 都通过上述 stop、preaccepted-request fencing、admitted-mutation drain、single-close ownership 和 same-home restart；macOS 尚未实机复验。
 
-截至当前停止点，Windows 全仓 189/189 项 unittest 通过，其中 Windows Gate B 相关 43 项通过，并以 `ResourceWarning` 作为错误运行。
-
 ---
 
 ## 13. 仍未证明

@@ -1,6 +1,6 @@
 # Windows 原生 Witness 边界
 
-更新时间：2026-07-30  
+更新时间：2026-08-04
 状态：四项 foreground 局部原生证据、内部 supervisor-stop、SCM-only probe bundle，以及一次无启动、无重启、零持久残留的 UAC 配置探针已形成；有界无 UAC 的独立 verifier + real-attacker harness 与冻结 v1/v2 corpus/CLI regression 已完成；Gate B 原生安全 / 特权 service 证明尚未建立，`native_security_verified=false`、`ready_to_install=false`
 对应实现：`src/agentic_evo/windows_native.py`、`src/agentic_evo/body_process.py`、`src/agentic_evo/windows_pipe.py`、`src/agentic_evo/ipc.py`、`src/agentic_evo/service.py`、`src/agentic_evo/windows_gate_a.py`、`src/agentic_evo/native/AgenticEvo.ScmProbe.cs`、`tools/windows-gate-b-experiment.ps1`、`tests/test_windows_gate_b.py`
 
@@ -300,7 +300,7 @@ subprocess_rehearsal
 17. 屏障测试证明 cutoff 前已 admission 的变更可以恰好提交一次，而 `request_stop()` 必须等该 dispatch 归静后才返回；
 18. 每条已接受 transport 只有一个 raw-close owner；stop、worker cleanup 与 control receive deadline 竞争关闭时不会再次关闭同一底层句柄；
 19. Windows 与 WSL Ubuntu 均验证 accept 唤醒、active connection 关闭、Body/lease/singleton 回收及同一 home 重启；macOS 尚未实机复验；
-20. Windows 全仓 189/189 项 unittest 通过，其中 Windows Gate B 相关 43 项通过。
+20. c643c91 的定向回归通过：`tests.test_windows_gate_b_evidence` 36/36，`tests.test_windows_gate_b` 8/8；本轮没有重跑全仓测试，因此不继续把旧 `189/189` 写成当前结果。
 
 本轮不依赖 pywin32 或其他第三方包；实现只使用 Python 标准库、`ctypes` 与 Windows Kernel32 / Advapi32。
 
@@ -673,5 +673,7 @@ service self-report
 创建临时 service 需要管理员权限；Microsoft 的 SCM 权限说明也明确指出，能够 `CreateService` 的 SCM handle 只授予管理员。本轮已用一次宿主批准、外部固定脚本摘要、随机 service name、零 Genesis 的 UAC 配置探针证明 trusted handoff 与 exact cleanup 可以实机闭合；它没有把普通用户 Python 注册为服务，也没有留下可跨重启对象。Windows 权限实验当前可以在这里停下：下一次重新打开必须得到覆盖“保留临时 service + system restart + 独立 verifier/attacker + 完整攻击与卸载矩阵”的新授权。没有该授权时，继续运行同类配置探针不会增加 \(W_{SCM}\) 或 Gate B 证据。
 
 在申请该授权前，仓库只允许生成 `agentic-evo.windows-gate-b-retained-preflight.v1` 预注册计划；它固定一次跨单次重启的临时 service 实验边界，但不创建 service、不触发 UAC、不写入 evidence，也不提升任何 Gate B 结论。
+
+c643c91 将 synthetic Gate B fixture 绑定到专用 lab `windows-gate-b-test-fixture` 与 `artifacts/test-fixtures/windows-gate-b-test-fixture`；回归前后 `artifacts/labs/3060-computer/windows-gate-b` 的成员集不变，因此没有新增测试写入 3060 reference namespace。隔离前遗留的 synthetic orphan `artifacts/labs/3060-computer/windows-gate-b/1ed1e8b16f554059b77ceb99a8b40cd6/` 仍存在；`Remove-Item` 被本地命令策略在执行前阻止，删除并未执行，不得记录为 removed。该 orphan 不属于 3060 当前证据；本轮未执行 UAC、SCM、restart 或其他 privileged Gate B action。
 
 它只固定未来获授权的 effects/retention；在已单独授权的保留重启实验实际执行并完成独立验证前，当前 ceiling 不高于 `configuration_probe_only` / `partial_cleanup_if_service_lifecycle_occurs`。
