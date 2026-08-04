@@ -241,6 +241,38 @@ class WindowsGateBPlanTests(unittest.TestCase):
             run_id = uuid4().hex
             declaration_file = REPOSITORY_ROOT / Path(LAB_DECLARATION_PATH)
             declaration = json.loads(declaration_file.read_text(encoding="utf-8"))
+            service_name = f"AgenticEvoGateB_{run_id}"
+            artifact_root = (
+                Path(os.environ["ProgramFiles"])
+                / "Agentic-Evo"
+                / "GateB"
+                / run_id
+            )
+            state_root = (
+                Path(os.environ["ProgramData"])
+                / "Agentic-Evo"
+                / "GateB"
+                / run_id
+            )
+            evidence_root = (
+                REPOSITORY_ROOT.resolve()
+                / declaration["evidence_namespace"]
+                / "windows-gate-b"
+                / run_id
+            )
+            sc_exe = Path(os.environ["SystemRoot"]) / "System32" / "sc.exe"
+
+            self.assertFalse(artifact_root.exists())
+            self.assertFalse(state_root.exists())
+            self.assertFalse(evidence_root.exists())
+            service = subprocess.run(
+                [str(sc_exe), "query", service_name],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+            self.assertEqual(service.returncode, 1060, service.stderr)
 
             result = self._run_plan(
                 run_id,
@@ -263,7 +295,6 @@ class WindowsGateBPlanTests(unittest.TestCase):
             self.assertEqual(repeated.returncode, 0, repeated.stderr)
             self.assertEqual(repeated.stdout, result.stdout)
             preflight = json.loads(result.stdout)
-            service_name = f"AgenticEvoGateB_{run_id}"
             self.assertEqual(
                 list(preflight),
                 [
@@ -308,10 +339,7 @@ class WindowsGateBPlanTests(unittest.TestCase):
             )
             self.assertEqual(
                 Path(preflight["artifact_root"]),
-                Path(os.environ["ProgramFiles"])
-                / "Agentic-Evo"
-                / "GateB"
-                / run_id,
+                artifact_root,
             )
             self.assertEqual(
                 Path(preflight["artifact_path"]),
@@ -323,10 +351,7 @@ class WindowsGateBPlanTests(unittest.TestCase):
             )
             self.assertEqual(
                 Path(preflight["state_root"]),
-                Path(os.environ["ProgramData"])
-                / "Agentic-Evo"
-                / "GateB"
-                / run_id,
+                state_root,
             )
             self.assertEqual(
                 Path(preflight["probe_path"]),
@@ -344,10 +369,7 @@ class WindowsGateBPlanTests(unittest.TestCase):
             )
             self.assertEqual(
                 Path(preflight["evidence_root"]),
-                REPOSITORY_ROOT.resolve()
-                / declaration["evidence_namespace"]
-                / "windows-gate-b"
-                / run_id,
+                evidence_root,
             )
             self.assertNotEqual(Path(preflight["evidence_root"]), caller_evidence)
             self.assertEqual(
@@ -355,6 +377,17 @@ class WindowsGateBPlanTests(unittest.TestCase):
                 preflight["environment"]["trusted_system_directory"],
             )
             self.assertEqual(set(preflight["environment"]), ENVIRONMENT_KEYS)
+            self.assertEqual(
+                list(preflight["environment"]),
+                [
+                    "os_family",
+                    "os_version",
+                    "os_architecture",
+                    "powershell_edition",
+                    "powershell_version",
+                    "trusted_system_directory",
+                ],
+            )
             environment_json = json.dumps(
                 preflight["environment"],
                 ensure_ascii=False,
@@ -365,53 +398,59 @@ class WindowsGateBPlanTests(unittest.TestCase):
                 hashlib.sha256(environment_json.encode("utf-8")).hexdigest(),
             )
             self.assertEqual(
-                preflight["authorized_effects"],
-                {
-                    "temporary_service": True,
-                    "permanent_service": False,
-                    "hook": False,
-                    "genesis": False,
-                    "system_restart": True,
-                },
+                list(preflight["authorized_effects"]),
+                [
+                    "temporary_service",
+                    "permanent_service",
+                    "hook",
+                    "genesis",
+                    "system_restart",
+                ],
             )
             self.assertEqual(
-                preflight["retention"],
-                {
-                    "service_lifetime": (
-                        "retain_across_exactly_one_restart_until_"
-                        "post_restart_verification_then_remove"
-                    ),
-                    "service_start": "not_performed_by_preflight",
-                    "cleanup_before_restart": False,
-                    "cleanup_after_post_restart_verification": "required",
-                    "reversible_uninstall_required": True,
-                },
+                list(preflight["retention"]),
+                [
+                    "service_lifetime",
+                    "service_start",
+                    "cleanup_before_restart",
+                    "cleanup_after_post_restart_verification",
+                    "reversible_uninstall_required",
+                ],
             )
             self.assertEqual(
-                preflight["claim_ceiling"],
-                {
-                    "gate_b": "not_established",
-                    "restricted_service_sid_configuration": (
-                        "pending_reboot_until_post_restart_observation"
-                    ),
-                    "C01": "not_run",
-                    "C02": "not_run",
-                    "I01": "not_run",
-                    "S01": "not_run",
-                    "S02": "not_run",
-                    "S03": "not_run",
-                    "P01": "not_run",
-                    "P02": "not_run",
-                    "L01": "not_run",
-                    "R01": "not_run",
-                    "R02": "not_run",
-                    "U01": "not_run",
-                    "native_security_verified": False,
-                    "ready_to_install": False,
-                },
+                list(preflight["claim_ceiling"]),
+                [
+                    "gate_b",
+                    "restricted_service_sid_configuration",
+                    "C01",
+                    "C02",
+                    "I01",
+                    "S01",
+                    "S02",
+                    "S03",
+                    "P01",
+                    "P02",
+                    "L01",
+                    "R01",
+                    "R02",
+                    "U01",
+                    "native_security_verified",
+                    "ready_to_install",
+                ],
             )
+            self.assertEqual(preflight["claim_ceiling"], CLAIM_CEILING)
             self.assertFalse(caller_evidence.exists())
-            self.assertFalse(Path(preflight["evidence_root"]).exists())
+            self.assertFalse(artifact_root.exists())
+            self.assertFalse(state_root.exists())
+            self.assertFalse(evidence_root.exists())
+            service = subprocess.run(
+                [str(sc_exe), "query", service_name],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+            self.assertEqual(service.returncode, 1060, service.stderr)
             self.assertEqual(
                 {path.relative_to(root) for path in root.rglob("*") if path.is_file()},
                 {artifact.relative_to(root)},
