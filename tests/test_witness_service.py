@@ -266,6 +266,119 @@ class WitnessServiceTests(unittest.TestCase):
         self.assertEqual(record.project_environment, "")
         self.assertEqual(record.coverage_gap, "")
 
+    def test_public_observe_preserves_temporal_and_causal_refs(self) -> None:
+        process = self._spawn()
+        client = self._wait_until_ready(process)
+
+        receipt = client.observe(
+            event_kind="delayed_outcome_observed",
+            payload={"outcome": "accepted"},
+            occurred_at="2026-08-04T12:34:56Z",
+            execution_surface="codex",
+            session_id="outcome-session",
+            turn_id="outcome-turn",
+            project_environment="project-b",
+            correlation_ref="c" * 1024,
+            causation_ref="prior-event-id",
+            parent_ref="external-parent-ref",
+        )
+
+        self.assertEqual(
+            set(receipt),
+            {"event_id", "sequence", "integrity_hash"},
+        )
+        record = self.runtime.evidence.records()[receipt["sequence"] - 1]
+        self.assertEqual(record.event_id, receipt["event_id"])
+        self.assertEqual(record.sequence, receipt["sequence"])
+        self.assertEqual(record.integrity_hash, receipt["integrity_hash"])
+        self.assertEqual(record.event_kind, "delayed_outcome_observed")
+        self.assertEqual(record.payload, {"outcome": "accepted"})
+        self.assertEqual(record.occurred_at, "2026-08-04T12:34:56Z")
+        self.assertEqual(record.execution_surface, "codex")
+        self.assertEqual(record.session_id, "outcome-session")
+        self.assertEqual(record.turn_id, "outcome-turn")
+        self.assertEqual(record.project_environment, "project-b")
+        self.assertEqual(record.correlation_ref, "c" * 1024)
+        self.assertEqual(record.causation_ref, "prior-event-id")
+        self.assertEqual(record.parent_ref, "external-parent-ref")
+        self.assertEqual(record.source_kind, "execution_surface")
+        self.assertEqual(record.author_kind, "surface_unverified")
+        self.assertIsNone(record.human_intervention_kind)
+        self.assertTrue(self.runtime.evidence.verify())
+
+    def test_public_observe_rejects_invalid_temporal_and_causal_refs_without_mutation(
+        self,
+    ) -> None:
+        process = self._spawn()
+        client = self._wait_until_ready(process)
+        base_params = {
+            "event_kind": "delayed_outcome_observed",
+            "payload": {"outcome": "accepted"},
+            "execution_surface": "codex",
+        }
+
+        for field in (
+            "occurred_at",
+            "correlation_ref",
+            "causation_ref",
+            "parent_ref",
+        ):
+            for value, message in (
+                (False, f"{field} must be a non-empty string or null"),
+                ("", f"{field} must be a non-empty string or null"),
+                ("x" * 1025, f"{field} exceeds the public text byte bound"),
+            ):
+                with self.subTest(field=field, value=value):
+                    before_status = client.status()
+                    before_records = self.runtime.evidence.records()
+
+                    with self.assertRaises(ServiceRejectedError) as caught:
+                        client._request(
+                            "observe",
+                            {**base_params, field: value},
+                        )
+
+                    self.assertEqual(caught.exception.code, "invalid_parameters")
+                    self.assertEqual(str(caught.exception), message)
+                    self.assertEqual(client.status(), before_status)
+                    self.assertEqual(self.runtime.evidence.records(), before_records)
+
+    def test_public_observe_rejects_witness_owned_evidence_fields(self) -> None:
+        process = self._spawn()
+        client = self._wait_until_ready(process)
+        base_params = {
+            "event_kind": "tool_result",
+            "payload": {"outcome": "accepted"},
+            "execution_surface": "codex",
+        }
+
+        for field, value in (
+            ("source_kind", "body"),
+            ("author_kind", "agent_self_authored"),
+            ("human_intervention_kind", "none"),
+            ("observed_at", "2026-08-04T12:34:56Z"),
+            ("root_commitment", "forged-root"),
+            ("head_before", "forged-head"),
+            ("head_after", "forged-head"),
+        ):
+            with self.subTest(field=field):
+                before_status = client.status()
+                before_records = self.runtime.evidence.records()
+
+                with self.assertRaises(ServiceRejectedError) as caught:
+                    client._request(
+                        "observe",
+                        {**base_params, field: value},
+                    )
+
+                self.assertEqual(caught.exception.code, "invalid_parameters")
+                self.assertEqual(
+                    str(caught.exception),
+                    "operation parameters do not match the public contract",
+                )
+                self.assertEqual(client.status(), before_status)
+                self.assertEqual(self.runtime.evidence.records(), before_records)
+
     def test_public_client_maps_oversized_request_to_unavailable(self) -> None:
         process = self._spawn()
         client = self._wait_until_ready(process)
