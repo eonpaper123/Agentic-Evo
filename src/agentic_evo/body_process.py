@@ -32,6 +32,17 @@ if sys.platform == "win32":
 BODY_BOOT_PROTOCOL = "agentic-evo-private-boot-v1"
 BODY_LINEAGE_PROTOCOL = "agentic-evo-private-lineage-v1"
 MAX_BODY_BOOT_FRAME_BYTES = 8 * 1024 * 1024
+MAX_PRIVATE_LINEAGE_TEXT_BYTES = 1024
+
+
+def _private_lineage_optional_text(value: Any, field: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{field} must be a string or null")
+    if len(value.encode("utf-8")) > MAX_PRIVATE_LINEAGE_TEXT_BYTES:
+        raise ValueError(f"{field} exceeds the private lineage text byte bound")
+    return value
 
 
 class BodyBootError(AgenticEvoError):
@@ -463,6 +474,7 @@ class SpawnedBodyProcess:
         files: Mapping[str, str],
         activation_kind: str | None = None,
         activation_artifact: str | None = None,
+        causation_ref: str | None = None,
     ) -> str:
         normalized_files = dict(files)
         if not normalized_files or any(
@@ -475,6 +487,10 @@ class SpawnedBodyProcess:
         for value in (activation_kind, activation_artifact):
             if value is not None and (not isinstance(value, str) or not value):
                 raise ValueError("activation fields must be non-empty strings")
+        causation_ref = _private_lineage_optional_text(
+            causation_ref,
+            "causation_ref",
+        )
         result = self._run_rehearsal(
             {
                 "protocol": BODY_LINEAGE_PROTOCOL,
@@ -483,6 +499,7 @@ class SpawnedBodyProcess:
                 "files": normalized_files,
                 "activation_kind": activation_kind,
                 "activation_artifact": activation_artifact,
+                "causation_ref": causation_ref,
             }
         )
         if set(result) != {
@@ -746,6 +763,7 @@ class SpawnedBodyProcess:
                     "files",
                     "activation_kind",
                     "activation_artifact",
+                    "causation_ref",
                 }:
                     raise BodyBootError(
                         "private prepare request has unexpected fields"
@@ -767,6 +785,15 @@ class SpawnedBodyProcess:
                         raise BodyBootError(
                             "private prepare request has invalid activation"
                         )
+                try:
+                    causation_ref = _private_lineage_optional_text(
+                        request.get("causation_ref"),
+                        "causation_ref",
+                    )
+                except ValueError as exc:
+                    raise BodyBootError(
+                        "private prepare request has invalid causation_ref"
+                    ) from exc
                 self._bind_request_to_pending_rehearsal(
                     operation="prepare_successor",
                     sequence=sequence,
@@ -775,6 +802,7 @@ class SpawnedBodyProcess:
                     files=files,
                     activation_kind=activation_kind,
                     activation_artifact=activation_artifact,
+                    causation_ref=causation_ref,
                 )
                 return {**common, "ok": True, "candidate_head": candidate}
 

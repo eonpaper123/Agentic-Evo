@@ -129,6 +129,7 @@ def _run_lineage_rehearsal(
             "files",
             "activation_kind",
             "activation_artifact",
+            "causation_ref",
         }:
             raise BodyBootError("private prepare rehearsal has unexpected fields")
         request = {
@@ -140,6 +141,7 @@ def _run_lineage_rehearsal(
             "files": command["files"],
             "activation_kind": command["activation_kind"],
             "activation_artifact": command["activation_artifact"],
+            "causation_ref": command["causation_ref"],
         }
     elif operation == "advance_head":
         if set(command) != {

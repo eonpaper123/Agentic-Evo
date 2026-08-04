@@ -303,6 +303,7 @@ class DevelopmentalRuntime:
         expected_authority_epoch: int,
         activation_kind: str | None = None,
         activation_artifact: str | None = None,
+        causation_ref: str | None = None,
     ) -> str:
         snapshot = self.trusted.gate()
         if snapshot.head != expected_parent:
@@ -324,6 +325,7 @@ class DevelopmentalRuntime:
             head_after=snapshot.head,
             source_kind="body",
             author_kind=author_kind,
+            causation_ref=causation_ref,
             payload={
                 "candidate_head": candidate,
                 "expected_parent": expected_parent,

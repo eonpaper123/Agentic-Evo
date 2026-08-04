@@ -46,12 +46,14 @@ class CurrentBodySession:
         files: Mapping[str, str | bytes],
         activation_kind: str | None = None,
         activation_artifact: str | None = None,
+        causation_ref: str | None = None,
     ) -> str:
         return self._witness._prepare_successor(
             self,
             files=files,
             activation_kind=activation_kind,
             activation_artifact=activation_artifact,
+            causation_ref=causation_ref,
         )
 
     def advance_head(self, *, candidate_head: str) -> RuntimeStatus:
@@ -174,6 +176,7 @@ class WitnessCore:
         files: Mapping[str, str | bytes],
         activation_kind: str | None,
         activation_artifact: str | None,
+        causation_ref: str | None,
     ) -> str:
         with self._guard:
             self._authorize(lease)
@@ -185,6 +188,7 @@ class WitnessCore:
                 expected_authority_epoch=lease._authority_epoch,
                 activation_kind=activation_kind,
                 activation_artifact=activation_artifact,
+                causation_ref=causation_ref,
             )
             lease._prepared_candidates.add(candidate)
             return candidate
