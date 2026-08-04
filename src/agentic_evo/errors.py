@@ -43,3 +43,11 @@ class BodyNotFoundError(AgenticEvoError):
 
 class InvalidBodyError(AgenticEvoError):
     """Raised when a body manifest or file path is invalid."""
+
+
+class PolicyGateError(AgenticEvoError):
+    """Raised when a candidate repair is denied by loop policy."""
+
+
+class InvalidCandidateError(AgenticEvoError):
+    """Raised when a candidate repair violates loop safety constraints."""

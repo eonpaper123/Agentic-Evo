@@ -8,6 +8,7 @@ import sys
 from typing import Any, Mapping
 
 from .adapters.codex import handle_codex_hook
+from .autonomous_loop import smoke_main as autonomous_loop_smoke_main
 from ._util import canonical_json_bytes
 from .errors import AgenticEvoError
 from .experiment_pack import (
@@ -590,6 +591,13 @@ def _parser() -> argparse.ArgumentParser:
         "plan-install",
         help="Print a deterministic plan that performs no installation writes.",
     )
+    loop_smoke = commands.add_parser(
+        "autonomous-loop-smoke",
+        help="Run an in-memory autonomous-loop smoke fixture and write JSONL records.",
+    )
+    loop_smoke.add_argument("--output", type=Path, required=True)
+    loop_smoke.add_argument("--fixture", choices=("passed", "failed"), default="passed")
+    loop_smoke.add_argument("--promotion-passes", type=int, default=2)
     prereg = commands.add_parser(
         "export-experiment-prereg",
         help="Export a detached experiment preregistration artifact.",
@@ -696,6 +704,17 @@ def main(argv: list[str] | None = None) -> int:
         return _gate_b_evidence(arguments, attack=False)
     if arguments.command == "attack-windows-gate-b-evidence":
         return _gate_b_evidence(arguments, attack=True)
+    if arguments.command == "autonomous-loop-smoke":
+        return autonomous_loop_smoke_main(
+            [
+                "--fixture",
+                arguments.fixture,
+                "--output",
+                str(arguments.output),
+                "--promotion-passes",
+                str(arguments.promotion_passes),
+            ]
+        )
     raise AssertionError("argparse accepted an unknown command")
 
 
