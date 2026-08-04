@@ -1365,7 +1365,7 @@ switch ($Mode) {
             }
             claim_ceiling = [ordered]@{
                 gate_b = "not_established"
-                restricted_service_sid_configuration = "pending_reboot_until_post_restart_observation"
+                restricted_service_sid_configuration = "configuration_probe_only"
                 C01 = "not_run"
                 C02 = "not_run"
                 I01 = "not_run"
@@ -1377,7 +1377,7 @@ switch ($Mode) {
                 L01 = "not_run"
                 R01 = "not_run"
                 R02 = "not_run"
-                U01 = "not_run"
+                U01 = "partial_cleanup_if_service_lifecycle_occurs"
                 native_security_verified = $false
                 ready_to_install = $false
             }
