@@ -1,0 +1,37 @@
+{
+  "schema": "agentic-evo.detached-artifact-regression.receipt.v1",
+  "recorded_on": "2026-08-04",
+  "commit_under_test": "e24c0bcb77fc4844042d087155134877bbdd90e8",
+  "artifact_contracts": ["agentic-evo.experiment-prereg.v1", "agentic-evo.experiment-pack.v1", "agentic-evo.experiment-artifact-verification.v1"],
+  "regression": {
+    "targeted": {
+      "scope": "detached_experiment_artifact",
+      "tests_run": 41,
+      "tests_passed": 41,
+      "exit_code": 0
+    },
+    "full": {
+      "scope": "unittest_discover",
+      "tests_run": 237,
+      "tests_passed": 237,
+      "exit_code": 0
+    }
+  },
+  "reference_namespace": {
+    "lab_id": "3060-computer",
+    "evidence_namespace": "artifacts/labs/3060-computer",
+    "membership_identical_before_after_full_regression": true
+  },
+  "provenance": {
+    "self_report": true,
+    "independence": "non_independent",
+    "no_raw_diagnostics_embedded": true
+  },
+  "claim_ceiling": {
+    "repo_regression_green": "established",
+    "repo_local_reference_namespace_consistency": "established",
+    "independent_verification": "not_established",
+    "learning_or_evolution": "not_established",
+    "uac_scm_restart_token_protected_state_body_capability_host_presence_gate_b": "not_established"
+  }
+}
