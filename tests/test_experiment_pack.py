@@ -191,11 +191,22 @@ class ExperimentPackTests(unittest.TestCase):
         )
         self.assertEqual(pack["schema"], EXPERIMENT_PACK_SCHEMA)
         self.assertEqual(pack["body_manifests"], expected_manifests)
-        self.assertNotIn("blobs", json.dumps(pack["body_manifests"]))
-        self.assertNotIn("witness", json.dumps(pack))
-        self.assertNotIn("mac", json.dumps(pack))
-        self.assertNotIn("who", json.dumps(pack))
-        self.assertNotIn("why", json.dumps(pack))
+        manifest_fields = {
+            "schema_version",
+            "root",
+            "parent_head",
+            "generation",
+            "author_kind",
+            "created_at",
+            "activation_kind",
+            "activation_artifact",
+            "files",
+        }
+        for exported in (pack, *pack["body_manifests"].values()):
+            self.assertNotIn("manifest_base64", exported)
+            self.assertNotIn("blobs", exported)
+        for manifest in pack["body_manifests"].values():
+            self.assertEqual(set(manifest), manifest_fields)
 
     def test_verify_experiment_artifact_fails_closed_on_legacy_or_unknown_schema(self) -> None:
         pack = self._pack_with_head_change()
