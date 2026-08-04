@@ -7,7 +7,7 @@
 
 从这里开始：
 1. 进入仓库根目录，先核对 `git status`、`HEAD`、远端和真实机器状态。
-2. 以当前已提交代码为起点，优先重跑关键入口：`$env:PYTHONPATH='src'; & 'C:\Users\1\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m pytest tests/test_windows_gate_b_evidence.py`。
+2. 以当前已提交代码为起点，优先重跑关键入口：`$env:PYTHONPATH='src'; & 'C:\Users\1\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -m unittest tests.test_windows_gate_b_evidence`。
 3. 旧电脑 `artifacts/windows-gate-a`、`artifacts/windows-gate-b` 只算历史证据，不得冒充 `3060-computer` 当前证据。
 4. 当前实验台身份、环境承诺和证据谱系以 `experiments/labs/3060-computer.json` 为起点；不记录硬件序列号、凭据或秘密。
 5. 若文档与代码、测试、实时观察或不可变原始证据冲突，先修正文档，不反向篡改事实。
