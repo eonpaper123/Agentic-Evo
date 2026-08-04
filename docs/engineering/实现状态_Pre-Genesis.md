@@ -126,6 +126,10 @@ Nira 不拥有 Root，不产生独立 Agent，也不是本工具的安装范围�
 | 有界公共投影 | string parameter 1024 UTF-8 bytes、Body path 512 bytes；wake body files 最多 16 项/8 KiB、activation context 24 KiB；status active sessions 最多 32 项/24 KiB；按 canonical JSON bytes 预算并返回 total/truncated | 合法大 Head、增长中的 session 集合和 escape-heavy 文本不再必然撑破 64 KiB 响应；内部事实没有被截断，只有公共投影有界 |
 | 三平台安装计划 | canonical、无时间/随机/home/env 的 Windows/macOS/Linux target contract；macOS 明确 Witness UID 与 dedicated Body UID；installation effects 全 false；Hook 映射为 planned/not installed/not integration tested | 可移植协议的原生目标可审查；代码签名不冒充权限主体；不证明任何平台已安装或通过 native security test |
 
+public `observe` 与 `surface-stdio` 现可把调用方提供的可选 `occurred_at / correlation_ref / causation_ref / parent_ref` 追加保存到既有 hash-linked evidence record。一次 Pre-Genesis 本地演练在 service restart 前由 `codex` 写入 cause、重启后由 `generic-stdio` 写入 delayed outcome；reload 后 6 条记录的 sequence / previous hash 连续、Root / Head 不变、引用字段保持，且全部仍为 `source_kind=execution_surface / author_kind=surface_unverified`。
+
+该结果只证明既有 public/stdio 通路的有界传输、追加持久化、跨重启读取与完整性链接。`occurred_at` 是未验证的调用方声明，refs 不校验目标存在性或因果语义；它们不是因果真理、延迟结果真实性、记忆形成、学习或自我进化证据。
+
 当前实现没有规定记忆 schema、信号、学习算法、候选评分、Better 函数或 evaluator。这些开放空间仍属于身体。
 
 ---

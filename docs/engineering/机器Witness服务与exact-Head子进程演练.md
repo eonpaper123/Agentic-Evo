@@ -177,6 +177,8 @@ author_kind = surface_unverified
 
 因此公共调用者即使上传 `agent_self_authored` 也只会得到 `invalid_parameters`，不会改变 Head 或 evidence。
 
+public `observe` 允许调用方提交四个有界可选声明：`occurred_at / correlation_ref / causation_ref / parent_ref`。Witness 仍自行生成 `observed_at / sequence / integrity_hash` 并派生 `source_kind / author_kind`；它不解析 `occurred_at` 为可信时间，也不解析或验证 refs 的目标与因果含义。
+
 ### 4.1 传输边界
 
 公共帧沿用标准库 `multiprocessing.connection` 的 `PipeConnection` bytes framing，但只调用 `send_bytes / recv_bytes`，不反序列化 pickle。Windows listener / client 已改为原生 named-pipe handle；POSIX 仍使用 AF_UNIX。帧内容是有界 UTF-8 JSON：
@@ -428,6 +430,7 @@ commit Authority=Off
 - 空 home 启动服务不会创建 Root、Body 或 SQLite；
 - 公共 endpoint 没有 Genesis、On、Off、prepare 或 advance；
 - Surface 无法自报最终 provenance；
+- direct public `observe` 对四个可选声明的保留与超限/非字符串拒绝；
 - malformed、oversize 和静默公共连接不改变可信状态或阻塞其他请求；
 - foreground service 被强制终止后，singleton lock 可重用，已提交状态保持；
 - exact Head 的 manifest 与所有 blobs 在子进程重建；

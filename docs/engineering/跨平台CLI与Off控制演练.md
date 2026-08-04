@@ -90,6 +90,7 @@ agentic-evo serve        --dev-home <existing disposable home>
 agentic-evo status       --dev-home <existing disposable home>
 agentic-evo off          --dev-home <existing disposable home>
 agentic-evo hook         --dev-home <existing disposable home>
+agentic-evo surface-stdio --dev-home <existing disposable home> --execution-surface <caller-declared name>
 agentic-evo plan-install
 agentic-evo prepare-windows-gate-a --bundle-dir <new local directory>
 agentic-evo verify-windows-gate-a  --bundle-dir <existing local directory>
@@ -112,6 +113,8 @@ agentic-evo cleanup-windows-gate-a --bundle-dir <verified local directory>
 没有增加 `restart`：杀死 foreground service 后再次 `serve` 已足够构成当前重启实验。
 
 没有增加 `on`：原因不是功能遗漏，而是权限因果不成立。
+
+`surface-stdio` 不建立新的可信写入通路；它只把 `agentic-evo.surface-stdio.v1` 的 `status / wake / observe / sleep` 映射到既有 `SurfaceClient → public Surface → Witness`。`observe` 可转发可选的 `occurred_at / correlation_ref / causation_ref / parent_ref`，来源仍统一降级为 `surface_unverified`。字段类型或 1024-byte 上限失败时本地拒绝且不改变状态。
 
 ---
 
@@ -699,7 +702,8 @@ AdvanceHead
 13. 所有孙进程均已退出；
 14. 一个卡在业务处理中的 Python worker 会被 Timer 强制终止；
 15. 正式 Genesis；
-16. `agent_self_authored`。
+16. `agent_self_authored`；
+17. 引用字段被保存不等于引用目标、事件时间或因果关系被验证，也不构成第二真实 coding-agent、学习或自我进化证据。
 
 关键非等价关系：
 
