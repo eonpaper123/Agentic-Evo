@@ -148,6 +148,10 @@ def build_public_request(
     }
 
 
+def new_public_request_id() -> str:
+    return uuid4().hex
+
+
 def validate_public_request_frame(
     operation: str,
     params: Mapping[str, Any],
@@ -319,26 +323,26 @@ class SurfaceClient:
         operation: str,
         params: Mapping[str, Any],
     ) -> dict[str, Any]:
-        request_id = uuid4().hex
-        request = validate_public_request_frame(
-            operation,
-            params,
-            request_id=request_id,
-        )
-        with open_public_connection(
-            self.endpoint,
-            native_windows=True,
-        ) as connection:
-            try:
+        request_id = new_public_request_id()
+        try:
+            request = validate_public_request_frame(
+                operation,
+                params,
+                request_id=request_id,
+            )
+            with open_public_connection(
+                self.endpoint,
+                native_windows=True,
+            ) as connection:
                 send_public_message(connection, request)
                 response = receive_public_message(
                     connection,
                     timeout_seconds=PUBLIC_RESPONSE_TIMEOUT_SECONDS,
                 )
-            except InvalidPublicFrame as exc:
-                raise ServiceUnavailableError(
-                    "Witness returned an invalid public response"
-                ) from exc
+        except InvalidPublicFrame as exc:
+            raise ServiceUnavailableError(
+                "Witness returned an invalid public response"
+            ) from exc
 
         if response.get("protocol") != PUBLIC_PROTOCOL:
             raise ServiceUnavailableError("Witness returned the wrong protocol")

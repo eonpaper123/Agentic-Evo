@@ -17,6 +17,7 @@ from .ipc import (
     ServiceRejectedError,
     ServiceUnavailableError,
     SurfaceClient,
+    new_public_request_id,
     validate_public_request_frame,
 )
 from .service import main as service_main
@@ -282,7 +283,11 @@ def _surface_stdio_request(
 
     if operation != "status":
         try:
-            validate_public_request_frame(operation, params, request_id=request_id)
+            validate_public_request_frame(
+                operation,
+                params,
+                request_id=new_public_request_id(),
+            )
         except InvalidPublicFrame:
             return _surface_stdio_error(
                 request_id,

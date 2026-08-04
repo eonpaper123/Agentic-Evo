@@ -665,10 +665,32 @@ class CLILifecycleTests(unittest.TestCase):
             },
         )
         response = self._read_jsonl(process)
-        self.assertIs(response["ok"], True, response)
-        receipt = self._assert_surface_response(
+        error = self._assert_surface_response(
             response,
             request_id=request_id,
+            ok=False,
+        )
+        self.assertEqual(error["code"], "operation_failed")
+        self.assertEqual(error["message"], "trusted runtime rejected the operation")
+        self.assertEqual(self.runtime.evidence.records(), before_records)
+        self.assertIsNone(process.poll())
+
+        next_request_id = "j" * MAX_SURFACE_STDIO_TEXT_BYTES
+        self._write_jsonl(
+            process,
+            {
+                "schema": "agentic-evo.surface-stdio.v1",
+                "id": next_request_id,
+                "op": "observe",
+                "args": {
+                    "event_kind": "tool_result",
+                    "payload": {"outcome": "ok"},
+                },
+            },
+        )
+        receipt = self._assert_surface_response(
+            self._read_jsonl(process),
+            request_id=next_request_id,
             ok=True,
         )
         self._assert_observe_receipt_shape(receipt)
