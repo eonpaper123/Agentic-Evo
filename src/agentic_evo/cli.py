@@ -20,7 +20,6 @@ from .ipc import (
     validate_public_request_frame,
 )
 from .service import main as service_main
-from .surface_inventory import detect_execution_surfaces
 from .windows_gate_a import (
     GateABundleError,
     cleanup_gate_a_bundle,
@@ -478,10 +477,6 @@ def _parser() -> argparse.ArgumentParser:
         "plan-install",
         help="Print a deterministic plan that performs no installation writes.",
     )
-    commands.add_parser(
-        "inventory-execution-surfaces",
-        help="Print reachable execution-surface command candidates.",
-    )
     for name, help_text in (
         (
             "prepare-windows-gate-a",
@@ -532,9 +527,6 @@ def main(argv: list[str] | None = None) -> int:
         return _surface_stdio(arguments.dev_home, arguments.execution_surface)
     if arguments.command == "plan-install":
         _write_json(build_install_plan())
-        return 0
-    if arguments.command == "inventory-execution-surfaces":
-        _write_json(detect_execution_surfaces())
         return 0
     if arguments.command in {
         "prepare-windows-gate-a",
