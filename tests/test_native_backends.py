@@ -83,7 +83,7 @@ class NativeBackendTests(unittest.TestCase):
 
     def test_native_backend_constants_are_plan_only_and_secret_free(self) -> None:
         canonical = json.dumps(
-            {"darwin": DARWIN_BACKEND, "linux": LINUX_BACKEND},
+            {"darwin": dict(DARWIN_BACKEND), "linux": dict(LINUX_BACKEND)},
             ensure_ascii=False,
             separators=(",", ":"),
             sort_keys=True,
@@ -99,14 +99,19 @@ class NativeBackendTests(unittest.TestCase):
             if value:
                 self.assertNotIn(value, canonical)
 
-    def test_install_plan_uses_native_backend_single_source_for_darwin_and_linux(
+    def test_native_backend_contracts_are_immutable_and_plan_output_is_json_ready(
         self,
     ) -> None:
         from agentic_evo.install_plan import build_install_plan
 
+        with self.assertRaises(TypeError):
+            DARWIN_BACKEND["supervisor"] = "mutated"
+        with self.assertRaises(TypeError):
+            LINUX_BACKEND["supervisor"] = "mutated"
+
         platforms = build_install_plan()["platforms"]
-        self.assertEqual(platforms["darwin"], DARWIN_BACKEND)
-        self.assertEqual(platforms["linux"], LINUX_BACKEND)
+        self.assertEqual(platforms["darwin"], dict(DARWIN_BACKEND))
+        self.assertEqual(platforms["linux"], dict(LINUX_BACKEND))
 
 
 if __name__ == "__main__":
