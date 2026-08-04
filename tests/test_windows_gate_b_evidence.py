@@ -379,33 +379,33 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
 
     def _materialize_historical_v1_synthetic(
         self,
+        member: dict[str, object],
         root: Path,
     ) -> dict[str, object]:
-        synthetic = json.loads(
-            (
-                REPOSITORY_ROOT
-                / "tests"
-                / "fixtures"
-                / "windows_gate_b"
-                / "historical_v1_synthetic.json"
-            ).read_text(encoding="utf-8")
-        )
-        self.assertEqual(synthetic["label"], "historical_v1_synthetic")
-        self.assertNotIn("lab_id", synthetic["plan"])
-        self.assertNotIn("lab_id", synthetic["result"])
-        self.assertNotIn("challenge", synthetic["result"])
+        self.assertEqual(member["label"], "historical_v1_synthetic")
+        bundle_seed = member["bundle_seed"]
+        evidence_seed = member["evidence_seed"]
+        self.assertIsInstance(bundle_seed, dict)
+        self.assertIsInstance(evidence_seed, dict)
+        self.assertNotIn("lab_id", evidence_seed["plan_overrides"])
+        self.assertNotIn("lab_id", evidence_seed["result_overrides"])
+        self.assertNotIn("challenge", evidence_seed["result_overrides"])
 
         fixture = self._create_fixture(root)
         bundle = Path(fixture["bundle"])
-        artifact = base64.b64decode(synthetic["artifact_bytes_b64"])
-        (bundle / ARTIFACT_NAME).write_bytes(artifact)
-        (bundle / MANIFEST_NAME).write_bytes(_canonical_json(synthetic["manifest"]))
+        artifact = base64.b64decode(bundle_seed["artifact_bytes_b64"])
+        artifact_file = str(bundle_seed["artifact_file"])
+        self.assertEqual(artifact_file, ARTIFACT_NAME)
+        (bundle / artifact_file).write_bytes(artifact)
+        (bundle / MANIFEST_NAME).write_bytes(
+            _canonical_json(bundle_seed["gate_a_manifest"])
+        )
 
         plan_path = Path(fixture["evidence"]) / "plan.json"
         result_path = Path(fixture["evidence"]) / "result.json"
         plan = json.loads(plan_path.read_text(encoding="utf-8"))
         result = json.loads(result_path.read_text(encoding="utf-8"))
-        plan.update(synthetic["plan"])
+        plan.update(evidence_seed["plan_overrides"])
         for field in (
             "lab_id",
             "lab_declaration_path",
@@ -416,14 +416,14 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
         ):
             del plan[field]
         plan["run_id"] = fixture["run_id"]
-        plan["artifact_sha256"] = synthetic["manifest"]["artifact"]["sha256"]
+        plan["artifact_sha256"] = bundle_seed["gate_a_manifest"]["artifact"]["sha256"]
         plan_path.write_bytes(_canonical_json(plan))
         plan_sha256 = hashlib.sha256(_canonical_json(plan)[:-1]).hexdigest()
 
         result.update(
             {
                 field: value
-                for field, value in synthetic["result"].items()
+                for field, value in evidence_seed["result_overrides"].items()
                 if field != "report"
             }
         )
@@ -433,7 +433,7 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
         result.pop("plan_sha256", None)
         result.pop("environment_sha256", None)
         report = result["report"]
-        report.update(synthetic["result"]["report"])
+        report.update(evidence_seed["result_overrides"]["report"])
         report["run_id"] = fixture["run_id"]
         report["challenge"] = fixture["challenge"]
         report.pop("environment_sha256", None)
@@ -453,7 +453,7 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
         root: Path,
     ) -> dict[str, object]:
         if member["label"] == "historical_v1_synthetic":
-            return self._materialize_historical_v1_synthetic(root)
+            return self._materialize_historical_v1_synthetic(member, root)
         if member["label"] == "v2_synthetic":
             return self._create_v2_synthetic_fixture(root)
         self.fail(f"corpus member is not materializable: {member['label']!r}")
@@ -479,7 +479,7 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
             ],
         )
         provenance, historical, v2 = members
-        self.assertLessEqual(
+        self.assertEqual(
             set(provenance),
             {
                 "label",
@@ -489,11 +489,10 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
                 "compatibility_only",
                 "lab_binding",
                 "frozen_hashes",
-                "notes",
             },
         )
         self.assertEqual(
-            {field: provenance[field] for field in set(provenance) - {"notes"}},
+            provenance,
             {
                 "label": "historical_v1_hash_provenance",
                 "kind": "hash_provenance",
@@ -515,8 +514,7 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
                 "lab_binding",
                 "bundle_seed",
                 "evidence_seed",
-            }
-            | ({"notes"} if "notes" in historical else set()),
+            },
         )
         self.assertEqual(
             {
@@ -573,11 +571,10 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
                 "compatibility_only",
                 "lab_binding",
                 "lab_id",
-            }
-            | ({"notes"} if "notes" in v2 else set()),
+            },
         )
         self.assertEqual(
-            {field: v2[field] for field in set(v2) - {"notes"}},
+            v2,
             {
                 "label": "v2_synthetic",
                 "kind": "synthetic_executable",
@@ -599,6 +596,10 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
         self.assertNotRegex(
             serialized,
             r"(?i)\b[0-9a-f]{2}(?::[0-9a-f]{2}){5}\b",
+        )
+        self.assertEqual(
+            {path.name for path in EVIDENCE_CORPUS_PATH.parent.iterdir()},
+            {EVIDENCE_CORPUS_PATH.name},
         )
 
     def test_materializable_evidence_corpus_members_close_temp_bundles(
@@ -740,7 +741,15 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
 
     def test_verifier_accepts_historical_v1_synthetic_fixture(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            fixture = self._materialize_historical_v1_synthetic(Path(temporary))
+            historical = next(
+                member
+                for member in self._load_evidence_corpus()["members"]
+                if member["label"] == "historical_v1_synthetic"
+            )
+            fixture = self._materialize_historical_v1_synthetic(
+                historical,
+                Path(temporary),
+            )
             artifact = Path(fixture["bundle"]) / ARTIFACT_NAME
             original_run = subprocess.run
 
