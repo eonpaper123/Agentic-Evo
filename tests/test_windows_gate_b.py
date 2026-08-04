@@ -408,6 +408,16 @@ class WindowsGateBPlanTests(unittest.TestCase):
                 ],
             )
             self.assertEqual(
+                preflight["authorized_effects"],
+                {
+                    "temporary_service": True,
+                    "permanent_service": False,
+                    "hook": False,
+                    "genesis": False,
+                    "system_restart": True,
+                },
+            )
+            self.assertEqual(
                 list(preflight["retention"]),
                 [
                     "service_lifetime",
@@ -416,6 +426,19 @@ class WindowsGateBPlanTests(unittest.TestCase):
                     "cleanup_after_post_restart_verification",
                     "reversible_uninstall_required",
                 ],
+            )
+            self.assertEqual(
+                preflight["retention"],
+                {
+                    "service_lifetime": (
+                        "retain_across_exactly_one_restart_until_"
+                        "post_restart_verification_then_remove"
+                    ),
+                    "service_start": "not_performed_by_preflight",
+                    "cleanup_before_restart": False,
+                    "cleanup_after_post_restart_verification": "required",
+                    "reversible_uninstall_required": True,
+                },
             )
             self.assertEqual(
                 list(preflight["claim_ceiling"]),
