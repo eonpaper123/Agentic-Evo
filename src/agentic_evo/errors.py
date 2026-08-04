@@ -51,3 +51,11 @@ class PolicyGateError(AgenticEvoError):
 
 class InvalidCandidateError(AgenticEvoError):
     """Raised when a candidate repair violates loop safety constraints."""
+
+
+class MemoryIntegrityError(AgenticEvoError):
+    """Raised when a CAMU store hash chain or record integrity is invalid."""
+
+
+class MemoryRecordError(AgenticEvoError):
+    """Raised when a CAMU record violates the memory contract."""
