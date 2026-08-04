@@ -203,7 +203,8 @@ class BodyProcessTests(unittest.TestCase):
         body = self._spawn()
 
         candidate = body.rehearse_prepare_successor(
-            files={"entrypoint.md": "Body one"}
+            files={"entrypoint.md": "Body one"},
+            causation_ref="",
         )
         self.assertEqual(self.runtime.status().head, before.head)
         self.assertTrue(body.is_alive())
@@ -230,6 +231,117 @@ class BodyProcessTests(unittest.TestCase):
         self.assertNotIn(
             "agent_self_authored",
             {record.author_kind for record in lineage_records},
+        )
+        prepared = next(
+            record
+            for record in lineage_records
+            if record.event_kind == "body_candidate_prepared"
+        )
+        self.assertEqual(prepared.causation_ref, "")
+
+    def test_private_lineage_candidate_preserves_declared_causation(
+        self,
+    ) -> None:
+        baseline = self.runtime.status()
+        baseline_records = self.runtime.evidence.records()
+        cause = self.runtime.observe(
+            event_kind="tool_result",
+            payload={"outcome": "initial-result"},
+            execution_surface="codex",
+            session_id="cause-session",
+            project_environment="project-a",
+        )
+        body = self._spawn()
+        candidate = body.rehearse_prepare_successor(
+            files={"entrypoint.md": "Body caused by prior evidence"},
+            causation_ref=cause.event_id,
+        )
+        advanced = body.rehearse_advance_head(candidate_head=candidate)
+        self.assertTrue(body.wait_closed(timeout_seconds=5.0))
+        reloaded = DevelopmentalRuntime.load(self.home)
+        records = reloaded.evidence.records()
+        self.assertEqual(advanced["head"], candidate)
+        self.assertEqual(advanced["generation"], baseline.generation + 1)
+        self.assertEqual(reloaded.status().root, baseline.root)
+        self.assertEqual(reloaded.status().head, candidate)
+        self.assertEqual(
+            reloaded.status().generation,
+            baseline.generation + 1,
+        )
+        self.assertTrue(reloaded.evidence.verify())
+        self.assertEqual(len(records), len(baseline_records) + 3)
+        cause_record, prepared, advanced_record = records[-3:]
+        self.assertEqual(
+            [record.event_kind for record in records[-3:]],
+            ["tool_result", "body_candidate_prepared", "head_advanced"],
+        )
+        self.assertEqual(
+            [record.sequence for record in records[-3:]],
+            list(range(len(baseline_records) + 1, len(baseline_records) + 4)),
+        )
+        if baseline_records:
+            self.assertEqual(
+                cause_record.previous_integrity_hash,
+                baseline_records[-1].integrity_hash,
+            )
+        self.assertEqual(
+            prepared.previous_integrity_hash,
+            cause_record.integrity_hash,
+        )
+        self.assertEqual(
+            advanced_record.previous_integrity_hash,
+            prepared.integrity_hash,
+        )
+        self.assertEqual(cause_record.event_id, cause.event_id)
+        self.assertEqual(cause_record.root_commitment, baseline.root)
+        self.assertEqual(cause_record.head_before, baseline.head)
+        self.assertEqual(cause_record.head_after, baseline.head)
+        self.assertEqual(cause_record.source_kind, "execution_surface")
+        self.assertEqual(cause_record.author_kind, "surface_unverified")
+        self.assertEqual(cause_record.payload, {"outcome": "initial-result"})
+        self.assertEqual(prepared.root_commitment, baseline.root)
+        self.assertEqual(prepared.head_before, baseline.head)
+        self.assertEqual(prepared.head_after, baseline.head)
+        self.assertEqual(prepared.source_kind, "body")
+        self.assertEqual(prepared.author_kind, "in_process_rehearsal")
+        self.assertEqual(prepared.causation_ref, cause.event_id)
+        self.assertIsNone(prepared.correlation_ref)
+        self.assertIsNone(prepared.parent_ref)
+        self.assertIsNone(prepared.human_intervention_kind)
+        self.assertEqual(
+            prepared.payload,
+            {
+                "candidate_head": candidate,
+                "expected_parent": baseline.head,
+                "ingress_path": "in_process_rehearsal",
+                "operation": "prepare_successor",
+                "affected_domain": "body_lineage",
+            },
+        )
+        self.assertEqual(advanced_record.root_commitment, baseline.root)
+        self.assertEqual(advanced_record.head_before, baseline.head)
+        self.assertEqual(advanced_record.head_after, candidate)
+        self.assertEqual(advanced_record.source_kind, "body")
+        self.assertEqual(advanced_record.author_kind, "in_process_rehearsal")
+        self.assertIsNone(advanced_record.causation_ref)
+        self.assertIsNone(advanced_record.human_intervention_kind)
+        self.assertEqual(
+            advanced_record.payload,
+            {
+                "body_generation": baseline.generation + 1,
+                "parent_head": baseline.head,
+                "ingress_path": "in_process_rehearsal",
+                "operation": "advance_head",
+                "affected_domain": "body_lineage",
+            },
+        )
+        manifest = reloaded.body_store.read_manifest(candidate)
+        self.assertEqual(manifest.parent_head, baseline.head)
+        self.assertEqual(manifest.generation, baseline.generation + 1)
+        self.assertEqual(manifest.author_kind, "in_process_rehearsal")
+        self.assertNotIn(
+            "agent_self_authored",
+            {prepared.author_kind, advanced_record.author_kind},
         )
 
     def test_body_process_rejects_a_candidate_from_outside_its_channel(
@@ -259,8 +371,44 @@ class BodyProcessTests(unittest.TestCase):
     def test_private_lineage_rejects_boolean_sequence_and_claimed_authorship(
         self,
     ) -> None:
+        def mutation_snapshot():
+            return (
+                self.runtime.status(),
+                self.runtime.evidence.records(),
+                tuple(
+                    sorted(
+                        path.name
+                        for path in self.runtime.body_store.manifest_path.glob(
+                            "*.json"
+                        )
+                    )
+                ),
+                tuple(
+                    sorted(
+                        path.name
+                        for path in self.runtime.body_store.blob_path.iterdir()
+                    )
+                ),
+            )
+
         body = self._spawn()
-        before = self.runtime.status()
+        before = mutation_snapshot()
+        for value, message in (
+            (False, "causation_ref must be a string or null"),
+            (
+                "é" * 513,
+                "causation_ref exceeds the private lineage text byte bound",
+            ),
+        ):
+            with self.subTest(value=type(value).__name__):
+                with self.assertRaisesRegex(ValueError, f"^{message}$"):
+                    body.rehearse_prepare_successor(
+                        files={"entrypoint.md": "must not exist"},
+                        causation_ref=value,
+                    )
+                self.assertEqual(mutation_snapshot(), before)
+                self.assertTrue(body.is_alive())
+
         request = {
             "protocol": "agentic-evo-private-lineage-v1",
             "kind": "lineage_request",
@@ -270,16 +418,30 @@ class BodyProcessTests(unittest.TestCase):
             "files": {"entrypoint.md": "malformed candidate"},
             "activation_kind": None,
             "activation_artifact": None,
+            "causation_ref": None,
         }
 
         with self.assertRaises(BodyBootError):
             body._handle_lineage_request(request)
 
         request["sequence"] = 1
+        for value in (False, "é" * 513):
+            request["causation_ref"] = value
+            with self.assertRaisesRegex(
+                BodyBootError,
+                "^private prepare request has invalid causation_ref$",
+            ):
+                body._handle_lineage_request(request)
+            self.assertEqual(mutation_snapshot(), before)
+            self.assertTrue(self.runtime.evidence.verify())
+            request["sequence"] += 1
+
+        request["causation_ref"] = None
         request["author_kind"] = "agent_self_authored"
         with self.assertRaises(BodyBootError):
             body._handle_lineage_request(request)
-        self.assertEqual(self.runtime.status().head, before.head)
+        self.assertEqual(mutation_snapshot(), before)
+        self.assertTrue(self.runtime.evidence.verify())
 
     def test_in_flight_advance_timeout_is_reported_as_outcome_unknown(
         self,
