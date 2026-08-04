@@ -235,6 +235,60 @@ class CLILifecycleTests(unittest.TestCase):
             check=False,
         )
 
+    def _run_detached_cli(
+        self,
+        *arguments: str,
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [
+                sys.executable,
+                "-P",
+                "-m",
+                "agentic_evo.cli",
+                *arguments,
+            ],
+            cwd=REPOSITORY_ROOT,
+            env=self._environment(),
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+
+    def _export_experiment_prereg(self) -> dict[str, object]:
+        result = self._run_cli(
+            "export-experiment-prereg",
+            "--hypothesis-ref",
+            "hypothesis:memory-transfer",
+            "--hypothesis-ref",
+            "hypothesis:cross-session-retention",
+            "--control-ref",
+            "control:no-transfer",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(set(payload), {"ok", "result"})
+        self.assertIs(payload["ok"], True)
+        self.assertIsInstance(payload["result"], dict)
+        return payload["result"]
+
+    def _export_experiment_pack(self) -> dict[str, object]:
+        prereg = Path(self.tempdir.name) / "experiment-prereg.json"
+        prereg.write_bytes(canonical_json_bytes(self._export_experiment_prereg()))
+        result = self._run_cli(
+            "export-experiment-pack",
+            "--prereg",
+            str(prereg),
+            "--end-sequence",
+            "4",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(set(payload), {"ok", "result"})
+        self.assertIs(payload["ok"], True)
+        self.assertIsInstance(payload["result"], dict)
+        return payload["result"]
+
     @staticmethod
     def _terminate(process: subprocess.Popen[str]) -> None:
         if process.poll() is None:
@@ -268,6 +322,111 @@ class CLILifecycleTests(unittest.TestCase):
             except ServiceUnavailableError:
                 time.sleep(0.02)
         self.fail("CLI service did not become ready")
+
+    def test_export_experiment_prereg_command_prints_canonical_json_without_runtime_mutation(
+        self,
+    ) -> None:
+        before_status = self.runtime.status()
+        before_records = self.runtime.evidence.records()
+
+        result = self._run_cli(
+            "export-experiment-prereg",
+            "--hypothesis-ref",
+            "hypothesis:memory-transfer",
+            "--hypothesis-ref",
+            "hypothesis:cross-session-retention",
+            "--control-ref",
+            "control:no-transfer",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(set(payload), {"ok", "result"})
+        self.assertIs(payload["ok"], True)
+        self.assertIsInstance(payload["result"], dict)
+        self.assertEqual(self.runtime.status(), before_status)
+        self.assertEqual(self.runtime.evidence.records(), before_records)
+
+    def test_export_experiment_pack_command_prints_canonical_json_without_runtime_mutation(
+        self,
+    ) -> None:
+        prereg = Path(self.tempdir.name) / "experiment-prereg.json"
+        prereg.write_bytes(canonical_json_bytes(self._export_experiment_prereg()))
+        before_status = self.runtime.status()
+        before_records = self.runtime.evidence.records()
+
+        result = self._run_cli(
+            "export-experiment-pack",
+            "--prereg",
+            str(prereg),
+            "--end-sequence",
+            "4",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(set(payload), {"ok", "result"})
+        self.assertIs(payload["ok"], True)
+        self.assertIsInstance(payload["result"], dict)
+        self.assertEqual(self.runtime.status(), before_status)
+        self.assertEqual(self.runtime.evidence.records(), before_records)
+
+    def test_verify_experiment_artifact_command_returns_zero_for_exported_pack(self) -> None:
+        artifact = Path(self.tempdir.name) / "experiment-pack.json"
+        artifact.write_bytes(canonical_json_bytes(self._export_experiment_pack()))
+
+        result = self._run_detached_cli(
+            "verify-experiment-artifact",
+            "--artifact",
+            str(artifact),
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(set(payload), {"ok", "result"})
+        self.assertIs(payload["ok"], True)
+        self.assertIsInstance(payload["result"], dict)
+
+    def test_verify_experiment_artifact_command_returns_six_for_invalid_artifact_json(
+        self,
+    ) -> None:
+        artifact = Path(self.tempdir.name) / "invalid-experiment-artifact.json"
+        artifact.write_text("{not-json", encoding="utf-8")
+
+        result = self._run_detached_cli(
+            "verify-experiment-artifact",
+            "--artifact",
+            str(artifact),
+        )
+
+        self.assertEqual(result.returncode, 6)
+        payload = json.loads(result.stderr)
+        self.assertIs(payload["ok"], False)
+        self.assertEqual(payload["error"]["code"], "experiment_artifact_error")
+
+    def test_verify_experiment_artifact_command_returns_seven_for_tampered_pack(
+        self,
+    ) -> None:
+        pack = self._export_experiment_pack()
+        claim_ceiling = pack.get("claim_ceiling")
+        self.assertIsInstance(claim_ceiling, dict)
+        tampered_pack = dict(pack)
+        tampered_claim_ceiling = dict(claim_ceiling)
+        tampered_claim_ceiling["capability"] = "evaluated"
+        tampered_pack["claim_ceiling"] = tampered_claim_ceiling
+        artifact = Path(self.tempdir.name) / "tampered-experiment-pack.json"
+        artifact.write_bytes(canonical_json_bytes(tampered_pack))
+
+        result = self._run_detached_cli(
+            "verify-experiment-artifact",
+            "--artifact",
+            str(artifact),
+        )
+
+        self.assertEqual(result.returncode, 7)
+        payload = json.loads(result.stderr)
+        self.assertIs(payload["ok"], False)
+        self.assertEqual(payload["result"]["code"], "claim_ceiling_changed")
 
     def test_surface_stdio_status_uses_external_process_boundary(self) -> None:
         service = self._spawn_service()
