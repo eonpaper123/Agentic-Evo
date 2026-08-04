@@ -300,7 +300,7 @@ subprocess_rehearsal
 17. 屏障测试证明 cutoff 前已 admission 的变更可以恰好提交一次，而 `request_stop()` 必须等该 dispatch 归静后才返回；
 18. 每条已接受 transport 只有一个 raw-close owner；stop、worker cleanup 与 control receive deadline 竞争关闭时不会再次关闭同一底层句柄；
 19. Windows 与 WSL Ubuntu 均验证 accept 唤醒、active connection 关闭、Body/lease/singleton 回收及同一 home 重启；macOS 尚未实机复验；
-20. 当前 HEAD 在 Windows 上由捆绑 Python 执行 `unittest discover -s tests -v`：共运行 205 项测试，进程退出码为 0，末尾结果为 `OK`；这只证明当前代码回归为绿，不建立 Gate B，也不改变 A07 的 `same_principal_harness` 上限。
+20. 当前 HEAD 在 Windows 上由捆绑 Python 执行 `unittest discover -s tests -v`：共运行 211 项测试，进程退出码为 0，末尾结果为 `OK`；这只证明当前代码回归为绿，不建立 Gate B，也不改变 A07 的 `same_principal_harness` 上限。
 
 本轮不依赖 pywin32 或其他第三方包；实现只使用 Python 标准库、`ctypes` 与 Windows Kernel32 / Advapi32。
 

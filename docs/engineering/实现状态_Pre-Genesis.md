@@ -209,7 +209,7 @@ c643c91 将 synthetic Gate B fixture 绑定到专用 test lab/namespace；当前
 - 同一次配置探针的提升端 cleanup 与普通权限端独立 cleanup 均为 complete；事后精确 service query 为 1060、匹配临时服务为 0、Program Files/ProgramData 两棵实验树均不存在；Genesis 只记录为 `not_measured`，不冒充 0；
 - 内部 supervisor stop 不经过 public/Off operation：`request_stop()` 在 lifecycle lock 上建立 dispatch cutoff，唤醒/关闭 listener 与 active transports，拒绝 cutoff 后才尝试 admission 的请求，并等待 cutoff 前已 admission 的请求归静；service loop 随后 join workers、回收 Body/lease、释放 singleton；
 - 屏障测试证明 cutoff 前已 admission 的变更可以恰好提交一次且 stop 必须等待；stop 路径自身的可信状态增量为空；每条 transport 的 raw close 由 stop、worker 与 deadline timer 共享的单一 owner 串行化；
-当前 HEAD 在 Windows 上由捆绑 Python 执行 `unittest discover -s tests -v`：共运行 205 项测试，进程退出码为 0，末尾结果为 `OK`；这只证明当前代码回归为绿，不建立 Gate B，也不改变 A07 的 `same_principal_harness` 上限。
+当前 HEAD 在 Windows 上由捆绑 Python 执行 `unittest discover -s tests -v`：共运行 211 项测试，进程退出码为 0，末尾结果为 `OK`；这只证明当前代码回归为绿，不建立 Gate B，也不改变 A07 的 `same_principal_harness` 上限。
 
 这些结果证明的是代码契约，不是长期学习、自我进化或独立科研证据已经成立。
 
