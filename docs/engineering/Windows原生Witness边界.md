@@ -674,6 +674,6 @@ service self-report
 
 在申请该授权前，仓库只允许生成 `agentic-evo.windows-gate-b-retained-preflight.v1` 预注册计划；它固定一次跨单次重启的临时 service 实验边界，但不创建 service、不触发 UAC、不写入 evidence，也不提升任何 Gate B 结论。
 
-synthetic Gate B fixtures 继续使用专用 test lab/namespace；当前 accepted code/tests 分别为 `c4113c1 / 0289268`（RED）与 `cfd6deb / fff6c5c / 7c745fc`（GREEN）。HEAD `7c745fc` 完整回归前后，3060 reference namespace membership 保持不变；当前 hash 为 `6676ece4ed18b737ddca19f6f2b32236d504ab54752978c51c7e29034b50144c`。隔离前遗留的 exact orphan `artifacts/labs/3060-computer/windows-gate-b/1ed1e8b16f554059b77ceb99a8b40cd6/` 仍为 `present / removal_not_executed`；`Remove-Item` 被本地命令策略在执行前阻止，删除并未执行。该 orphan 不属于 3060 当前证据。A07 仍仅为 `same_principal_harness`，且本轮未执行 UAC、SCM、restart 或其他 privileged Gate B action。
+synthetic Gate B fixtures 继续使用专用 test lab/namespace；当前 accepted code/tests 分别为 `c4113c1 / 0289268`（RED）与 `cfd6deb / fff6c5c / 7c745fc`（GREEN）。HEAD `7c745fc` 完整回归前后，3060 reference namespace membership 保持不变；仓内可审计的 probe 记录显示 before/after 均为同一成员 `1ed1e8b16f554059b77ceb99a8b40cd6`。隔离前遗留的 exact orphan `artifacts/labs/3060-computer/windows-gate-b/1ed1e8b16f554059b77ceb99a8b40cd6/` 仍为 `present / removal_not_executed`；`Remove-Item` 被本地命令策略在执行前阻止，删除并未执行。该 orphan 不属于 3060 当前证据。A07 仍仅为 `same_principal_harness`，且本轮未执行 UAC、SCM、restart 或其他 privileged Gate B action。
 
 它只固定未来获授权的 effects/retention；在已单独授权的保留重启实验实际执行并完成独立验证前，当前 ceiling 不高于 `configuration_probe_only` / `partial_cleanup_if_service_lifecycle_occurs`。
