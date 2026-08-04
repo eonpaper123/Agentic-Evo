@@ -588,7 +588,7 @@ RenderPlan(P)\neq NativeVerified(P)
 }
 \]
 
-本节的 plan rendering 与可移植协议测试不能证明 macOS 或 Linux 原生边界，也不能证明 Windows SCM、service SID、protected state 或 HostPresence。WSL Ubuntu 现在已经运行完整测试发现：111 passed / 20 Windows-only skipped，包含 AF_UNIX service stop、preaccepted-request fencing 与 same-home restart；这证明 Linux 用户态可移植路径，不证明 systemd、dedicated UID、StateDirectory、cgroup 或 bare-metal Linux 安装态。macOS 仍未实机。后续 Windows 原生测试已经证明 foreground Job、public peer、restricted Low-Integrity Body 与 explicit inherited private lineage transport rehearsal；这些局部证据不能反推 distinct-principal authentication、安装态或其他平台原生边界。
+本节的 plan rendering 与可移植协议测试不能证明 macOS 或 Linux 原生边界，也不能证明 Windows SCM、service SID、protected state 或 HostPresence。WSL Ubuntu 已验证 AF_UNIX service stop、preaccepted-request fencing 与 same-home restart；这证明 Linux 用户态可移植路径，不证明 systemd、dedicated UID、StateDirectory、cgroup 或 bare-metal Linux 安装态。macOS 仍未实机。后续 Windows 原生测试已经证明 foreground Job、public peer、restricted Low-Integrity Body 与 explicit inherited private lineage transport rehearsal；这些局部证据不能反推 distinct-principal authentication、安装态或其他平台原生边界。
 
 ---
 
@@ -678,7 +678,7 @@ AdvanceHead
 37. stop、worker cleanup 与 control receive deadline 共享每条 transport 的单一 raw-close owner；
 38. Windows 与 WSL Ubuntu 都通过上述 stop、preaccepted-request fencing、admitted-mutation drain、single-close ownership 和 same-home restart；macOS 尚未实机复验。
 
-截至当前停止点，Windows 全仓 151/151 项测试通过，并以 `ResourceWarning` 作为错误运行；WSL Ubuntu-24.04 发现同样 151 项，其中 126 项通过、25 项 Windows-only contract 明确 skipped。
+截至当前停止点，Windows 全仓 189/189 项 unittest 通过，其中 Windows Gate B 相关 43 项通过，并以 `ResourceWarning` 作为错误运行。
 
 ---
 

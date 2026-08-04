@@ -450,7 +450,7 @@ commit Authority=Off
 - stop 路径自身没有可信状态增量，但 cutoff 前已经 admission 的合法变更仍可恰好提交一次；屏障测试证明 `request_stop()` 会等待该提交完成；
 - stop、worker cleanup 与 control receive deadline 共享每条 transport 的单一 raw-close owner，不会并发重复关闭同一底层句柄。
 
-这些是协议和进程生命周期事实，不是长期学习或自我进化证据。截至当前，Windows 全仓 151/151 项测试在 `ResourceWarning` 作为错误时通过；WSL Ubuntu-24.04 同样发现 151 项，其中 126 项通过、25 项 Windows-only contract 明确 skipped。
+这些是协议和进程生命周期事实，不是长期学习或自我进化证据。截至当前，Windows 全仓 189/189 项 unittest 通过，其中 Windows Gate B 相关 43 项通过，并以 `ResourceWarning` 作为错误运行。
 
 ### 8.1 service stop 与 Host Off 是两种因果
 
@@ -655,7 +655,7 @@ public Surface allowlist
 
 三平台不是三种 Agent。相同协议不变量由三个薄的 OS 实现分别通过攻击测试。
 
-当前完整 151 项测试在 Windows 运行。WSL Ubuntu-24.04 也发现 151 项，其中 126 项通过、25 项 Windows-only contract 明确 skipped；这已经覆盖 AF_UNIX public/control、subprocess、service crash/stop、preaccepted-request fencing、锁恢复、same-home restart 与复合 Surface session identity。它仍不是 systemd、dedicated UID、StateDirectory 或 bare-metal Linux 的原生证据。macOS 目前只有 endpoint 推导与共享代码路径；在 macOS 实机运行前，不能把它写成已经通过的 launchd、IPC、signal、file-lock 或子进程行为。
+当前 Windows 全仓 189/189 项 unittest 通过，其中 Windows Gate B 相关 43 项通过。WSL Ubuntu-24.04 已覆盖 AF_UNIX public/control、subprocess、service crash/stop、preaccepted-request fencing、锁恢复、same-home restart 与复合 Surface session identity。它仍不是 systemd、dedicated UID、StateDirectory 或 bare-metal Linux 的原生证据。macOS 目前只有 endpoint 推导与共享代码路径；在 macOS 实机运行前，不能把它写成已经通过的 launchd、IPC、signal、file-lock 或子进程行为。
 
 ---
 
