@@ -10,7 +10,7 @@ from typing import Any, Mapping
 from .adapters.codex import handle_codex_hook
 from .autonomous_loop import smoke_main as autonomous_loop_smoke_main
 from ._util import canonical_json_bytes
-from .errors import AgenticEvoError
+from .errors import AgenticEvoError, MemoryIntegrityError, MemoryRecordError
 from .experiment_pack import (
     EXPERIMENT_CLAIM_CEILING,
     _ExperimentArtifactConsistencyError,
@@ -28,6 +28,7 @@ from .ipc import (
     new_public_request_id,
     validate_public_request_frame,
 )
+from .memory_store import MemoryStore
 from .service import main as service_main
 from .runtime import DevelopmentalRuntime
 from .windows_gate_a import (
@@ -553,6 +554,188 @@ def _verify_experiment_artifact(arguments: argparse.Namespace) -> int:
     return 0
 
 
+MEMORY_STORE_DEFAULT = Path("memory/camus.jsonl")
+
+
+def _memory_store_arguments(command: argparse.ArgumentParser) -> None:
+    command.add_argument(
+        "--store",
+        type=Path,
+        default=MEMORY_STORE_DEFAULT,
+        help=(
+            "CAMU store JSONL path; default memory/camus.jsonl under the "
+            "current directory."
+        ),
+    )
+
+
+def _open_memory_store(path: Path, *, create: bool = False) -> MemoryStore:
+    if create and not path.exists():
+        return MemoryStore.create(path)
+    return MemoryStore.load(path)
+
+
+def _memory_error(error: Exception) -> int:
+    _write_json(
+        {
+            "ok": False,
+            "error": {"code": "memory_error", "message": str(error)},
+        },
+        stream=sys.stderr,
+    )
+    return 6
+
+
+def _memory_integrity_error(error: Exception) -> int:
+    _write_json(
+        {
+            "ok": False,
+            "result": {"verified": False, "message": str(error)},
+        },
+        stream=sys.stderr,
+    )
+    return 7
+
+
+def _memory_bool(value: str) -> bool:
+    lowered = value.strip().lower()
+    if lowered in ("true", "1", "yes"):
+        return True
+    if lowered in ("false", "0", "no"):
+        return False
+    raise argparse.ArgumentTypeError("must be true or false")
+
+
+def _memory_camu_add(arguments: argparse.Namespace) -> int:
+    if (arguments.record is None) == (arguments.record_file is None):
+        _write_json(
+            {
+                "ok": False,
+                "error": {
+                    "code": "memory_error",
+                    "message": "exactly one of --record or --record-file is required",
+                },
+            },
+            stream=sys.stderr,
+        )
+        return 6
+    if arguments.record is not None:
+        try:
+            record = json.loads(arguments.record)
+        except (json.JSONDecodeError, RecursionError) as exc:
+            return _memory_error(
+                ValueError(f"--record must be one JSON object: {exc}")
+            )
+    else:
+        try:
+            record = json.loads(arguments.record_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, RecursionError) as exc:
+            return _memory_error(exc)
+    if not isinstance(record, dict):
+        return _memory_error(
+            MemoryRecordError("CAMU record must be one JSON object")
+        )
+    try:
+        store = _open_memory_store(arguments.store, create=True)
+        camu_id = store.add_camu(record)
+    except (MemoryIntegrityError, MemoryRecordError, OSError, ValueError) as exc:
+        return _memory_error(exc)
+    _write_json({"ok": True, "result": {"id": camu_id}})
+    return 0
+
+
+def _memory_camu_list(arguments: argparse.Namespace) -> int:
+    try:
+        store = _open_memory_store(arguments.store)
+        camus = store.list()
+    except (MemoryIntegrityError, MemoryRecordError, OSError, ValueError) as exc:
+        return _memory_error(exc)
+    summary = [
+        {
+            "id": item["id"],
+            "influence_domain": item["record"]["I"]["domain"],
+            "prediction_status": item["record"]["P"]["status"],
+            "condition": item["record"]["P"]["condition"],
+            "recorded_at": item["recorded_at"],
+        }
+        for item in camus
+    ]
+    _write_json({"ok": True, "result": {"count": len(summary), "camus": summary}})
+    return 0
+
+
+def _memory_camu_show(arguments: argparse.Namespace) -> int:
+    try:
+        store = _open_memory_store(arguments.store)
+        result = store.get(arguments.id)
+    except (MemoryIntegrityError, MemoryRecordError, OSError, ValueError) as exc:
+        return _memory_error(exc)
+    _write_json({"ok": True, "result": result})
+    return 0
+
+
+def _memory_camu_outcome(arguments: argparse.Namespace) -> int:
+    observed: Any = None
+    if arguments.observed is not None:
+        try:
+            observed = json.loads(arguments.observed)
+        except (json.JSONDecodeError, RecursionError) as exc:
+            return _memory_error(ValueError(f"--observed must be JSON: {exc}"))
+    try:
+        store = _open_memory_store(arguments.store)
+        result = store.record_outcome(
+            arguments.id, observed=observed, matched=arguments.matched
+        )
+    except (MemoryIntegrityError, MemoryRecordError, OSError, ValueError) as exc:
+        return _memory_error(exc)
+    _write_json(
+        {
+            "ok": True,
+            "result": {
+                "id": result["id"],
+                "prediction_status": result["record"]["P"]["status"],
+            },
+        }
+    )
+    return 0
+
+
+def _memory_recall(arguments: argparse.Namespace) -> int:
+    try:
+        context = json.loads(arguments.context)
+    except (json.JSONDecodeError, RecursionError) as exc:
+        return _memory_error(ValueError(f"--context must be JSON: {exc}"))
+    try:
+        store = _open_memory_store(arguments.store)
+        matches = store.recall(context)
+    except (MemoryIntegrityError, MemoryRecordError, OSError, ValueError) as exc:
+        return _memory_error(exc)
+    _write_json({"ok": True, "result": {"matches": matches}})
+    return 0
+
+
+def _memory_consolidate(arguments: argparse.Namespace) -> int:
+    try:
+        store = _open_memory_store(arguments.store)
+        summary = store.consolidate(ttl_seconds=arguments.ttl_days * 24 * 60 * 60)
+    except (MemoryIntegrityError, MemoryRecordError, OSError, ValueError) as exc:
+        return _memory_error(exc)
+    _write_json({"ok": True, "result": summary})
+    return 0
+
+
+def _memory_verify_chain(arguments: argparse.Namespace) -> int:
+    try:
+        store = _open_memory_store(arguments.store)
+        store.verify_chain()
+    except MemoryIntegrityError as exc:
+        return _memory_integrity_error(exc)
+    except (OSError, ValueError) as exc:
+        return _memory_error(exc)
+    _write_json({"ok": True, "result": {"verified": True, "records": store.count()}})
+    return 0
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="agentic-evo",
@@ -650,6 +833,81 @@ def _parser() -> argparse.ArgumentParser:
     ):
         command = commands.add_parser(name, help=help_text)
         _gate_b_evidence_arguments(command)
+    memory_list = commands.add_parser(
+        "memory-camu-list",
+        help="List effective CAMU records in a Body-owned memory store.",
+    )
+    _memory_store_arguments(memory_list)
+    memory_add = commands.add_parser(
+        "memory-camu-add",
+        help="Add one content-addressed CAMU record to a Body-owned memory store.",
+    )
+    _memory_store_arguments(memory_add)
+    memory_add.add_argument(
+        "--record",
+        help="Inline JSON CAMU record (one object).",
+    )
+    memory_add.add_argument(
+        "--record-file",
+        type=Path,
+        help="Path to a file containing one JSON CAMU record object.",
+    )
+    memory_show = commands.add_parser(
+        "memory-camu-show",
+        help="Show one effective CAMU record by id.",
+    )
+    _memory_store_arguments(memory_show)
+    memory_show.add_argument(
+        "--id",
+        required=True,
+        help="CAMU content-address id.",
+    )
+    memory_outcome = commands.add_parser(
+        "memory-camu-outcome",
+        help="Record one outcome and apply pending/verified/contradicted bookkeeping.",
+    )
+    _memory_store_arguments(memory_outcome)
+    memory_outcome.add_argument(
+        "--id",
+        required=True,
+        help="CAMU content-address id.",
+    )
+    memory_outcome.add_argument(
+        "--observed",
+        help="Optional JSON value observed after the prediction window.",
+    )
+    memory_outcome.add_argument(
+        "--matched",
+        type=_memory_bool,
+        required=True,
+        help="Whether the observed result supported the prediction (true/false).",
+    )
+    memory_recall = commands.add_parser(
+        "memory-recall",
+        help="Recall matching CAMU ids with the default placeholder evaluator.",
+    )
+    _memory_store_arguments(memory_recall)
+    memory_recall.add_argument(
+        "--context",
+        required=True,
+        help="JSON context object evaluated against each CAMU activation.",
+    )
+    memory_consolidate = commands.add_parser(
+        "memory-consolidate",
+        help="Sleep-consolidation scaffold: mark stale pending predictions overdue.",
+    )
+    _memory_store_arguments(memory_consolidate)
+    memory_consolidate.add_argument(
+        "--ttl-days",
+        type=int,
+        default=7,
+        help="Age in days after which a pending prediction becomes overdue.",
+    )
+    memory_verify = commands.add_parser(
+        "memory-verify-chain",
+        help="Verify the memory store hash chain.",
+    )
+    _memory_store_arguments(memory_verify)
     return parser
 
 
@@ -704,6 +962,20 @@ def main(argv: list[str] | None = None) -> int:
         return _gate_b_evidence(arguments, attack=False)
     if arguments.command == "attack-windows-gate-b-evidence":
         return _gate_b_evidence(arguments, attack=True)
+    if arguments.command == "memory-camu-add":
+        return _memory_camu_add(arguments)
+    if arguments.command == "memory-camu-list":
+        return _memory_camu_list(arguments)
+    if arguments.command == "memory-camu-show":
+        return _memory_camu_show(arguments)
+    if arguments.command == "memory-camu-outcome":
+        return _memory_camu_outcome(arguments)
+    if arguments.command == "memory-recall":
+        return _memory_recall(arguments)
+    if arguments.command == "memory-consolidate":
+        return _memory_consolidate(arguments)
+    if arguments.command == "memory-verify-chain":
+        return _memory_verify_chain(arguments)
     if arguments.command == "autonomous-loop-smoke":
         return autonomous_loop_smoke_main(
             [
