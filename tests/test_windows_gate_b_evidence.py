@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
@@ -336,6 +337,124 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
             **expected,
         )
 
+    def _rewrite_result(
+        self,
+        fixture: dict[str, object],
+        result: dict[str, object],
+    ) -> None:
+        result_path = Path(fixture["evidence"]) / "result.json"
+        result_path.write_bytes(_canonical_json(result))
+        fixture["result_sha256"] = _sha256(result_path)
+
+    def _create_v2_synthetic_fixture(self, root: Path) -> dict[str, object]:
+        fixture = self._create_fixture(root)
+        plan_path = Path(fixture["evidence"]) / "plan.json"
+        result_path = Path(fixture["evidence"]) / "result.json"
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        result = json.loads(result_path.read_text(encoding="utf-8"))
+        lab_declaration = REPOSITORY_ROOT / "experiments" / "labs" / "3060-computer.json"
+        environment = {
+            "os_family": "Windows",
+            "os_version": "synthetic",
+            "os_architecture": "x64",
+            "powershell_edition": "Desktop",
+            "powershell_version": "5.1",
+            "trusted_system_directory": plan["trusted_system_directory"],
+        }
+        environment_sha256 = hashlib.sha256(
+            json.dumps(
+                environment,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        plan.update(
+            {
+                "schema": "agentic-evo.windows-gate-b-plan.v2",
+                "lab_id": fixture["lab_id"],
+                "lab_declaration_path": "experiments/labs/3060-computer.json",
+                "lab_declaration_sha256": _sha256(lab_declaration),
+                "evidence_namespace": "artifacts/labs/3060-computer",
+                "environment": environment,
+                "environment_sha256": environment_sha256,
+            }
+        )
+        plan_path.write_bytes(_canonical_json(plan))
+        plan_sha256 = hashlib.sha256(_canonical_json(plan)[:-1]).hexdigest()
+        report = result["report"]
+        report.update(
+            {
+                "schema": "agentic-evo.windows-gate-b-config-probe.v2",
+                "plan_sha256": plan_sha256,
+                "script_sha256": _sha256(GATE_B_SCRIPT),
+                "environment_sha256": environment_sha256,
+            }
+        )
+        result.update(
+            {
+                "schema": "agentic-evo.windows-gate-b-result.v2",
+                "plan_sha256": plan_sha256,
+                "environment_sha256": environment_sha256,
+            }
+        )
+        self._rewrite_result(fixture, result)
+        return fixture
+
+    def _materialize_historical_v1_synthetic(
+        self,
+        root: Path,
+    ) -> dict[str, object]:
+        synthetic = json.loads(
+            (
+                REPOSITORY_ROOT
+                / "tests"
+                / "fixtures"
+                / "windows_gate_b"
+                / "historical_v1_synthetic.json"
+            ).read_text(encoding="utf-8")
+        )
+        self.assertEqual(synthetic["label"], "historical_v1_synthetic")
+        self.assertNotIn("lab_id", synthetic["plan"])
+        self.assertNotIn("lab_id", synthetic["result"])
+        self.assertNotIn("challenge", synthetic["result"])
+
+        fixture = self._create_fixture(root)
+        bundle = Path(fixture["bundle"])
+        artifact = base64.b64decode(synthetic["artifact_bytes_b64"])
+        (bundle / ARTIFACT_NAME).write_bytes(artifact)
+        (bundle / MANIFEST_NAME).write_bytes(_canonical_json(synthetic["manifest"]))
+
+        plan_path = Path(fixture["evidence"]) / "plan.json"
+        result_path = Path(fixture["evidence"]) / "result.json"
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        result = json.loads(result_path.read_text(encoding="utf-8"))
+        plan.update(synthetic["plan"])
+        plan["run_id"] = fixture["run_id"]
+        plan["artifact_sha256"] = synthetic["manifest"]["artifact"]["sha256"]
+        plan_path.write_bytes(_canonical_json(plan))
+        plan_sha256 = hashlib.sha256(_canonical_json(plan)[:-1]).hexdigest()
+
+        result.update(
+            {
+                field: value
+                for field, value in synthetic["result"].items()
+                if field != "report"
+            }
+        )
+        result["run_id"] = fixture["run_id"]
+        result.pop("lab_id", None)
+        result.pop("challenge", None)
+        report = result["report"]
+        report.update(synthetic["result"]["report"])
+        report["run_id"] = fixture["run_id"]
+        report["challenge"] = fixture["challenge"]
+        report["plan_sha256"] = plan_sha256
+        report["script_sha256"] = _sha256(GATE_B_SCRIPT)
+        report["observation"]["artifact_sha256"] = plan["artifact_sha256"]
+        self._rewrite_result(fixture, result)
+        fixture["manifest_sha256"] = _sha256(bundle / MANIFEST_NAME)
+        return fixture
+
     def _run_gate_b_cli(
         self,
         command: str,
@@ -440,6 +559,131 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
                 {str(path): _sha256(path) for path in tracked},
                 before,
             )
+
+    def test_verifier_accepts_historical_v1_synthetic_fixture(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = self._materialize_historical_v1_synthetic(Path(temporary))
+            artifact = Path(fixture["bundle"]) / ARTIFACT_NAME
+            original_run = subprocess.run
+
+            def synthetic_artifact_runner(command: object, **kwargs: object) -> object:
+                if isinstance(command, list) and command[:2] == [str(artifact), "console-probe"]:
+                    return subprocess.CompletedProcess(command, 1063, "", "")
+                return original_run(command, **kwargs)
+
+            with mock.patch(
+                "agentic_evo.windows_gate_b_evidence.subprocess.run",
+                side_effect=synthetic_artifact_runner,
+            ):
+                verification = self._verify(fixture)
+
+            self.assertEqual(verification["status"], "passed")
+            self.assertEqual(verification["lab_id"], fixture["lab_id"])
+            self.assertEqual(verification["challenge"], fixture["challenge"])
+            self.assertEqual(
+                verification["historical_configuration"]["status"],
+                "inconclusive",
+            )
+
+    def test_verifier_accepts_complete_v2_synthetic_receipt_without_claim_gain(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = self._create_v2_synthetic_fixture(Path(temporary))
+            plan = json.loads(
+                (Path(fixture["evidence"]) / "plan.json").read_text(encoding="utf-8")
+            )
+
+            verification = self._verify(fixture)
+
+            self.assertEqual(verification["status"], "passed")
+            self.assertEqual(plan["schema"], "agentic-evo.windows-gate-b-plan.v2")
+            self.assertEqual(
+                plan["authorized_effects"],
+                {
+                    "temporary_service": True,
+                    "permanent_service": False,
+                    "hook": False,
+                    "genesis": False,
+                    "system_restart": False,
+                },
+            )
+            self.assertEqual(plan["claim_ceiling"]["gate_b"], "not_established")
+            self.assertFalse(verification["claims"]["gate_a_complete"])
+            self.assertEqual(verification["claims"]["gate_b_outcome"], "not_established")
+
+    def test_verifier_rejects_mixed_v1_and_v2_receipt_schemas(self) -> None:
+        for mix in (
+            "plan_v2_result_v1",
+            "plan_v1_result_v2",
+            "result_v2_report_v1",
+        ):
+            with self.subTest(mix=mix), tempfile.TemporaryDirectory() as temporary:
+                fixture = self._create_v2_synthetic_fixture(Path(temporary))
+                plan_path = Path(fixture["evidence"]) / "plan.json"
+                plan = json.loads(plan_path.read_text(encoding="utf-8"))
+                result_path = Path(fixture["evidence"]) / "result.json"
+                result = json.loads(result_path.read_text(encoding="utf-8"))
+                if mix == "plan_v2_result_v1":
+                    result["schema"] = "agentic-evo.windows-gate-b-result.v1"
+                    result["report"]["schema"] = (
+                        "agentic-evo.windows-gate-b-config-probe.v1"
+                    )
+                elif mix == "plan_v1_result_v2":
+                    plan["schema"] = "agentic-evo.windows-gate-b-plan.v1"
+                    for field in (
+                        "lab_id",
+                        "lab_declaration_path",
+                        "lab_declaration_sha256",
+                        "evidence_namespace",
+                        "environment",
+                        "environment_sha256",
+                    ):
+                        del plan[field]
+                    plan_path.write_bytes(_canonical_json(plan))
+                else:
+                    result["report"]["schema"] = (
+                        "agentic-evo.windows-gate-b-config-probe.v1"
+                    )
+                self._rewrite_result(fixture, result)
+
+                verification = self._verify(fixture)
+
+                self.assertEqual(verification["status"], "failed")
+
+    def test_v2_receipt_binds_lab_run_challenge_plan_and_environment(self) -> None:
+        for binding in (
+            "plan_lab_id",
+            "result_run_id",
+            "report_challenge",
+            "report_plan_sha256",
+            "result_environment_sha256",
+        ):
+            with self.subTest(binding=binding), tempfile.TemporaryDirectory() as temporary:
+                fixture = self._create_v2_synthetic_fixture(Path(temporary))
+                plan_path = Path(fixture["evidence"]) / "plan.json"
+                plan = json.loads(plan_path.read_text(encoding="utf-8"))
+                result_path = Path(fixture["evidence"]) / "result.json"
+                result = json.loads(result_path.read_text(encoding="utf-8"))
+                if binding == "plan_lab_id":
+                    plan["lab_id"] = "other-lab"
+                    plan_path.write_bytes(_canonical_json(plan))
+                    plan_sha256 = hashlib.sha256(_canonical_json(plan)[:-1]).hexdigest()
+                    result["report"]["plan_sha256"] = plan_sha256
+                    result["plan_sha256"] = plan_sha256
+                elif binding == "result_run_id":
+                    result["run_id"] = "other-run"
+                elif binding == "report_challenge":
+                    result["report"]["challenge"] = "other-challenge"
+                elif binding == "report_plan_sha256":
+                    result["report"]["plan_sha256"] = "0" * 64
+                else:
+                    result["environment_sha256"] = "0" * 64
+                self._rewrite_result(fixture, result)
+
+                verification = self._verify(fixture)
+
+                self.assertEqual(verification["status"], "failed")
 
     def test_verifier_fails_closed_for_missing_external_anchor_or_identity_mismatch(
         self,
@@ -926,7 +1170,7 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
         )
 
         with tempfile.TemporaryDirectory() as temporary:
-            fixture = self._create_fixture(Path(temporary))
+            fixture = self._create_v2_synthetic_fixture(Path(temporary))
             source_paths = [
                 Path(fixture["bundle"]) / ARTIFACT_NAME,
                 Path(fixture["bundle"]) / MANIFEST_NAME,

@@ -1,0 +1,29 @@
+{
+  "label": "historical_v1_synthetic",
+  "artifact_bytes_b64": "TVpzeW50aGV0aWM=",
+  "manifest": {
+    "schema": "agentic-evo.windows-gate-a.v1",
+    "artifact": {
+      "file": "AgenticEvo.ScmProbe.exe",
+      "bytes": 11,
+      "sha256": "3a3bb2549b8e25cd25ffe31d32c670b679a30557b9e31fdc165e290cb503f9d4"
+    }
+  },
+  "plan": {
+    "schema": "agentic-evo.windows-gate-b-plan.v1",
+    "mode": "plan"
+  },
+  "result": {
+    "schema": "agentic-evo.windows-gate-b-result.v1",
+    "status": "configuration_probe_completed",
+    "gate_b_outcome": "not_established",
+    "elevated_exit_code": 0,
+    "elevated_pipe_client_pid": 1234,
+    "report": {
+      "schema": "agentic-evo.windows-gate-b-config-probe.v1",
+      "status": "configuration_probe_completed",
+      "error": "",
+      "elevated_administrator": true
+    }
+  }
+}
