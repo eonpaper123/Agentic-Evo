@@ -13,6 +13,7 @@ import time
 import unittest
 
 from agentic_evo.ipc import (
+    PUBLIC_IO_TIMEOUT_SECONDS,
     ServiceUnavailableError,
     SurfaceClient,
     service_endpoint,
@@ -114,7 +115,7 @@ class CLILifecycleTests(unittest.TestCase):
         self,
         process: subprocess.Popen[str],
         *,
-        timeout_seconds: float = 2.0,
+        timeout_seconds: float = PUBLIC_IO_TIMEOUT_SECONDS + 1.0,
     ) -> dict[str, object]:
         assert process.stdout is not None
         lines: queue.Queue[str | BaseException] = queue.Queue()
