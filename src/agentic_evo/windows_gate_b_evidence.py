@@ -42,15 +42,26 @@ _PLAN_KEYS = {
     "evidence_root", "trusted_system_directory", "authorized_effects",
     "claim_ceiling",
 }
+_PLAN_V2_KEYS = _PLAN_KEYS | {
+    "lab_id", "lab_declaration_path", "lab_declaration_sha256",
+    "evidence_namespace", "environment", "environment_sha256",
+}
 _RESULT_KEYS = {
     "schema", "lab_id", "run_id", "challenge", "status", "gate_b_outcome",
     "elevated_exit_code", "elevated_pipe_client_pid", "report",
     "independent_cleanup",
 }
+_HISTORICAL_RESULT_V1_KEYS = _RESULT_KEYS - {"lab_id", "challenge"}
+_RESULT_V2_KEYS = _RESULT_KEYS | {"plan_sha256", "environment_sha256"}
 _REPORT_KEYS = {
     "schema", "lab_id", "run_id", "challenge", "plan_sha256",
     "script_sha256", "status", "error", "elevated_administrator",
     "observation", "cleanup", "claims",
+}
+_REPORT_V2_KEYS = _REPORT_KEYS | {"environment_sha256"}
+_ENVIRONMENT_KEYS = {
+    "os_family", "os_version", "os_architecture", "powershell_edition",
+    "powershell_version", "trusted_system_directory",
 }
 _EXPECTED_AUTHORIZED_EFFECTS = {
     "temporary_service": True,
@@ -166,6 +177,7 @@ def verify_gate_b_evidence(
     manifest: dict[str, Any] | None = None
     plan: dict[str, Any] | None = None
     result: dict[str, Any] | None = None
+    receipt_version: str | None = None
     manifest_path = bundle / MANIFEST_NAME
     artifact_path = bundle / ARTIFACT_NAME
     plan_path = evidence / "plan.json"
@@ -191,8 +203,10 @@ def verify_gate_b_evidence(
             fail("undeclared_evidence_entry", "evidence closure is not exact")
         plan = _read_canonical_object(plan_path, "plan", fail)
         result = _read_canonical_object(result_path, "result", fail)
-        if result is not None:
-            _validate_result_contract(result, fail)
+        if plan is not None and result is not None:
+            receipt_version = _select_receipt_version(plan, result, fail)
+            if receipt_version is not None:
+                _validate_result_contract(result, receipt_version, fail)
 
     anchor_paths = {
         "manifest": manifest_path,
@@ -213,10 +227,16 @@ def verify_gate_b_evidence(
         if not match:
             fail(anchor_codes[label], f"external {label} commitment did not match")
 
-    lab_id = _value(result, "lab_id")
+    lab_id = _value(result, "lab_id") if receipt_version == "v2" else expected_lab_id
     run_id = _value(result, "run_id")
-    challenge = _value(result, "challenge")
-    for label, actual in (("lab_id", lab_id), ("run_id", run_id), ("challenge", challenge)):
+    challenge = (
+        _value(result, "challenge") if receipt_version == "v2"
+        else _value(_value(result, "report"), "challenge")
+    )
+    identity_fields = (("run_id", run_id), ("challenge", challenge))
+    if receipt_version == "v2":
+        identity_fields = (("lab_id", lab_id),) + identity_fields
+    for label, actual in identity_fields:
         expected_value = identities[label]
         if actual != expected_value:
             fail(f"{label}_mismatch", "receipt identity does not match external binding")
@@ -230,6 +250,7 @@ def verify_gate_b_evidence(
             artifact_path,
             manifest,
             fail,
+            receipt_version,
         )
         _validate_receipt_ceiling(result, fail)
     zero_residue = _observe_current_zero_residue(plan, fail) if plan is not None else False
@@ -261,7 +282,11 @@ def verify_gate_b_evidence(
         "case_matrix": case_matrix,
         "historical_configuration": {
             "status": "inconclusive",
-            "reason": "receipt-only historical privileged events are not independently observed now",
+            "reason": (
+                "historical v1 lab binding is not established"
+                if receipt_version == "v1" and "lab_id" not in (result or {})
+                else "receipt-only historical privileged events are not independently observed now"
+            ),
         },
         "claims": claims,
         "failures": failures,
@@ -406,6 +431,35 @@ def _validate_artifact(path: Path, manifest: dict[str, Any] | None, fail: Any) -
         fail("artifact_console_probe_invalid", "artifact did not fail closed outside SCM")
 
 
+def _select_receipt_version(
+    plan: dict[str, Any], result: dict[str, Any], fail: Any,
+) -> str | None:
+    """Choose a closed receipt family from the result schema only."""
+
+    report = result.get("report")
+    result_schema = result.get("schema")
+    if result_schema == "agentic-evo.windows-gate-b-result.v1":
+        if (
+            plan.get("schema") != "agentic-evo.windows-gate-b-plan.v1"
+            or not isinstance(report, dict)
+            or report.get("schema") != "agentic-evo.windows-gate-b-config-probe.v1"
+        ):
+            fail("result_contract_invalid", "mixed Gate B receipt schemas")
+            return None
+        return "v1"
+    if result_schema == "agentic-evo.windows-gate-b-result.v2":
+        if (
+            plan.get("schema") != "agentic-evo.windows-gate-b-plan.v2"
+            or not isinstance(report, dict)
+            or report.get("schema") != "agentic-evo.windows-gate-b-config-probe.v2"
+        ):
+            fail("result_contract_invalid", "mixed Gate B receipt schemas")
+            return None
+        return "v2"
+    fail("result_contract_invalid", "unexpected result schema")
+    return None
+
+
 def _validate_plan_result_binding(
     plan: dict[str, Any],
     result: dict[str, Any],
@@ -414,11 +468,12 @@ def _validate_plan_result_binding(
     bundle_artifact: Path,
     manifest: dict[str, Any] | None,
     fail: Any,
+    receipt_version: str | None,
 ) -> None:
-    if plan.get("schema") != "agentic-evo.windows-gate-b-plan.v1" or plan.get("mode") != "plan":
+    if receipt_version is None or plan.get("mode") != "plan":
         fail("plan_contract_invalid", "unexpected plan schema or mode")
         return
-    if set(plan) != _PLAN_KEYS:
+    if set(plan) != (_PLAN_V2_KEYS if receipt_version == "v2" else _PLAN_KEYS):
         fail("plan_contract_invalid", "plan field set changed")
     run_id = result.get("run_id")
     if not isinstance(run_id, str) or plan.get("run_id") != run_id:
@@ -431,7 +486,8 @@ def _validate_plan_result_binding(
     )
     if plan.get("service_name") != expected_paths["service_name"]:
         fail("plan_target_derivation_invalid", "service name is not derived from run ID")
-    if not _same_path_text(plan.get("source_artifact"), expected_paths["source_artifact"]):
+    historical_v1 = receipt_version == "v1" and "lab_id" not in result and "challenge" not in result
+    if not historical_v1 and not _same_path_text(plan.get("source_artifact"), expected_paths["source_artifact"]):
         fail("plan_target_derivation_invalid", "source artifact is not verifier-derived")
     if plan.get("artifact_sha256") != expected_paths["artifact_sha256"]:
         fail("plan_target_derivation_invalid", "artifact sha256 is not verifier-derived")
@@ -447,7 +503,7 @@ def _validate_plan_result_binding(
         fail("plan_target_derivation_invalid", "state root is not verifier-derived")
     if not _same_path_text(plan.get("probe_path"), expected_paths["probe_path"]):
         fail("plan_target_derivation_invalid", "probe path is not verifier-derived")
-    if not _same_path_text(plan.get("evidence_root"), expected_paths["evidence_root"]):
+    if not historical_v1 and not _same_path_text(plan.get("evidence_root"), expected_paths["evidence_root"]):
         fail("plan_target_derivation_invalid", "evidence root is not verifier-derived")
     if not _same_path_text(plan.get("trusted_system_directory"), expected_paths["trusted_system_directory"]):
         fail("trusted_scm_query_unavailable", "trusted system directory is not verifier-derived")
@@ -463,13 +519,13 @@ def _validate_plan_result_binding(
     if not isinstance(report, dict):
         fail("result_report_missing", "result has no report object")
         return
-    if report.get("schema") != "agentic-evo.windows-gate-b-config-probe.v1":
-        fail("report_contract_invalid", "unexpected report schema")
+    if receipt_version == "v2":
+        _validate_v2_bindings(plan, result, report, fail)
     if report.get("plan_sha256") != plan_digest:
         fail("report_plan_binding_mismatch", "report plan digest did not match")
     if report.get("script_sha256") != _sha256(script):
         fail("report_script_binding_mismatch", "report script digest did not match")
-    for field in ("lab_id", "run_id", "challenge"):
+    for field in (("lab_id", "run_id", "challenge") if receipt_version == "v2" else ("run_id",)):
         if report.get(field) != result.get(field):
             fail(f"report_{field}_mismatch", "report identity did not match result")
     observation = report.get("observation")
@@ -481,12 +537,55 @@ def _validate_plan_result_binding(
         fail("cleanup_receipt_missing", "cleanup receipts are missing")
 
 
+def _validate_v2_bindings(
+    plan: dict[str, Any], result: dict[str, Any], report: dict[str, Any], fail: Any,
+) -> None:
+    for field in ("lab_id", "run_id"):
+        if plan.get(field) != result.get(field) or report.get(field) != result.get(field):
+            fail(f"{field}_mismatch", "v2 receipt identity bindings differ")
+    if report.get("challenge") != result.get("challenge"):
+        fail("challenge_mismatch", "v2 receipt challenge binding differs")
+    plan_digest = _sha256_without_final_newline_from_object(plan)
+    if result.get("plan_sha256") != plan_digest or report.get("plan_sha256") != plan_digest:
+        fail("report_plan_binding_mismatch", "v2 plan digest did not match")
+    environment = plan.get("environment")
+    environment_digest = _sha256_without_final_newline_from_object(environment) if isinstance(environment, dict) else None
+    if (
+        not isinstance(environment, dict)
+        or set(environment) != _ENVIRONMENT_KEYS
+        or environment.get("trusted_system_directory") != plan.get("trusted_system_directory")
+        or plan.get("environment_sha256") != environment_digest
+        or result.get("environment_sha256") != environment_digest
+        or report.get("environment_sha256") != environment_digest
+    ):
+        fail("environment_binding_mismatch", "v2 environment binding did not match")
+    lab_id = plan.get("lab_id")
+    declaration = Path(__file__).resolve().parents[2] / "experiments" / "labs" / f"{lab_id}.json"
+    if (
+        not isinstance(lab_id, str)
+        or plan.get("lab_declaration_path") != f"experiments/labs/{lab_id}.json"
+        or not declaration.is_file()
+        or plan.get("lab_declaration_sha256") != _sha256(declaration)
+    ):
+        fail("lab_binding_mismatch", "v2 lab declaration did not match")
+    else:
+        try:
+            lab = json.loads(declaration.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            lab = None
+        if not isinstance(lab, dict) or plan.get("evidence_namespace") != lab.get("evidence_namespace"):
+            fail("lab_binding_mismatch", "v2 evidence namespace did not match lab declaration")
+
+
 def _validate_receipt_ceiling(result: dict[str, Any], fail: Any) -> None:
     report = result.get("report")
     claims = report.get("claims") if isinstance(report, dict) else None
     forbidden = (
         result.get("gate_b_outcome") != "not_established"
-        or result.get("schema") != "agentic-evo.windows-gate-b-result.v1"
+        or result.get("schema") not in {
+            "agentic-evo.windows-gate-b-result.v1",
+            "agentic-evo.windows-gate-b-result.v2",
+        }
         or not isinstance(claims, dict)
         or claims.get("gate_a_complete") is not False
         or claims.get("gate_b_outcome") != "not_established"
@@ -767,11 +866,10 @@ def _cleanup_attack_verifier(
     }
 
 
-def _validate_result_contract(result: dict[str, Any], fail: Any) -> None:
-    if set(result) != _RESULT_KEYS:
+def _validate_result_contract(result: dict[str, Any], receipt_version: str, fail: Any) -> None:
+    result_keys = _RESULT_V2_KEYS if receipt_version == "v2" else (_RESULT_KEYS, _HISTORICAL_RESULT_V1_KEYS)
+    if (set(result) != result_keys if isinstance(result_keys, set) else set(result) not in result_keys):
         fail("result_contract_invalid", "result field set changed")
-    if result.get("schema") != "agentic-evo.windows-gate-b-result.v1":
-        fail("result_contract_invalid", "unexpected result schema")
     if result.get("status") != "configuration_probe_completed":
         fail("result_contract_invalid", "result status is not a completed configuration probe")
     if result.get("gate_b_outcome") != "not_established":
@@ -787,10 +885,8 @@ def _validate_result_contract(result: dict[str, Any], fail: Any) -> None:
     if not isinstance(report, dict):
         fail("result_report_missing", "result has no report object")
         return
-    if set(report) != _REPORT_KEYS:
+    if set(report) != (_REPORT_V2_KEYS if receipt_version == "v2" else _REPORT_KEYS):
         fail("report_contract_invalid", "report field set changed")
-    if report.get("schema") != "agentic-evo.windows-gate-b-config-probe.v1":
-        fail("report_contract_invalid", "unexpected report schema")
     if report.get("status") != "configuration_probe_completed":
         fail("report_contract_invalid", "report status is not a completed configuration probe")
     if report.get("error") != "":
