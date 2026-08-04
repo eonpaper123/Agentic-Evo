@@ -4,6 +4,8 @@
 > 阻塞项（Gate B 重启、第二真实 coding agent、Genesis 授权、私有远端推送授权），并给出聚焦提交历史
 > （四个分支 tip 的确认 SHA）。发布 base：`1f886b0`（`agent/autonomous-loop` tip）。
 
+> **集成状态（2026-08-05 03:03 +08）**：四个切片已在本地集成分支 `agent/v1.0-integration`（tip `e9fa817`）合并完成：`113db04 merge(slice-b)`、`0a6f92e merge(slice-c)`、`e9fa817 merge(slice-d)`（均在 `1f886b0` 之上；cli.py 冲突已手工解决，保留两套子命令）。集成树全量测试：**275 tests OK**（77.2s）。私有远程推送仍 `blocked_authorization`。
+
 ## 状态图例（Status Legend）
 
 | 状态标签 | 含义 |
