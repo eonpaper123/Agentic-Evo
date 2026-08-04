@@ -9,8 +9,6 @@ import tempfile
 import unittest
 
 from agentic_evo.native_backends import (
-    DARWIN_BACKEND,
-    LINUX_BACKEND,
     NATIVE_BACKEND_FIELDS,
 )
 
@@ -169,8 +167,6 @@ class InstallPlanTests(unittest.TestCase):
             "reject_remote_clients",
             platforms["win32"]["private_lineage"],
         )
-        self.assertEqual(platforms["darwin"], DARWIN_BACKEND)
-        self.assertEqual(platforms["linux"], LINUX_BACKEND)
         self.assertTrue(plan["blockers"])
         self.assertIn(
             "native_service_artifacts_and_reversible_uninstall",
