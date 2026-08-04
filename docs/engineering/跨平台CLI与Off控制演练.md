@@ -1,7 +1,7 @@
 # 跨平台 CLI、Off 控制与零安装副作用计划
 
 > 状态：Pre-Genesis 可移植层停止点；Windows foreground 已形成四个局部原生组件，Off control 仍为 generic / unverified
-> 对应实现：`src/agentic_evo/cli.py`、`ipc.py`、`service.py`、`install_plan.py`、`adapters/codex.py`  
+> 对应实现：`src/agentic_evo/cli.py`、`ipc.py`、`service.py`、`install_plan.py`、`native_backends.py`、`adapters/codex.py`
 > 当前实测平台：Windows  
 > macOS / Linux 状态：协议与目标计划可生成，原生实现和实机测试均未完成
 
@@ -582,6 +582,8 @@ Portable protocol
 ```text
 native_test_status = not_run
 ```
+
+本轮 Darwin / Linux 的目标合同已从 `install_plan.py` 抽到 `src/agentic_evo/native_backends.py` 作为单一不可变来源；`plan-install` 只渲染该来源到 canonical JSON，不再各自内联维护。自动化只验证合同字段、不可变性与 plan 渲染一致性，见 `tests/test_native_backends.py` 与 `tests/test_install_plan.py`；`native_test_status` 仍为 `not_run`，这不是 launchd、systemd、UID、IPC 或安装态的实机验证。
 
 所以：
 
