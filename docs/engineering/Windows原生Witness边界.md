@@ -671,3 +671,5 @@ service self-report
 ```
 
 创建临时 service 需要管理员权限；Microsoft 的 SCM 权限说明也明确指出，能够 `CreateService` 的 SCM handle 只授予管理员。本轮已用一次宿主批准、外部固定脚本摘要、随机 service name、零 Genesis 的 UAC 配置探针证明 trusted handoff 与 exact cleanup 可以实机闭合；它没有把普通用户 Python 注册为服务，也没有留下可跨重启对象。Windows 权限实验当前可以在这里停下：下一次重新打开必须得到覆盖“保留临时 service + system restart + 独立 verifier/attacker + 完整攻击与卸载矩阵”的新授权。没有该授权时，继续运行同类配置探针不会增加 \(W_{SCM}\) 或 Gate B 证据。
+
+在申请该授权前，仓库只允许生成 `agentic-evo.windows-gate-b-retained-preflight.v1` 预注册计划；它固定一次跨单次重启的临时 service 实验边界，但不创建 service、不触发 UAC、不写入 evidence，也不提升任何 Gate B 结论。

@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet("Plan", "Run", "Elevated")]
+    [ValidateSet("Plan", "Run", "Elevated", "RetainedPreflight")]
     [string]$Mode,
     [Parameter(Mandatory = $true)]
     [string]$LabId,
@@ -1327,6 +1327,63 @@ $plan = Get-Plan
 $planJson = ConvertTo-CompactJson $plan
 switch ($Mode) {
     "Plan" { Write-Output $planJson }
+    "RetainedPreflight" {
+        $preflight = [ordered]@{
+            schema = "agentic-evo.windows-gate-b-retained-preflight.v1"
+            mode = "retained_preflight"
+            lab_id = $plan.lab_id
+            run_id = $plan.run_id
+            service_name = $plan.service_name
+            source_artifact = $plan.source_artifact
+            artifact_sha256 = $plan.artifact_sha256
+            artifact_product_base = $plan.artifact_product_base
+            artifact_root = $plan.artifact_root
+            artifact_path = $plan.artifact_path
+            state_product_base = $plan.state_product_base
+            state_root = $plan.state_root
+            probe_path = $plan.probe_path
+            evidence_root = $plan.evidence_root
+            trusted_system_directory = $plan.trusted_system_directory
+            lab_declaration_path = $plan.lab_declaration_path
+            lab_declaration_sha256 = $plan.lab_declaration_sha256
+            evidence_namespace = $plan.evidence_namespace
+            environment = $plan.environment
+            environment_sha256 = $plan.environment_sha256
+            authorized_effects = [ordered]@{
+                temporary_service = $true
+                permanent_service = $false
+                hook = $false
+                genesis = $false
+                system_restart = $true
+            }
+            retention = [ordered]@{
+                service_lifetime = "retain_across_exactly_one_restart_until_post_restart_verification_then_remove"
+                service_start = "not_performed_by_preflight"
+                cleanup_before_restart = $false
+                cleanup_after_post_restart_verification = "required"
+                reversible_uninstall_required = $true
+            }
+            claim_ceiling = [ordered]@{
+                gate_b = "not_established"
+                restricted_service_sid_configuration = "pending_reboot_until_post_restart_observation"
+                C01 = "not_run"
+                C02 = "not_run"
+                I01 = "not_run"
+                S01 = "not_run"
+                S02 = "not_run"
+                S03 = "not_run"
+                P01 = "not_run"
+                P02 = "not_run"
+                L01 = "not_run"
+                R01 = "not_run"
+                R02 = "not_run"
+                U01 = "not_run"
+                native_security_verified = $false
+                ready_to_install = $false
+            }
+        }
+        Write-Output (ConvertTo-CompactJson $preflight)
+    }
     "Run" { Invoke-Controller $plan $planJson }
     "Elevated" { Invoke-Elevated $plan $planJson }
 }
