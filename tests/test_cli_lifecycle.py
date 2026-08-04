@@ -341,6 +341,10 @@ class CLILifecycleTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         payload = json.loads(result.stdout)
+        self.assertEqual(
+            result.stdout.encode("utf-8"),
+            canonical_json_bytes({"ok": True, "result": payload["result"]}) + b"\n",
+        )
         self.assertEqual(set(payload), {"ok", "result"})
         self.assertIs(payload["ok"], True)
         self.assertIsInstance(payload["result"], dict)
@@ -365,6 +369,10 @@ class CLILifecycleTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         payload = json.loads(result.stdout)
+        self.assertEqual(
+            result.stdout.encode("utf-8"),
+            canonical_json_bytes({"ok": True, "result": payload["result"]}) + b"\n",
+        )
         self.assertEqual(set(payload), {"ok", "result"})
         self.assertIs(payload["ok"], True)
         self.assertIsInstance(payload["result"], dict)
