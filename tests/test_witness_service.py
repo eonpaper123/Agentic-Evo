@@ -252,19 +252,53 @@ class WitnessServiceTests(unittest.TestCase):
         receipt = client.observe(
             event_kind="tool_result",
             payload={"outcome": "ok"},
+            occurred_at="",
             execution_surface="codex",
             session_id="",
             turn_id="",
             tool_call_id="",
             project_environment="",
+            correlation_ref="",
+            causation_ref="",
+            parent_ref="",
             coverage_gap="",
         )
         record = self.runtime.evidence.records()[receipt["sequence"] - 1]
+        self.assertEqual(record.occurred_at, "")
         self.assertEqual(record.session_id, "")
         self.assertEqual(record.turn_id, "")
         self.assertEqual(record.tool_call_id, "")
         self.assertEqual(record.project_environment, "")
+        self.assertEqual(record.correlation_ref, "")
+        self.assertEqual(record.causation_ref, "")
+        self.assertEqual(record.parent_ref, "")
         self.assertEqual(record.coverage_gap, "")
+
+        null_receipt = client.observe(
+            event_kind="tool_result",
+            payload={"outcome": "null"},
+            occurred_at=None,
+            execution_surface="codex",
+            correlation_ref=None,
+            causation_ref=None,
+            parent_ref=None,
+        )
+        null_record = self.runtime.evidence.records()[null_receipt["sequence"] - 1]
+        self.assertIsInstance(null_record.occurred_at, str)
+        self.assertIsNone(null_record.correlation_ref)
+        self.assertIsNone(null_record.causation_ref)
+        self.assertIsNone(null_record.parent_ref)
+
+        omitted_receipt = client.observe(
+            event_kind="tool_result",
+            payload={"outcome": "omitted"},
+            execution_surface="codex",
+        )
+        omitted_record = self.runtime.evidence.records()[omitted_receipt["sequence"] - 1]
+        self.assertIsInstance(omitted_record.occurred_at, str)
+        self.assertIsNone(omitted_record.correlation_ref)
+        self.assertIsNone(omitted_record.causation_ref)
+        self.assertIsNone(omitted_record.parent_ref)
 
     def test_public_observe_preserves_temporal_and_causal_refs(self) -> None:
         process = self._spawn()
@@ -324,8 +358,7 @@ class WitnessServiceTests(unittest.TestCase):
             "parent_ref",
         ):
             for value, message in (
-                (False, f"{field} must be a non-empty string or null"),
-                ("", f"{field} must be a non-empty string or null"),
+                (False, f"{field} must be a string or null"),
                 ("x" * 1025, f"{field} exceeds the public text byte bound"),
             ):
                 with self.subTest(field=field, value=value):

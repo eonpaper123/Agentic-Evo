@@ -490,10 +490,14 @@ class CLILifecycleTests(unittest.TestCase):
                 "args": {
                     "event_kind": "tool_result",
                     "payload": {"outcome": "ok"},
+                    "occurred_at": "",
                     "session_id": "",
                     "turn_id": "",
                     "tool_call_id": "",
                     "project_environment": "",
+                    "correlation_ref": "",
+                    "causation_ref": "",
+                    "parent_ref": "",
                     "coverage_gap": "",
                 },
             },
@@ -505,11 +509,65 @@ class CLILifecycleTests(unittest.TestCase):
         )
         self._assert_observe_receipt_shape(receipt)
         record = self.runtime.evidence.records()[receipt["sequence"] - 1]
+        self.assertEqual(record.occurred_at, "")
         self.assertEqual(record.session_id, "")
         self.assertEqual(record.turn_id, "")
         self.assertEqual(record.tool_call_id, "")
         self.assertEqual(record.project_environment, "")
+        self.assertEqual(record.correlation_ref, "")
+        self.assertEqual(record.causation_ref, "")
+        self.assertEqual(record.parent_ref, "")
         self.assertEqual(record.coverage_gap, "")
+
+        self._write_jsonl(
+            process,
+            {
+                "schema": "agentic-evo.surface-stdio.v1",
+                "id": "observe-null-optional",
+                "op": "observe",
+                "args": {
+                    "event_kind": "tool_result",
+                    "payload": {"outcome": "null"},
+                    "occurred_at": None,
+                    "correlation_ref": None,
+                    "causation_ref": None,
+                    "parent_ref": None,
+                },
+            },
+        )
+        null_receipt = self._assert_surface_response(
+            self._read_jsonl(process),
+            request_id="observe-null-optional",
+            ok=True,
+        )
+        null_record = self.runtime.evidence.records()[null_receipt["sequence"] - 1]
+        self.assertIsInstance(null_record.occurred_at, str)
+        self.assertIsNone(null_record.correlation_ref)
+        self.assertIsNone(null_record.causation_ref)
+        self.assertIsNone(null_record.parent_ref)
+
+        self._write_jsonl(
+            process,
+            {
+                "schema": "agentic-evo.surface-stdio.v1",
+                "id": "observe-omitted-optional",
+                "op": "observe",
+                "args": {
+                    "event_kind": "tool_result",
+                    "payload": {"outcome": "omitted"},
+                },
+            },
+        )
+        omitted_receipt = self._assert_surface_response(
+            self._read_jsonl(process),
+            request_id="observe-omitted-optional",
+            ok=True,
+        )
+        omitted_record = self.runtime.evidence.records()[omitted_receipt["sequence"] - 1]
+        self.assertIsInstance(omitted_record.occurred_at, str)
+        self.assertIsNone(omitted_record.correlation_ref)
+        self.assertIsNone(omitted_record.causation_ref)
+        self.assertIsNone(omitted_record.parent_ref)
 
     def test_surface_stdio_rejects_public_frame_oversize_locally(self) -> None:
         service = self._spawn_service()
@@ -786,36 +844,71 @@ class CLILifecycleTests(unittest.TestCase):
 
         reloaded = DevelopmentalRuntime.load(self.home)
         records = reloaded.evidence.records()
-        cause = next(
-            record for record in records if record.event_id == cause_receipt["event_id"]
-        )
-        outcome = next(
-            record for record in records if record.event_id == receipt["event_id"]
-        )
         self.assertEqual(reloaded.status().root, baseline.root)
         self.assertEqual(reloaded.status().head, baseline.head)
         self.assertEqual(len(records), len(baseline_records) + 6)
         self.assertEqual(reloaded.status().active_sessions, ())
         self.assertTrue(reloaded.evidence.verify())
-        self.assertEqual(outcome.event_kind, "delayed_outcome_observed")
+        tail = records[-6:]
+        self.assertEqual(
+            [record.event_kind for record in tail],
+            [
+                "session_start",
+                "tool_result",
+                "session_end",
+                "session_start",
+                "delayed_outcome_observed",
+                "session_end",
+            ],
+        )
+        self.assertEqual(
+            [record.sequence for record in tail],
+            list(range(len(baseline_records) + 1, len(baseline_records) + 7)),
+        )
+        if baseline_records:
+            self.assertEqual(tail[0].previous_integrity_hash, baseline_records[-1].integrity_hash)
+        for earlier, later in zip(tail, tail[1:]):
+            self.assertEqual(later.previous_integrity_hash, earlier.integrity_hash)
+
+        cause = tail[1]
+        outcome = tail[4]
+        self.assertEqual(cause.event_id, cause_receipt["event_id"])
+        self.assertEqual(outcome.event_id, receipt["event_id"])
+        self.assertEqual(cause.payload, {"outcome": "initial-result"})
+        self.assertEqual(outcome.payload, {"outcome": "accepted"})
         self.assertEqual(outcome.occurred_at, "2026-08-04T12:34:56Z")
         self.assertEqual(outcome.correlation_ref, "experiment-001-run-a")
         self.assertEqual(outcome.causation_ref, cause.event_id)
         self.assertEqual(outcome.parent_ref, cause.event_id)
         self.assertEqual(
-            outcome.previous_integrity_hash,
-            records[outcome.sequence - 2].integrity_hash,
+            [(record.correlation_ref, record.causation_ref, record.parent_ref) for record in tail],
+            [
+                (None, None, None),
+                (None, None, None),
+                (None, None, None),
+                (None, None, None),
+                ("experiment-001-run-a", cause.event_id, cause.event_id),
+                (None, None, None),
+            ],
         )
-        for record, surface, session, project in (
-            (cause, "codex", "cause-session", "project-a"),
-            (outcome, "generic-stdio", "outcome-session", "project-b"),
-        ):
+        self.assertEqual(
+            [record.execution_surface for record in tail],
+            ["codex", "codex", "codex", "generic-stdio", "generic-stdio", "generic-stdio"],
+        )
+        self.assertEqual(
+            [record.session_id for record in tail],
+            ["cause-session", "cause-session", "cause-session", "outcome-session", "outcome-session", "outcome-session"],
+        )
+        self.assertEqual(
+            [record.project_environment for record in tail],
+            ["project-a", "project-a", "project-a", "project-b", "project-b", "project-b"],
+        )
+        for record in tail:
             self.assertEqual(record.source_kind, "execution_surface")
             self.assertEqual(record.author_kind, "surface_unverified")
             self.assertIsNone(record.human_intervention_kind)
-            self.assertEqual(record.execution_surface, surface)
-            self.assertEqual(record.session_id, session)
-            self.assertEqual(record.project_environment, project)
+        self.assertEqual(tail[2].payload, {"session_was_active": True})
+        self.assertEqual(tail[5].payload, {"session_was_active": True})
 
     def test_surface_stdio_rejects_invalid_temporal_and_causal_refs_locally_without_mutation(
         self,
@@ -833,8 +926,7 @@ class CLILifecycleTests(unittest.TestCase):
             "parent_ref",
         ):
             for suffix, value, message in (
-                ("false", False, f"{field} must be a non-empty string or null"),
-                ("empty", "", f"{field} must be a non-empty string or null"),
+                ("false", False, f"{field} must be a string or null"),
                 ("long", "x" * 1025, f"{field} exceeds the stdio text byte bound"),
             ):
                 with self.subTest(field=field, value=suffix):
