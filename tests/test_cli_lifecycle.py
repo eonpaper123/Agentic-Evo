@@ -391,10 +391,34 @@ class CLILifecycleTests(unittest.TestCase):
     def test_export_experiment_prereg_command_prints_canonical_json_without_runtime_mutation(
         self,
     ) -> None:
-        prereg_path, _ = self._prepare_experiment_post_prereg_fixture()
-
-        prereg = json.loads(prereg_path.read_text(encoding="utf-8"))
-        self.assertEqual(prereg_path.read_bytes(), canonical_json_bytes(prereg))
+        self.runtime.observe(
+            event_kind="prereg_measurement",
+            payload={"measurement": "prereg"},
+            execution_surface="test-surface",
+            session_id="test-session",
+            project_environment="test-project",
+        )
+        before_status = self.runtime.status()
+        before_records = self.runtime.evidence.records()
+        arguments = ["export-experiment-prereg"]
+        for ref in EXPERIMENT_HYPOTHESIS_REFS:
+            arguments.extend(("--hypothesis-ref", ref))
+        for ref in EXPERIMENT_CONTROL_REFS:
+            arguments.extend(("--control-ref", ref))
+        try:
+            result = self._run_cli(*arguments)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(
+                result.stdout.encode("utf-8"),
+                canonical_json_bytes({"ok": True, "result": payload["result"]}) + b"\n",
+            )
+            self.assertEqual(set(payload), {"ok", "result"})
+            self.assertIs(payload["ok"], True)
+            self.assertIsInstance(payload["result"], dict)
+        finally:
+            self.assertEqual(self.runtime.status(), before_status)
+            self.assertEqual(self.runtime.evidence.records(), before_records)
 
     def test_export_experiment_pack_command_prints_canonical_json_without_runtime_mutation(
         self,
