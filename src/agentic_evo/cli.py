@@ -8,9 +8,15 @@ import sys
 from typing import Any, Mapping
 
 from .adapters.codex import handle_codex_hook
+from ._util import canonical_json_bytes
 from .errors import AgenticEvoError
 from .install_plan import build_install_plan
-from .ipc import OffRehearsalClient, SurfaceClient
+from .ipc import (
+    OffRehearsalClient,
+    ServiceRejectedError,
+    ServiceUnavailableError,
+    SurfaceClient,
+)
 from .service import main as service_main
 from .windows_gate_a import (
     GateABundleError,
@@ -21,6 +27,13 @@ from .windows_gate_a import (
 
 
 MAX_HOOK_INPUT_BYTES = 2 * 1024 * 1024
+SURFACE_STDIO_SCHEMA = "agentic-evo.surface-stdio.v1"
+MAX_SURFACE_STDIO_TEXT_BYTES = 1024
+MAX_SURFACE_STDIO_PAYLOAD_BYTES = 60 * 1024
+
+
+class _SurfaceStdioInputError(ValueError):
+    pass
 
 
 def _write_json(value: Mapping[str, Any], *, stream: Any = None) -> None:
@@ -96,6 +109,211 @@ def _codex_hook(home: Path) -> int:
     if result is not None:
         _write_json(result)
     return 0
+
+
+def _surface_stdio_error(
+    request_id: str | None,
+    code: str,
+    message: str,
+) -> dict[str, Any]:
+    return {
+        "schema": SURFACE_STDIO_SCHEMA,
+        "id": request_id,
+        "ok": False,
+        "error": {"code": code, "message": message},
+    }
+
+
+def _surface_stdio_text(
+    value: Any,
+    field: str,
+    *,
+    optional: bool = False,
+) -> str | None:
+    if optional and value is None:
+        return None
+    if not isinstance(value, str) or not value:
+        message = (
+            f"{field} must be a string or null"
+            if optional
+            else f"{field} must be a non-empty string"
+        )
+        raise _SurfaceStdioInputError(message)
+    if len(value.encode("utf-8")) > MAX_SURFACE_STDIO_TEXT_BYTES:
+        raise _SurfaceStdioInputError(
+            f"{field} exceeds the stdio text byte bound"
+        )
+    return value
+
+
+def _surface_stdio_request(
+    raw_line: str,
+    client: SurfaceClient,
+    execution_surface: str,
+) -> dict[str, Any]:
+    try:
+        request = json.loads(raw_line)
+    except (json.JSONDecodeError, RecursionError):
+        return _surface_stdio_error(
+            None,
+            "invalid_input",
+            "line must be one UTF-8 JSON object",
+        )
+    if not isinstance(request, dict):
+        return _surface_stdio_error(
+            None,
+            "invalid_input",
+            "line must be one UTF-8 JSON object",
+        )
+
+    request_id = request.get("id") if isinstance(request.get("id"), str) else None
+    if set(request) != {"schema", "id", "op", "args"}:
+        return _surface_stdio_error(
+            request_id,
+            "invalid_input",
+            "request envelope has unexpected fields",
+        )
+    if request["schema"] != SURFACE_STDIO_SCHEMA:
+        return _surface_stdio_error(
+            request_id,
+            "invalid_input",
+            "request schema is unsupported",
+        )
+    try:
+        request_id = _surface_stdio_text(request["id"], "id")
+    except ValueError:
+        return _surface_stdio_error(
+            request_id,
+            "invalid_input",
+            "id must be a bounded non-empty string",
+        )
+    if request["op"] not in ("status", "wake", "observe", "sleep"):
+        return _surface_stdio_error(request_id, "invalid_input", "op is unsupported")
+    if not isinstance(request["args"], dict):
+        return _surface_stdio_error(
+            request_id,
+            "invalid_input",
+            "args must be one JSON object",
+        )
+
+    operation = request["op"]
+    args = request["args"]
+    required = {
+        "status": set(),
+        "wake": {"session_id", "project_environment"},
+        "observe": {"event_kind", "payload"},
+        "sleep": {"session_id"},
+    }[operation]
+    optional = {
+        "status": set(),
+        "wake": {"model"},
+        "observe": {
+            "session_id",
+            "turn_id",
+            "tool_call_id",
+            "project_environment",
+            "coverage_gap",
+        },
+        "sleep": set(),
+    }[operation]
+    if set(args) != required | optional.intersection(args):
+        return _surface_stdio_error(
+            request_id,
+            "invalid_input",
+            "operation arguments do not match the stdio contract",
+        )
+
+    try:
+        if operation == "status":
+            result = client.status()
+        elif operation == "wake":
+            result = client.wake(
+                execution_surface=execution_surface,
+                session_id=_surface_stdio_text(args.get("session_id"), "session_id"),
+                project_environment=_surface_stdio_text(
+                    args.get("project_environment"), "project_environment"
+                ),
+                model=_surface_stdio_text(args.get("model"), "model", optional=True),
+            )
+        elif operation == "observe":
+            event_kind = _surface_stdio_text(args.get("event_kind"), "event_kind")
+            payload = args.get("payload")
+            if not isinstance(payload, dict):
+                raise _SurfaceStdioInputError(
+                    "operation arguments do not match the stdio contract"
+                )
+            if len(canonical_json_bytes(payload)) > MAX_SURFACE_STDIO_PAYLOAD_BYTES:
+                raise _SurfaceStdioInputError(
+                    "payload exceeds the stdio payload byte bound"
+                )
+            result = client.observe(
+                event_kind=event_kind,
+                payload=payload,
+                execution_surface=execution_surface,
+                session_id=_surface_stdio_text(
+                    args.get("session_id"), "session_id", optional=True
+                ),
+                turn_id=_surface_stdio_text(args.get("turn_id"), "turn_id", optional=True),
+                tool_call_id=_surface_stdio_text(
+                    args.get("tool_call_id"), "tool_call_id", optional=True
+                ),
+                project_environment=_surface_stdio_text(
+                    args.get("project_environment"),
+                    "project_environment",
+                    optional=True,
+                ),
+                coverage_gap=_surface_stdio_text(
+                    args.get("coverage_gap"), "coverage_gap", optional=True
+                ),
+            )
+        else:
+            result = client.sleep(
+                execution_surface=execution_surface,
+                session_id=_surface_stdio_text(args.get("session_id"), "session_id"),
+            )
+    except ServiceRejectedError as error:
+        return _surface_stdio_error(request_id, error.code, str(error))
+    except ServiceUnavailableError:
+        return _surface_stdio_error(
+            request_id,
+            "service_unavailable",
+            "Witness service is unavailable",
+        )
+    except _SurfaceStdioInputError as error:
+        return _surface_stdio_error(request_id, "invalid_input", str(error))
+    except ValueError:
+        return _surface_stdio_error(
+            request_id,
+            "surface_error",
+            "Surface request failed",
+        )
+    except (AgenticEvoError, OSError, TimeoutError, TypeError):
+        return _surface_stdio_error(
+            request_id,
+            "surface_error",
+            "Surface request failed",
+        )
+    return {
+        "schema": SURFACE_STDIO_SCHEMA,
+        "id": request_id,
+        "ok": True,
+        "result": result,
+    }
+
+
+def _surface_stdio(home: Path, execution_surface: str) -> int:
+    client = SurfaceClient(home)
+    for raw_line in sys.stdin:
+        if raw_line.strip():
+            _write_json(_surface_stdio_request(raw_line, client, execution_surface))
+    return 0
+
+
+def _surface_stdio_execution_surface(value: str) -> str:
+    try:
+        return _surface_stdio_text(value, "execution_surface") or ""
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(str(error)) from error
 
 
 def _gate_b_evidence_arguments(command: argparse.ArgumentParser) -> None:
@@ -214,6 +432,21 @@ def _parser() -> argparse.ArgumentParser:
             required=True,
             help="Existing disposable runtime home; never performs Genesis.",
         )
+    surface_stdio = commands.add_parser(
+        "surface-stdio",
+        help="Bridge a bounded generic stdio protocol to the public Surface.",
+    )
+    surface_stdio.add_argument(
+        "--dev-home",
+        type=Path,
+        required=True,
+        help="Existing disposable runtime home; never performs Genesis.",
+    )
+    surface_stdio.add_argument(
+        "--execution-surface",
+        type=_surface_stdio_execution_surface,
+        required=True,
+    )
     commands.add_parser(
         "plan-install",
         help="Print a deterministic plan that performs no installation writes.",
@@ -264,6 +497,8 @@ def main(argv: list[str] | None = None) -> int:
         return _off_rehearsal(arguments.dev_home)
     if arguments.command == "hook":
         return _codex_hook(arguments.dev_home)
+    if arguments.command == "surface-stdio":
+        return _surface_stdio(arguments.dev_home, arguments.execution_surface)
     if arguments.command == "plan-install":
         _write_json(build_install_plan())
         return 0
