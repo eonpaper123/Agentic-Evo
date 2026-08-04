@@ -204,14 +204,7 @@ public `observe` 与 `surface-stdio` 现可把调用方提供的可选 `occurred
 - `plan-install` 跨 cwd、环境和伪 home 逐字节确定，不创建 Agent 文件或状态、不安装服务或 Hook、不启动受管 Agent 进程，也不执行 Genesis；
 - Windows、macOS、Linux 目标均保持 `native_test_status=not_run`；
 - Windows Gate A builder 在显式目录生成两个 exact 文件；probe 从普通控制台启动准确返回 1063，不退化为 foreground daemon；manifest 与 artifact 篡改、junction cleanup 和非 Windows materialization 均 fail closed；
-- 本轮已形成无 UAC independent verifier/real-attacker harness：新 receipts 必须成套使用 lab-bound `plan.v2 / config-probe.v2 / result.v2` 且 `-LabId` 必填；冻结 v1 仅兼容读取、lab binding inconclusive；A07 仅为 `same_principal_harness`。这不建立 Gate B，也不构成真实 UAC/SCM proof；
-synthetic Gate B fixtures 继续使用专用 test lab/namespace；当前 accepted code/tests 分别为 `c4113c1 / 0289268`（RED）与 `cfd6deb / fff6c5c / 7c745fc`（GREEN）。HEAD `7c745fc` 完整回归前后，3060 reference namespace membership 保持不变；仓内可审计的 probe 记录显示 before/after 均为同一成员 `1ed1e8b16f554059b77ceb99a8b40cd6`。隔离前遗留的 exact orphan `artifacts/labs/3060-computer/windows-gate-b/1ed1e8b16f554059b77ceb99a8b40cd6/` 仍为 `present / removal_not_executed`；`Remove-Item` 被本地命令策略在执行前阻止，删除并未执行。该 orphan 不属于 3060 当前证据。A07 仍仅为 `same_principal_harness`，且本轮未执行 UAC、SCM、restart 或其他 privileged Gate B action。
-这不改写此前 UAC 配置探针的 service、Program Files artifact tree 与 ProgramData state tree 零残留结论；两者是不同范围。
-- 一次固定摘要 UAC 配置探针实机观察到 `create/sidtype/qsidtype/delete=0/0/0/0` 与 `SERVICE_SID_TYPE: RESTRICTED`；service 始终 `Stopped`、PID 为 0，未执行重启、token 读取或攻击案例；
-- 同一次配置探针的提升端 cleanup 与普通权限端独立 cleanup 均为 complete；事后精确 service query 为 1060、匹配临时服务为 0、Program Files/ProgramData 两棵实验树均不存在；Genesis 只记录为 `not_measured`，不冒充 0；
-- 内部 supervisor stop 不经过 public/Off operation：`request_stop()` 在 lifecycle lock 上建立 dispatch cutoff，唤醒/关闭 listener 与 active transports，拒绝 cutoff 后才尝试 admission 的请求，并等待 cutoff 前已 admission 的请求归静；service loop 随后 join workers、回收 Body/lease、释放 singleton；
-- 屏障测试证明 cutoff 前已 admission 的变更可以恰好提交一次且 stop 必须等待；stop 路径自身的可信状态增量为空；每条 transport 的 raw close 由 stop、worker 与 deadline timer 共享的单一 owner 串行化；
-已接受的 HEAD `7c745fc` 在 Windows 上执行完整回归：共运行 217 项测试，217/217 通过，进程显式退出码为 0；这只证明当前代码回归为绿，不建立 Gate B，也不改变 A07 的 `same_principal_harness` 上限。
+本轮同时完成 detached longitudinal experiment artifact 链路：`src/agentic_evo/experiment_pack.py` 导出 `experiment-prereg.v1 / experiment-pack.v1`，`src/agentic_evo/cli.py` 暴露 `export-experiment-prereg`、`export-experiment-pack` 与 `verify-experiment-artifact` 三个 detached CLI。其验证上限由固定 `claim_ceiling` 明确约束：只证明 prereg/start-anchor、连续 evidence window、`authority_end` 与 committed body manifest chain 的内部一致性；不证明 checkpoint MAC、witness blob、surface 身份、声明元数据真实性、因果成立、能力获得、记忆形成、学习、自我进化、第二真实 coding-agent 或 native Gate B。与此对应的仓内 targeted 回归在 HEAD `e24c0bcb77fc4844042d087155134877bbdd90e8` 上为 41/41 通过、退出码 0；full unittest discover 为 237/237 通过、退出码 0；两次回归前后 3060 reference namespace membership 保持不变，`artifact_membership_identical=True`。这些结果只证明当前代码回归为绿，不建立 Gate B，也不改变 A07 的 `same_principal_harness` 上限。
 
 这些结果证明的是代码契约，不是长期学习、自我进化或独立科研证据已经成立。
 

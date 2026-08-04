@@ -300,7 +300,7 @@ subprocess_rehearsal
 17. 屏障测试证明 cutoff 前已 admission 的变更可以恰好提交一次，而 `request_stop()` 必须等该 dispatch 归静后才返回；
 18. 每条已接受 transport 只有一个 raw-close owner；stop、worker cleanup 与 control receive deadline 竞争关闭时不会再次关闭同一底层句柄；
 19. Windows 与 WSL Ubuntu 均验证 accept 唤醒、active connection 关闭、Body/lease/singleton 回收及同一 home 重启；macOS 尚未实机复验；
-20. 已接受的 HEAD `7c745fc` 在 Windows 上执行完整回归：共运行 217 项测试，217/217 通过，进程显式退出码为 0；这只证明当前代码回归为绿，不建立 Gate B，也不改变 A07 的 `same_principal_harness` 上限。
+20. 在 HEAD `e24c0bcb77fc4844042d087155134877bbdd90e8` 上，detached experiment artifact targeted 回归执行 41 项测试，41/41 通过，退出码 0；full unittest discover 执行 237 项测试，237/237 通过，退出码 0。它们只证明当前代码回归为绿，不建立 Gate B，也不改变 A07 的 `same_principal_harness` 上限。
 
 本轮不依赖 pywin32 或其他第三方包；实现只使用 Python 标准库、`ctypes` 与 Windows Kernel32 / Advapi32。
 
@@ -674,6 +674,6 @@ service self-report
 
 在申请该授权前，仓库只允许生成 `agentic-evo.windows-gate-b-retained-preflight.v1` 预注册计划；它固定一次跨单次重启的临时 service 实验边界，但不创建 service、不触发 UAC、不写入 evidence，也不提升任何 Gate B 结论。
 
-synthetic Gate B fixtures 继续使用专用 test lab/namespace；当前 accepted code/tests 分别为 `c4113c1 / 0289268`（RED）与 `cfd6deb / fff6c5c / 7c745fc`（GREEN）。HEAD `7c745fc` 完整回归前后，3060 reference namespace membership 保持不变；仓内可审计的 probe 记录显示 before/after 均为同一成员 `1ed1e8b16f554059b77ceb99a8b40cd6`。隔离前遗留的 exact orphan `artifacts/labs/3060-computer/windows-gate-b/1ed1e8b16f554059b77ceb99a8b40cd6/` 仍为 `present / removal_not_executed`；`Remove-Item` 被本地命令策略在执行前阻止，删除并未执行。该 orphan 不属于 3060 当前证据。A07 仍仅为 `same_principal_harness`，且本轮未执行 UAC、SCM、restart 或其他 privileged Gate B action。
+synthetic Gate B fixtures 继续使用专用 test lab/namespace。当前与 detached experiment artifact 链路相关的 RED 起点，可在本地提交历史中明确追溯到 `c47505f`（`test(red): specify longitudinal experiment evidence pack`）与 `7d16855`（`test(red): specify experiment artifact CLI`）；对应功能落地为 `870c932`（`feat: export longitudinal experiment evidence packs`）与 `36698b9`（`feat: expose experiment artifact CLI`），其后经 `893b502 / 936e939 / 98bb32c / 72bfc21 / 3f9cf17 / e24c0bc` 收敛到当前 HEAD。HEAD `e24c0bcb77fc4844042d087155134877bbdd90e8` 的 targeted 41/41 与 full 237/237 回归前后，3060 reference namespace membership 保持不变；仓内可审计状态文件记录 `artifact_membership_identical=True`。该结论仍只覆盖仓内 detached artifact/回归与 reference namespace 内部一致性，不属于 UAC、SCM、restart、token、protected state、Body capability、HostPresence 或正式 Gate B 证据。
 
 它只固定未来获授权的 effects/retention；在已单独授权的保留重启实验实际执行并完成独立验证前，当前 ceiling 不高于 `configuration_probe_only` / `partial_cleanup_if_service_lifecycle_occurs`。
