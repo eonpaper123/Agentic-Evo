@@ -490,7 +490,7 @@ class CLILifecycleTests(unittest.TestCase):
         self.assertIs(payload["ok"], False)
         self.assertEqual(payload["result"]["code"], "claim_ceiling_changed")
 
-    def test_export_experiment_pack_command_returns_six_for_empty_or_nonforward_window(
+    def test_export_experiment_pack_command_returns_six_for_nonforward_window(
         self,
     ) -> None:
         self.runtime.observe(
@@ -504,22 +504,36 @@ class CLILifecycleTests(unittest.TestCase):
         prereg_path.write_bytes(canonical_json_bytes(self._export_experiment_prereg()))
         start_sequence = self.runtime.evidence.records()[-1].sequence
 
-        for end_sequence in (None, start_sequence):
-            with self.subTest(end_sequence=end_sequence):
-                before_status = self.runtime.status()
-                before_records = self.runtime.evidence.records()
-                arguments = ["export-experiment-pack", "--prereg", str(prereg_path)]
-                if end_sequence is not None:
-                    arguments.extend(("--end-sequence", str(end_sequence)))
+        before_status = self.runtime.status()
+        before_records = self.runtime.evidence.records()
 
-                result = self._run_cli(*arguments)
+        result = self._run_cli(
+            "export-experiment-pack",
+            "--prereg",
+            str(prereg_path),
+            "--end-sequence",
+            str(start_sequence),
+        )
 
-                self.assertEqual(result.returncode, 6)
-                payload = json.loads(result.stderr)
-                self.assertIs(payload["ok"], False)
-                self.assertEqual(payload["error"]["code"], "experiment_artifact_error")
-                self.assertEqual(self.runtime.status(), before_status)
-                self.assertEqual(self.runtime.evidence.records(), before_records)
+        self.assertEqual(result.returncode, 6)
+        payload = json.loads(result.stderr)
+        self.assertIs(payload["ok"], False)
+        self.assertEqual(payload["error"]["code"], "experiment_artifact_error")
+        self.assertEqual(self.runtime.status(), before_status)
+        self.assertEqual(self.runtime.evidence.records(), before_records)
+
+    def test_export_experiment_pack_command_requires_end_sequence(self) -> None:
+        prereg_path = Path(self.tempdir.name) / "experiment-prereg.json"
+        prereg_path.write_bytes(canonical_json_bytes(self._export_experiment_prereg()))
+
+        result = self._run_cli(
+            "export-experiment-pack",
+            "--prereg",
+            str(prereg_path),
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("--end-sequence", result.stderr)
 
     def test_export_experiment_pack_command_returns_six_for_end_sequence_beyond_tail_without_clamp(
         self,
