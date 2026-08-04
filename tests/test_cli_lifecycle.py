@@ -4,9 +4,11 @@ import json
 from multiprocessing.connection import Client
 import os
 from pathlib import Path
+import queue
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 
@@ -108,13 +110,101 @@ class CLILifecycleTests(unittest.TestCase):
         process.stdin.write(json.dumps(value) + "\n")
         process.stdin.flush()
 
-    def _read_jsonl(self, process: subprocess.Popen[str]) -> dict[str, object]:
+    def _read_jsonl(
+        self,
+        process: subprocess.Popen[str],
+        *,
+        timeout_seconds: float = 2.0,
+    ) -> dict[str, object]:
         assert process.stdout is not None
-        line = process.stdout.readline()
-        self.assertTrue(line, "surface-stdio exited before responding")
+        lines: queue.Queue[str | BaseException] = queue.Queue()
+
+        def read_line() -> None:
+            try:
+                lines.put(process.stdout.readline())
+            except BaseException as exc:
+                lines.put(exc)
+
+        threading.Thread(target=read_line, daemon=True).start()
+        try:
+            line = lines.get(timeout=timeout_seconds)
+        except queue.Empty:
+            if process.poll() is not None:
+                assert process.stderr is not None
+                stderr = process.stderr.read().strip()
+                self.fail(
+                    "surface-stdio exited before responding "
+                    f"(code={process.returncode}): {stderr}"
+                )
+            self.fail(f"surface-stdio did not respond within {timeout_seconds:.1f}s")
+        if isinstance(line, BaseException):
+            raise line
+        if line == "":
+            process.wait(timeout=timeout_seconds)
+            assert process.stderr is not None
+            stderr = process.stderr.read().strip()
+            self.fail(
+                "surface-stdio exited before responding "
+                f"(code={process.returncode}): {stderr}"
+            )
         value = json.loads(line)
         self.assertIsInstance(value, dict)
         return value
+
+    def _assert_surface_response(
+        self,
+        response: dict[str, object],
+        *,
+        request_id: str,
+        ok: bool,
+    ) -> dict[str, object]:
+        expected_keys = {"schema", "id", "ok", "result"} if ok else {
+            "schema",
+            "id",
+            "ok",
+            "error",
+        }
+        self.assertEqual(set(response), expected_keys)
+        self.assertEqual(response["schema"], "agentic-evo.surface-stdio.v1")
+        self.assertEqual(response["id"], request_id)
+        self.assertIs(response["ok"], ok)
+        if ok:
+            result = response["result"]
+            self.assertIsInstance(result, dict)
+            return result
+        error = response["error"]
+        self.assertIsInstance(error, dict)
+        self.assertEqual(set(error), {"code", "message"})
+        self.assertIsInstance(error["code"], str)
+        self.assertIsInstance(error["message"], str)
+        self.assertTrue(error["message"])
+        return error
+
+    def _assert_surface_error(
+        self,
+        response: dict[str, object],
+        *,
+        request_id: str,
+        code: str,
+    ) -> None:
+        error = self._assert_surface_response(
+            response,
+            request_id=request_id,
+            ok=False,
+        )
+        self.assertEqual(error["code"], code)
+
+    def _assert_observe_receipt_shape(self, result: dict[str, object]) -> None:
+        self.assertEqual(
+            set(result),
+            {"event_id", "sequence", "integrity_hash"},
+        )
+        self.assertIsInstance(result["event_id"], str)
+        self.assertTrue(result["event_id"])
+        self.assertIsInstance(result["sequence"], int)
+        self.assertGreater(result["sequence"], 0)
+        self.assertIsInstance(result["integrity_hash"], str)
+        self.assertTrue(result["integrity_hash"])
 
     def _run_cli(
         self,
@@ -192,13 +282,12 @@ class CLILifecycleTests(unittest.TestCase):
         response = self._read_jsonl(process)
         direct = client.status()
 
-        self.assertEqual(response["schema"], "agentic-evo.surface-stdio.v1")
-        self.assertEqual(response["id"], "status-1")
-        self.assertTrue(response["ok"])
-        result = response["result"]
-        self.assertIsInstance(result, dict)
-        self.assertEqual(result["root"], direct["root"])
-        self.assertEqual(result["head"], direct["head"])
+        result = self._assert_surface_response(
+            response,
+            request_id="status-1",
+            ok=True,
+        )
+        self.assertEqual(result, direct)
         self.assertEqual(self.runtime.evidence.records(), before_records)
 
     def test_surface_stdio_wake_and_sleep_bind_fixed_execution_surface(self) -> None:
@@ -215,7 +304,28 @@ class CLILifecycleTests(unittest.TestCase):
                 "args": {"session_id": "s1", "project_environment": "proj-a"},
             },
         )
-        self.assertTrue(self._read_jsonl(process)["ok"])
+        wake = self._assert_surface_response(
+            self._read_jsonl(process),
+            request_id="wake-1",
+            ok=True,
+        )
+        self.assertEqual(
+            set(wake),
+            {
+                "root",
+                "head",
+                "generation",
+                "body_files",
+                "activation_kind",
+                "activation_artifact",
+                "activation_digest",
+                "activation_context",
+                "body_file_count",
+                "body_files_truncated",
+                "activation_context_char_count",
+                "activation_context_truncated",
+            },
+        )
         session_start = self.runtime.evidence.records()[-1]
         self.assertEqual(session_start.event_kind, "session_start")
         self.assertEqual(session_start.execution_surface, "generic-stdio")
@@ -231,7 +341,30 @@ class CLILifecycleTests(unittest.TestCase):
                 "args": {"session_id": "s1"},
             },
         )
-        self.assertTrue(self._read_jsonl(process)["ok"])
+        sleep = self._assert_surface_response(
+            self._read_jsonl(process),
+            request_id="sleep-1",
+            ok=True,
+        )
+        self.assertEqual(
+            set(sleep),
+            {
+                "root",
+                "head",
+                "generation",
+                "authority",
+                "lifecycle_state",
+                "active_sessions",
+                "active_session_count",
+                "active_sessions_truncated",
+                "instrument_version",
+                "instrument_version_char_count",
+                "instrument_version_truncated",
+                "protocol_version",
+                "protocol_version_char_count",
+                "protocol_version_truncated",
+            },
+        )
         session_end = self.runtime.evidence.records()[-1]
         self.assertEqual(session_end.event_kind, "session_end")
         self.assertEqual(session_end.execution_surface, "generic-stdio")
@@ -262,7 +395,11 @@ class CLILifecycleTests(unittest.TestCase):
                 "args": {"session_id": "shared", "project_environment": "proj-a"},
             },
         )
-        self.assertTrue(self._read_jsonl(process)["ok"])
+        self._assert_surface_response(
+            self._read_jsonl(process),
+            request_id="wake-shared",
+            ok=True,
+        )
         self.assertEqual(
             {
                 (session["execution_surface"], session["session_id"])
@@ -280,7 +417,11 @@ class CLILifecycleTests(unittest.TestCase):
                 "args": {"session_id": "shared"},
             },
         )
-        self.assertTrue(self._read_jsonl(process)["ok"])
+        self._assert_surface_response(
+            self._read_jsonl(process),
+            request_id="sleep-shared",
+            ok=True,
+        )
         self.assertEqual(
             client.status()["active_sessions"],
             [{"execution_surface": "codex", "session_id": "shared"}],
@@ -300,7 +441,12 @@ class CLILifecycleTests(unittest.TestCase):
                 "args": {"event_kind": "tool_result", "payload": {"outcome": "ok"}},
             },
         )
-        self.assertTrue(self._read_jsonl(process)["ok"])
+        receipt = self._assert_surface_response(
+            self._read_jsonl(process),
+            request_id="observe-1",
+            ok=True,
+        )
+        self._assert_observe_receipt_shape(receipt)
         record = self.runtime.evidence.records()[-1]
         self.assertEqual(record.execution_surface, "generic-stdio")
         self.assertIsNone(record.session_id)
@@ -318,9 +464,13 @@ class CLILifecycleTests(unittest.TestCase):
         process.stdin.flush()
         response = self._read_jsonl(process)
 
-        self.assertFalse(response["ok"])
+        self.assertEqual(set(response), {"schema", "id", "ok", "error"})
+        self.assertEqual(response["schema"], "agentic-evo.surface-stdio.v1")
+        self.assertIsNone(response["id"])
+        self.assertIs(response["ok"], False)
         error = response["error"]
         self.assertIsInstance(error, dict)
+        self.assertEqual(set(error), {"code", "message"})
         self.assertEqual(error["code"], "invalid_input")
         self.assertEqual(self.runtime.status(), before_status)
         self.assertEqual(self.runtime.evidence.records(), before_records)
@@ -351,10 +501,11 @@ class CLILifecycleTests(unittest.TestCase):
                 },
             )
             response = self._read_jsonl(process)
-            self.assertFalse(response["ok"])
-            error = response["error"]
-            self.assertIsInstance(error, dict)
-            self.assertEqual(error["code"], "invalid_input")
+            self._assert_surface_error(
+                response,
+                request_id=request_id,
+                code="invalid_input",
+            )
 
         self.assertEqual(self.runtime.status(), before_status)
         self.assertEqual(self.runtime.evidence.records(), before_records)
@@ -373,10 +524,74 @@ class CLILifecycleTests(unittest.TestCase):
         )
         response = self._read_jsonl(process)
 
-        self.assertFalse(response["ok"])
-        error = response["error"]
-        self.assertIsInstance(error, dict)
-        self.assertEqual(error["code"], "service_unavailable")
+        self._assert_surface_error(
+            response,
+            request_id="status-unavailable",
+            code="service_unavailable",
+        )
+        self.assertIsNone(process.poll())
+        assert process.stdin is not None
+        process.stdin.close()
+        self.assertEqual(process.wait(timeout=5), 0)
+
+    def test_surface_stdio_wake_requires_live_witness_and_preserves_state(
+        self,
+    ) -> None:
+        before_status = self.runtime.status()
+        before_records = self.runtime.evidence.records()
+        process = self._spawn_surface_stdio("generic-stdio")
+
+        self._write_jsonl(
+            process,
+            {
+                "schema": "agentic-evo.surface-stdio.v1",
+                "id": "wake-unavailable",
+                "op": "wake",
+                "args": {"session_id": "s1", "project_environment": "proj-a"},
+            },
+        )
+        response = self._read_jsonl(process)
+
+        self._assert_surface_error(
+            response,
+            request_id="wake-unavailable",
+            code="service_unavailable",
+        )
+        self.assertEqual(self.runtime.status(), before_status)
+        self.assertEqual(self.runtime.evidence.records(), before_records)
+        self.assertIsNone(process.poll())
+        assert process.stdin is not None
+        process.stdin.close()
+        self.assertEqual(process.wait(timeout=5), 0)
+
+    def test_surface_stdio_observe_requires_live_witness_and_preserves_state(
+        self,
+    ) -> None:
+        before_status = self.runtime.status()
+        before_records = self.runtime.evidence.records()
+        process = self._spawn_surface_stdio("generic-stdio")
+
+        self._write_jsonl(
+            process,
+            {
+                "schema": "agentic-evo.surface-stdio.v1",
+                "id": "observe-unavailable",
+                "op": "observe",
+                "args": {
+                    "event_kind": "tool_result",
+                    "payload": {"outcome": "ok"},
+                },
+            },
+        )
+        response = self._read_jsonl(process)
+
+        self._assert_surface_error(
+            response,
+            request_id="observe-unavailable",
+            code="service_unavailable",
+        )
+        self.assertEqual(self.runtime.status(), before_status)
+        self.assertEqual(self.runtime.evidence.records(), before_records)
         self.assertIsNone(process.poll())
         assert process.stdin is not None
         process.stdin.close()
@@ -396,7 +611,11 @@ class CLILifecycleTests(unittest.TestCase):
                 "args": {"session_id": "eof-session", "project_environment": "proj-a"},
             },
         )
-        self.assertTrue(self._read_jsonl(process)["ok"])
+        self._assert_surface_response(
+            self._read_jsonl(process),
+            request_id="wake-eof",
+            ok=True,
+        )
         assert process.stdin is not None
         process.stdin.close()
         self.assertEqual(process.wait(timeout=5), 0)
