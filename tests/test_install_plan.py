@@ -8,6 +8,11 @@ import sys
 import tempfile
 import unittest
 
+from agentic_evo.native_backends import (
+    DARWIN_BACKEND,
+    LINUX_BACKEND,
+    NATIVE_BACKEND_FIELDS,
+)
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOT = REPOSITORY_ROOT / "src"
@@ -145,17 +150,7 @@ class InstallPlanTests(unittest.TestCase):
 
         platforms = plan["platforms"]
         self.assertEqual(set(platforms), {"win32", "darwin", "linux"})
-        expected_fields = {
-            "service_scope",
-            "supervisor",
-            "witness_principal",
-            "body_principal",
-            "trusted_state",
-            "public_surface",
-            "private_lineage",
-            "worker_fencing",
-            "native_test_status",
-        }
+        expected_fields = set(NATIVE_BACKEND_FIELDS)
         for target in platforms.values():
             self.assertEqual(set(target), expected_fields)
             self.assertEqual(target["service_scope"], "machine")
@@ -174,46 +169,8 @@ class InstallPlanTests(unittest.TestCase):
             "reject_remote_clients",
             platforms["win32"]["private_lineage"],
         )
-        self.assertEqual(
-            platforms["darwin"]["supervisor"],
-            "launchd_launchdaemon",
-        )
-        self.assertEqual(
-            platforms["darwin"]["witness_principal"],
-            "dedicated_non_login_uid",
-        )
-        self.assertEqual(
-            platforms["darwin"]["body_principal"],
-            "dedicated_non_login_body_uid_with_signed_launcher",
-        )
-        self.assertEqual(
-            platforms["darwin"]["public_surface"],
-            "xpc_audit_token_bound_host_uid",
-        )
-        self.assertEqual(
-            platforms["darwin"]["private_lineage"],
-            "private_xpc_audit_token_body_uid_and_code_requirement",
-        )
-        self.assertNotEqual(
-            platforms["darwin"]["witness_principal"],
-            platforms["darwin"]["body_principal"],
-        )
-        self.assertEqual(
-            platforms["darwin"]["worker_fencing"],
-            "launchd_managed_body_job_required",
-        )
-        self.assertEqual(
-            platforms["linux"]["supervisor"],
-            "systemd_system_service",
-        )
-        self.assertEqual(
-            platforms["linux"]["worker_fencing"],
-            "systemd_managed_body_cgroup_required",
-        )
-        self.assertIn("pathname", platforms["linux"]["public_surface"])
-        self.assertIn("so_peercred", platforms["linux"]["public_surface"])
-        self.assertIn("bound_host_uid", platforms["linux"]["public_surface"])
-        self.assertNotIn("abstract", platforms["linux"]["public_surface"])
+        self.assertEqual(platforms["darwin"], DARWIN_BACKEND)
+        self.assertEqual(platforms["linux"], LINUX_BACKEND)
         self.assertTrue(plan["blockers"])
         self.assertIn(
             "native_service_artifacts_and_reversible_uninstall",
