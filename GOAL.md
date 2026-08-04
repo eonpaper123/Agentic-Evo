@@ -45,6 +45,7 @@
 6. 失败允许；伪成功、隐藏失败、知道反例后不修复、把 receipt 或 self-report 当独立事实不允许。结论只允许 `not_run / inconclusive / failed / passed`。
 
 v1.0 必须同时成立：
+以下六项共同覆盖并必须实证五个已收束模块：自我进化、自主实验学习、现实选择与谱系延续、能力累积与迁移、元进化；任一模块只有文档、模拟或单元测试，不得计为完成。
 1. 参考实现完成 Windows 原生安装、运行、恢复、On/Off、卸载零残留与有界睡眠；macOS/Linux 至少完成同协议 backend 与自动化验收框架，未实证的平台不得声称已验证。
 2. 同一 Agent 跨对话、跨项目、跨模型强弱变化、跨进程重启持续存在，且有可重跑的真实运行证据证明至少接入 `Codex + 一个第二真实 coding-agent`；provider-neutral CLI/stdio/MCP 仅算 adapter 基础设施，除非第二真实 coding-agent 在真实任务中使用它并产出可重跑证据。
 3. 形成 immutable experience archive、主动回忆/遗忘/睡眠巩固与 `Memory-to-Capability` 机制空间，但不把具体算法写死给人类。
