@@ -11,6 +11,7 @@ from .adapters.codex import handle_codex_hook
 from .autonomous_loop import smoke_main as autonomous_loop_smoke_main
 from ._util import canonical_json_bytes
 from .errors import AgenticEvoError, MemoryIntegrityError, MemoryRecordError
+from .loop_integration import DefectWorkspace, run_loop_demo
 from .experiment_pack import (
     EXPERIMENT_CLAIM_CEILING,
     _ExperimentArtifactConsistencyError,
@@ -478,6 +479,31 @@ def _gate_b_evidence(arguments: argparse.Namespace, *, attack: bool) -> int:
     return 0
 
 
+def _loop_demo_run(arguments: argparse.Namespace) -> int:
+    """Run the real-task autonomous-loop demo against fresh caller-owned dirs."""
+
+    try:
+        workspace = DefectWorkspace.create(
+            arguments.workspace_dir,
+            defect=arguments.defect,
+        )
+        result = run_loop_demo(workspace, arguments.loop_home)
+    except (AgenticEvoError, OSError, ValueError, subprocess.SubprocessError) as error:
+        _write_json(
+            {
+                "ok": False,
+                "error": {
+                    "code": "loop_demo_run_error",
+                    "message": str(error),
+                },
+            },
+            stream=sys.stderr,
+        )
+        return 6
+    _write_json({"ok": True, "result": result})
+    return 0 if result.get("final_module_passed") else 7
+
+
 def _experiment_artifact_error(error: Exception) -> int:
     _write_json(
         {
@@ -781,6 +807,26 @@ def _parser() -> argparse.ArgumentParser:
     loop_smoke.add_argument("--output", type=Path, required=True)
     loop_smoke.add_argument("--fixture", choices=("passed", "failed"), default="passed")
     loop_smoke.add_argument("--promotion-passes", type=int, default=2)
+    loop_demo = commands.add_parser(
+        "loop-demo-run",
+        help=(
+            "Run the real-task autonomous-loop demo "
+            "(synthetic defect, real file/test/patch flow)."
+        ),
+    )
+    loop_demo.add_argument(
+        "--workspace-dir",
+        type=Path,
+        required=True,
+        help="Fresh caller-owned directory for the demo module + unittest.",
+    )
+    loop_demo.add_argument(
+        "--loop-home",
+        type=Path,
+        required=True,
+        help="Fresh autonomous-loop home (meta/events/consolidation stores).",
+    )
+    loop_demo.add_argument("--defect", default="off_by_one")
     prereg = commands.add_parser(
         "export-experiment-prereg",
         help="Export a detached experiment preregistration artifact.",
@@ -976,6 +1022,8 @@ def main(argv: list[str] | None = None) -> int:
         return _memory_consolidate(arguments)
     if arguments.command == "memory-verify-chain":
         return _memory_verify_chain(arguments)
+    if arguments.command == "loop-demo-run":
+        return _loop_demo_run(arguments)
     if arguments.command == "autonomous-loop-smoke":
         return autonomous_loop_smoke_main(
             [
