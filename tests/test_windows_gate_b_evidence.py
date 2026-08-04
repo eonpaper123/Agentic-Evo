@@ -758,29 +758,28 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
     def test_result_and_report_schema_drift_fail_closed_even_when_repinned(
         self,
     ) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            fixture = self._create_fixture(Path(temporary))
-            result_path = Path(fixture["evidence"]) / "result.json"
-            for field, expected_code in (
-                ("schema", "result_contract_invalid"),
-                ("report.schema", "report_contract_invalid"),
-            ):
-                with self.subTest(field=field):
-                    drifted = json.loads(result_path.read_text(encoding="utf-8"))
-                    if field == "schema":
-                        drifted["schema"] = "evil.result.v999"
-                    else:
-                        drifted["report"]["schema"] = "evil.report.v999"
-                    result_path.write_bytes(_canonical_json(drifted))
-                    fixture["result_sha256"] = _sha256(result_path)
+        for field, expected_code in (
+            ("schema", "result_contract_invalid"),
+            ("report.schema", "result_contract_invalid"),
+        ):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as temporary:
+                fixture = self._create_fixture(Path(temporary))
+                result_path = Path(fixture["evidence"]) / "result.json"
+                drifted = json.loads(result_path.read_text(encoding="utf-8"))
+                if field == "schema":
+                    drifted["schema"] = "evil.result.v999"
+                else:
+                    drifted["report"]["schema"] = "evil.report.v999"
+                result_path.write_bytes(_canonical_json(drifted))
+                fixture["result_sha256"] = _sha256(result_path)
 
-                    verification = self._verify(fixture)
+                verification = self._verify(fixture)
 
-                    self.assertEqual(verification["status"], "failed")
-                    self.assertIn(
-                        expected_code,
-                        {failure["code"] for failure in verification["failures"]},
-                    )
+                self.assertEqual(verification["status"], "failed")
+                self.assertIn(
+                    expected_code,
+                    {failure["code"] for failure in verification["failures"]},
+                )
 
     def test_plan_namespace_retarget_fails_closed_even_when_repinned(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
