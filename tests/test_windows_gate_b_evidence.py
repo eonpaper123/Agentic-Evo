@@ -48,6 +48,21 @@ EVIDENCE_CORPUS_PATH = (
     / "windows_gate_b"
     / "corpus.manifest.json"
 )
+REFERENCE_LAB_GATE_B_NAMESPACE = (
+    REPOSITORY_ROOT
+    / "artifacts"
+    / "labs"
+    / "3060-computer"
+    / "windows-gate-b"
+)
+TEST_LAB_ID = "windows-gate-b-test-fixture"
+TEST_LAB_EVIDENCE_NAMESPACE = (
+    REPOSITORY_ROOT
+    / "artifacts"
+    / "test-fixtures"
+    / TEST_LAB_ID
+)
+TEST_LAB_GATE_B_NAMESPACE = TEST_LAB_EVIDENCE_NAMESPACE / "windows-gate-b"
 HISTORICAL_V1_FROZEN_HASHES = {
     "bundle_manifest_sha256": (
         "a4c3e2f87830044312279e657d366640c8ce64628bd4436af142bfd40e7ceb04"
@@ -80,6 +95,12 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _namespace_members(path: Path) -> set[str]:
+    if not path.exists():
+        return set()
+    return {entry.name for entry in path.iterdir()}
+
+
 class FourStateReductionTests(unittest.TestCase):
     def test_required_case_reduction_preserves_counterexamples_and_unknowns(
         self,
@@ -109,6 +130,42 @@ class FourStateReductionTests(unittest.TestCase):
 
 @unittest.skipUnless(sys.platform == "win32", "Windows evidence contract")
 class WindowsGateBEvidenceTests(unittest.TestCase):
+    def test_synthetic_fixture_never_writes_reference_lab_namespace(self) -> None:
+        reference_before = _namespace_members(REFERENCE_LAB_GATE_B_NAMESPACE)
+        test_before = _namespace_members(TEST_LAB_GATE_B_NAMESPACE)
+        self.addCleanup(
+            lambda: self.assertEqual(
+                _namespace_members(REFERENCE_LAB_GATE_B_NAMESPACE),
+                reference_before,
+            )
+        )
+        self.addCleanup(
+            lambda: self.assertEqual(
+                _namespace_members(TEST_LAB_GATE_B_NAMESPACE),
+                test_before,
+            )
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = self._create_fixture(Path(directory))
+            plan = json.loads(
+                (Path(fixture["evidence"]) / "plan.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(
+                _namespace_members(REFERENCE_LAB_GATE_B_NAMESPACE),
+                reference_before,
+            )
+            self.assertEqual(plan["lab_id"], TEST_LAB_ID)
+            self.assertEqual(
+                plan["evidence_namespace"],
+                "artifacts/test-fixtures/windows-gate-b-test-fixture",
+            )
+            self.assertEqual(
+                Path(fixture["evidence"]).parent,
+                TEST_LAB_GATE_B_NAMESPACE,
+            )
+
     def _create_fixture(self, root: Path) -> dict[str, object]:
         from agentic_evo.windows_gate_a import prepare_gate_a_bundle
 
