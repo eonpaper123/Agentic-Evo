@@ -27,6 +27,8 @@ from agentic_evo.runtime import DevelopmentalRuntime
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOT = REPOSITORY_ROOT / "src"
+EXPERIMENT_HYPOTHESIS_REFS = tuple(f"H001-{letter}" for letter in "ABCDEF")
+EXPERIMENT_CONTROL_REFS = tuple(f"C{number}" for number in range(1, 9))
 
 
 class CLILifecycleTests(unittest.TestCase):
@@ -256,38 +258,101 @@ class CLILifecycleTests(unittest.TestCase):
         )
 
     def _export_experiment_prereg(self) -> dict[str, object]:
-        result = self._run_cli(
-            "export-experiment-prereg",
-            "--hypothesis-ref",
-            "hypothesis:memory-transfer",
-            "--hypothesis-ref",
-            "hypothesis:cross-session-retention",
-            "--control-ref",
-            "control:no-transfer",
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        payload = json.loads(result.stdout)
-        self.assertEqual(set(payload), {"ok", "result"})
-        self.assertIs(payload["ok"], True)
-        self.assertIsInstance(payload["result"], dict)
-        return payload["result"]
+        before_status = self.runtime.status()
+        before_records = self.runtime.evidence.records()
+        arguments = ["export-experiment-prereg"]
+        for ref in EXPERIMENT_HYPOTHESIS_REFS:
+            arguments.extend(("--hypothesis-ref", ref))
+        for ref in EXPERIMENT_CONTROL_REFS:
+            arguments.extend(("--control-ref", ref))
+        try:
+            result = self._run_cli(*arguments)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(
+                result.stdout.encode("utf-8"),
+                canonical_json_bytes({"ok": True, "result": payload["result"]}) + b"\n",
+            )
+            self.assertEqual(set(payload), {"ok", "result"})
+            self.assertIs(payload["ok"], True)
+            self.assertIsInstance(payload["result"], dict)
+            return payload["result"]
+        finally:
+            self.assertEqual(self.runtime.status(), before_status)
+            self.assertEqual(self.runtime.evidence.records(), before_records)
 
-    def _export_experiment_pack(self) -> dict[str, object]:
-        prereg = Path(self.tempdir.name) / "experiment-prereg.json"
-        prereg.write_bytes(canonical_json_bytes(self._export_experiment_prereg()))
-        result = self._run_cli(
-            "export-experiment-pack",
-            "--prereg",
-            str(prereg),
-            "--end-sequence",
-            "4",
+    def _prepare_experiment_post_prereg_fixture(self) -> tuple[Path, int]:
+        self.runtime.observe(
+            event_kind="prereg_measurement",
+            payload={"measurement": "prereg"},
+            execution_surface="test-surface",
+            session_id="test-session",
+            project_environment="test-project",
         )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        payload = json.loads(result.stdout)
-        self.assertEqual(set(payload), {"ok", "result"})
-        self.assertIs(payload["ok"], True)
-        self.assertIsInstance(payload["result"], dict)
-        return payload["result"]
+        prereg_path = Path(self.tempdir.name) / "experiment-prereg.json"
+        prereg_path.write_bytes(canonical_json_bytes(self._export_experiment_prereg()))
+
+        self.runtime.observe(
+            event_kind="post_prereg_measurement",
+            payload={"measurement": "post-prereg"},
+            execution_surface="test-surface",
+            session_id="test-session",
+            project_environment="test-project",
+        )
+        status = self.runtime.status()
+        candidate = self.runtime._prepare_successor(
+            expected_parent=status.head,
+            files={"entrypoint.md": "Body one"},
+            author_kind="research_instrument",
+            ingress_path="test_instrument",
+            expected_authority_epoch=self.runtime.trusted.authority_epoch(),
+        )
+        self.runtime._advance_head(
+            expected_head=status.head,
+            candidate_head=candidate,
+            author_kind="research_instrument",
+            ingress_path="test_instrument",
+            expected_authority_epoch=self.runtime.trusted.authority_epoch(),
+        )
+        self.runtime.observe(
+            event_kind="post_head_measurement",
+            payload={"measurement": "post-head"},
+            execution_surface="test-surface",
+            session_id="test-session",
+            project_environment="test-project",
+        )
+        tail_sequence = self.runtime.evidence.records()[-1].sequence
+        return prereg_path, tail_sequence
+
+    def _export_experiment_pack(
+        self,
+        prereg_path: Path,
+        *,
+        end_sequence: int,
+    ) -> dict[str, object]:
+        before_status = self.runtime.status()
+        before_records = self.runtime.evidence.records()
+        try:
+            result = self._run_cli(
+                "export-experiment-pack",
+                "--prereg",
+                str(prereg_path),
+                "--end-sequence",
+                str(end_sequence),
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(
+                result.stdout.encode("utf-8"),
+                canonical_json_bytes({"ok": True, "result": payload["result"]}) + b"\n",
+            )
+            self.assertEqual(set(payload), {"ok", "result"})
+            self.assertIs(payload["ok"], True)
+            self.assertIsInstance(payload["result"], dict)
+            return payload["result"]
+        finally:
+            self.assertEqual(self.runtime.status(), before_status)
+            self.assertEqual(self.runtime.evidence.records(), before_records)
 
     @staticmethod
     def _terminate(process: subprocess.Popen[str]) -> None:
@@ -326,62 +391,26 @@ class CLILifecycleTests(unittest.TestCase):
     def test_export_experiment_prereg_command_prints_canonical_json_without_runtime_mutation(
         self,
     ) -> None:
-        before_status = self.runtime.status()
-        before_records = self.runtime.evidence.records()
+        prereg_path, _ = self._prepare_experiment_post_prereg_fixture()
 
-        result = self._run_cli(
-            "export-experiment-prereg",
-            "--hypothesis-ref",
-            "hypothesis:memory-transfer",
-            "--hypothesis-ref",
-            "hypothesis:cross-session-retention",
-            "--control-ref",
-            "control:no-transfer",
-        )
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        payload = json.loads(result.stdout)
-        self.assertEqual(
-            result.stdout.encode("utf-8"),
-            canonical_json_bytes({"ok": True, "result": payload["result"]}) + b"\n",
-        )
-        self.assertEqual(set(payload), {"ok", "result"})
-        self.assertIs(payload["ok"], True)
-        self.assertIsInstance(payload["result"], dict)
-        self.assertEqual(self.runtime.status(), before_status)
-        self.assertEqual(self.runtime.evidence.records(), before_records)
+        prereg = json.loads(prereg_path.read_text(encoding="utf-8"))
+        self.assertEqual(prereg_path.read_bytes(), canonical_json_bytes(prereg))
 
     def test_export_experiment_pack_command_prints_canonical_json_without_runtime_mutation(
         self,
     ) -> None:
-        prereg = Path(self.tempdir.name) / "experiment-prereg.json"
-        prereg.write_bytes(canonical_json_bytes(self._export_experiment_prereg()))
-        before_status = self.runtime.status()
-        before_records = self.runtime.evidence.records()
+        prereg_path, tail_sequence = self._prepare_experiment_post_prereg_fixture()
 
-        result = self._run_cli(
-            "export-experiment-pack",
-            "--prereg",
-            str(prereg),
-            "--end-sequence",
-            "4",
-        )
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        payload = json.loads(result.stdout)
-        self.assertEqual(
-            result.stdout.encode("utf-8"),
-            canonical_json_bytes({"ok": True, "result": payload["result"]}) + b"\n",
-        )
-        self.assertEqual(set(payload), {"ok", "result"})
-        self.assertIs(payload["ok"], True)
-        self.assertIsInstance(payload["result"], dict)
-        self.assertEqual(self.runtime.status(), before_status)
-        self.assertEqual(self.runtime.evidence.records(), before_records)
+        self._export_experiment_pack(prereg_path, end_sequence=tail_sequence)
 
     def test_verify_experiment_artifact_command_returns_zero_for_exported_pack(self) -> None:
+        prereg_path, tail_sequence = self._prepare_experiment_post_prereg_fixture()
         artifact = Path(self.tempdir.name) / "experiment-pack.json"
-        artifact.write_bytes(canonical_json_bytes(self._export_experiment_pack()))
+        artifact.write_bytes(
+            canonical_json_bytes(
+                self._export_experiment_pack(prereg_path, end_sequence=tail_sequence)
+            )
+        )
 
         result = self._run_detached_cli(
             "verify-experiment-artifact",
@@ -415,12 +444,13 @@ class CLILifecycleTests(unittest.TestCase):
     def test_verify_experiment_artifact_command_returns_seven_for_tampered_pack(
         self,
     ) -> None:
-        pack = self._export_experiment_pack()
+        prereg_path, tail_sequence = self._prepare_experiment_post_prereg_fixture()
+        pack = self._export_experiment_pack(prereg_path, end_sequence=tail_sequence)
         claim_ceiling = pack.get("claim_ceiling")
         self.assertIsInstance(claim_ceiling, dict)
         tampered_pack = dict(pack)
         tampered_claim_ceiling = dict(claim_ceiling)
-        tampered_claim_ceiling["capability"] = "evaluated"
+        tampered_claim_ceiling["future_capability_gain"] = "established"
         tampered_pack["claim_ceiling"] = tampered_claim_ceiling
         artifact = Path(self.tempdir.name) / "tampered-experiment-pack.json"
         artifact.write_bytes(canonical_json_bytes(tampered_pack))
@@ -435,6 +465,59 @@ class CLILifecycleTests(unittest.TestCase):
         payload = json.loads(result.stderr)
         self.assertIs(payload["ok"], False)
         self.assertEqual(payload["result"]["code"], "claim_ceiling_changed")
+
+    def test_export_experiment_pack_command_returns_six_for_empty_or_nonforward_window(
+        self,
+    ) -> None:
+        self.runtime.observe(
+            event_kind="prereg_measurement",
+            payload={"measurement": "prereg"},
+            execution_surface="test-surface",
+            session_id="test-session",
+            project_environment="test-project",
+        )
+        prereg_path = Path(self.tempdir.name) / "experiment-prereg.json"
+        prereg_path.write_bytes(canonical_json_bytes(self._export_experiment_prereg()))
+        start_sequence = self.runtime.evidence.records()[-1].sequence
+
+        for end_sequence in (None, start_sequence):
+            with self.subTest(end_sequence=end_sequence):
+                before_status = self.runtime.status()
+                before_records = self.runtime.evidence.records()
+                arguments = ["export-experiment-pack", "--prereg", str(prereg_path)]
+                if end_sequence is not None:
+                    arguments.extend(("--end-sequence", str(end_sequence)))
+
+                result = self._run_cli(*arguments)
+
+                self.assertEqual(result.returncode, 6)
+                payload = json.loads(result.stderr)
+                self.assertIs(payload["ok"], False)
+                self.assertEqual(payload["error"]["code"], "experiment_artifact_error")
+                self.assertEqual(self.runtime.status(), before_status)
+                self.assertEqual(self.runtime.evidence.records(), before_records)
+
+    def test_export_experiment_pack_command_returns_six_for_end_sequence_beyond_tail_without_clamp(
+        self,
+    ) -> None:
+        prereg_path, tail_sequence = self._prepare_experiment_post_prereg_fixture()
+        before_status = self.runtime.status()
+        before_records = self.runtime.evidence.records()
+
+        result = self._run_cli(
+            "export-experiment-pack",
+            "--prereg",
+            str(prereg_path),
+            "--end-sequence",
+            str(tail_sequence + 1),
+        )
+
+        self.assertEqual(result.returncode, 6)
+        payload = json.loads(result.stderr)
+        self.assertIs(payload["ok"], False)
+        self.assertEqual(payload["error"]["code"], "experiment_artifact_error")
+        self.assertEqual(self.runtime.status(), before_status)
+        self.assertEqual(self.runtime.evidence.records(), before_records)
 
     def test_surface_stdio_status_uses_external_process_boundary(self) -> None:
         service = self._spawn_service()
