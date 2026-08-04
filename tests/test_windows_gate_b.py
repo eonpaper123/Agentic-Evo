@@ -231,6 +231,193 @@ class WindowsGateBPlanTests(unittest.TestCase):
             self.assertEqual(service.returncode, 1060, service.stderr)
             self._assert_environment_excludes_pii(plan["environment"])
 
+    def test_retained_preflight_is_exact_and_has_no_effect(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            artifact = root / "AgenticEvo.ScmProbe.exe"
+            artifact.write_bytes(b"MZgate-b-retained-preflight-test")
+            digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
+            caller_evidence = root / "caller-evidence"
+            run_id = uuid4().hex
+            declaration_file = REPOSITORY_ROOT / Path(LAB_DECLARATION_PATH)
+            declaration = json.loads(declaration_file.read_text(encoding="utf-8"))
+
+            result = self._run_plan(
+                run_id,
+                artifact,
+                digest,
+                caller_evidence,
+                lab_id=LAB_ID,
+                mode="RetainedPreflight",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            preflight = json.loads(result.stdout)
+            service_name = f"AgenticEvoGateB_{run_id}"
+            self.assertEqual(
+                list(preflight),
+                [
+                    "schema",
+                    "mode",
+                    "lab_id",
+                    "run_id",
+                    "service_name",
+                    "source_artifact",
+                    "artifact_sha256",
+                    "artifact_product_base",
+                    "artifact_root",
+                    "artifact_path",
+                    "state_product_base",
+                    "state_root",
+                    "probe_path",
+                    "evidence_root",
+                    "trusted_system_directory",
+                    "lab_declaration_path",
+                    "lab_declaration_sha256",
+                    "evidence_namespace",
+                    "environment",
+                    "environment_sha256",
+                    "authorized_effects",
+                    "retention",
+                    "claim_ceiling",
+                ],
+            )
+            self.assertEqual(
+                preflight["schema"],
+                "agentic-evo.windows-gate-b-retained-preflight.v1",
+            )
+            self.assertEqual(preflight["mode"], "retained_preflight")
+            self.assertEqual(preflight["lab_id"], declaration["lab_id"])
+            self.assertEqual(preflight["run_id"], run_id)
+            self.assertEqual(preflight["service_name"], service_name)
+            self.assertEqual(Path(preflight["source_artifact"]), artifact.resolve())
+            self.assertEqual(preflight["artifact_sha256"], digest)
+            self.assertEqual(
+                Path(preflight["artifact_product_base"]),
+                Path(os.environ["ProgramFiles"]) / "Agentic-Evo",
+            )
+            self.assertEqual(
+                Path(preflight["artifact_root"]),
+                Path(os.environ["ProgramFiles"])
+                / "Agentic-Evo"
+                / "GateB"
+                / run_id,
+            )
+            self.assertEqual(
+                Path(preflight["artifact_path"]),
+                Path(preflight["artifact_root"]) / "AgenticEvo.ScmProbe.exe",
+            )
+            self.assertEqual(
+                Path(preflight["state_product_base"]),
+                Path(os.environ["ProgramData"]) / "Agentic-Evo",
+            )
+            self.assertEqual(
+                Path(preflight["state_root"]),
+                Path(os.environ["ProgramData"])
+                / "Agentic-Evo"
+                / "GateB"
+                / run_id,
+            )
+            self.assertEqual(
+                Path(preflight["probe_path"]),
+                Path(preflight["state_root"]) / "scm-write.probe",
+            )
+            self.assertEqual(
+                preflight["lab_declaration_path"], str(LAB_DECLARATION_PATH)
+            )
+            self.assertEqual(
+                preflight["lab_declaration_sha256"],
+                hashlib.sha256(declaration_file.read_bytes()).hexdigest(),
+            )
+            self.assertEqual(
+                preflight["evidence_namespace"], declaration["evidence_namespace"]
+            )
+            self.assertEqual(
+                Path(preflight["evidence_root"]),
+                REPOSITORY_ROOT.resolve()
+                / declaration["evidence_namespace"]
+                / "windows-gate-b"
+                / run_id,
+            )
+            self.assertNotEqual(Path(preflight["evidence_root"]), caller_evidence)
+            self.assertEqual(
+                preflight["trusted_system_directory"],
+                preflight["environment"]["trusted_system_directory"],
+            )
+            self.assertEqual(set(preflight["environment"]), ENVIRONMENT_KEYS)
+            environment_json = json.dumps(
+                preflight["environment"],
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+            self.assertEqual(
+                preflight["environment_sha256"],
+                hashlib.sha256(environment_json.encode("utf-8")).hexdigest(),
+            )
+            self.assertEqual(
+                preflight["authorized_effects"],
+                {
+                    "temporary_service": True,
+                    "permanent_service": False,
+                    "hook": False,
+                    "genesis": False,
+                    "system_restart": True,
+                },
+            )
+            self.assertEqual(
+                preflight["retention"],
+                {
+                    "service_lifetime": (
+                        "retain_across_exactly_one_restart_until_"
+                        "post_restart_verification_then_remove"
+                    ),
+                    "service_start": "not_performed_by_preflight",
+                    "cleanup_before_restart": False,
+                    "cleanup_after_post_restart_verification": "required",
+                    "reversible_uninstall_required": True,
+                },
+            )
+            self.assertEqual(
+                preflight["claim_ceiling"],
+                {
+                    "gate_b": "not_established",
+                    "restricted_service_sid_configuration": (
+                        "pending_reboot_until_post_restart_observation"
+                    ),
+                    "C01": "not_run",
+                    "C02": "not_run",
+                    "I01": "not_run",
+                    "S01": "not_run",
+                    "S02": "not_run",
+                    "S03": "not_run",
+                    "P01": "not_run",
+                    "P02": "not_run",
+                    "L01": "not_run",
+                    "R01": "not_run",
+                    "R02": "not_run",
+                    "U01": "not_run",
+                    "native_security_verified": False,
+                    "ready_to_install": False,
+                },
+            )
+            self.assertFalse(caller_evidence.exists())
+            self.assertFalse(Path(preflight["evidence_root"]).exists())
+            self.assertFalse(Path(preflight["artifact_root"]).exists())
+            self.assertFalse(Path(preflight["state_root"]).exists())
+            service = subprocess.run(
+                [
+                    str(Path(preflight["trusted_system_directory"]) / "sc.exe"),
+                    "query",
+                    preflight["service_name"],
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+            self.assertEqual(service.returncode, 1060, service.stderr)
+            self._assert_environment_excludes_pii(preflight["environment"])
+
     def test_plan_rejects_invalid_run_id_format(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -393,6 +580,7 @@ class WindowsGateBPlanTests(unittest.TestCase):
         evidence: Path,
         *,
         lab_id: str | None = None,
+        mode: str = "Plan",
     ) -> subprocess.CompletedProcess[str]:
         command = [
             "powershell.exe",
@@ -403,7 +591,7 @@ class WindowsGateBPlanTests(unittest.TestCase):
             "-File",
             str(self.script),
             "-Mode",
-            "Plan",
+            mode,
             "-RunId",
             run_id,
             "-ArtifactPath",
