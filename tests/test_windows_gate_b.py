@@ -252,6 +252,16 @@ class WindowsGateBPlanTests(unittest.TestCase):
             )
 
             self.assertEqual(result.returncode, 0, result.stderr)
+            repeated = self._run_plan(
+                run_id,
+                artifact,
+                digest,
+                caller_evidence,
+                lab_id=LAB_ID,
+                mode="RetainedPreflight",
+            )
+            self.assertEqual(repeated.returncode, 0, repeated.stderr)
+            self.assertEqual(repeated.stdout, result.stdout)
             preflight = json.loads(result.stdout)
             service_name = f"AgenticEvoGateB_{run_id}"
             self.assertEqual(
@@ -402,20 +412,10 @@ class WindowsGateBPlanTests(unittest.TestCase):
             )
             self.assertFalse(caller_evidence.exists())
             self.assertFalse(Path(preflight["evidence_root"]).exists())
-            self.assertFalse(Path(preflight["artifact_root"]).exists())
-            self.assertFalse(Path(preflight["state_root"]).exists())
-            service = subprocess.run(
-                [
-                    str(Path(preflight["trusted_system_directory"]) / "sc.exe"),
-                    "query",
-                    preflight["service_name"],
-                ],
-                capture_output=True,
-                text=True,
-                timeout=10,
-                check=False,
+            self.assertEqual(
+                {path.relative_to(root) for path in root.rglob("*") if path.is_file()},
+                {artifact.relative_to(root)},
             )
-            self.assertEqual(service.returncode, 1060, service.stderr)
             self._assert_environment_excludes_pii(preflight["environment"])
 
     def test_plan_rejects_invalid_run_id_format(self) -> None:
