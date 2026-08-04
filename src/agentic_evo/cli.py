@@ -10,6 +10,13 @@ from typing import Any, Mapping
 from .adapters.codex import handle_codex_hook
 from ._util import canonical_json_bytes
 from .errors import AgenticEvoError
+from .experiment_pack import (
+    EXPERIMENT_CLAIM_CEILING,
+    _ExperimentArtifactConsistencyError,
+    export_experiment_pack,
+    export_experiment_prereg,
+    verify_experiment_artifact,
+)
 from .install_plan import build_install_plan
 from .ipc import (
     InvalidPublicFrame,
@@ -21,6 +28,7 @@ from .ipc import (
     validate_public_request_frame,
 )
 from .service import main as service_main
+from .runtime import DevelopmentalRuntime
 from .windows_gate_a import (
     GateABundleError,
     cleanup_gate_a_bundle,
@@ -468,6 +476,82 @@ def _gate_b_evidence(arguments: argparse.Namespace, *, attack: bool) -> int:
     return 0
 
 
+def _experiment_artifact_error(error: Exception) -> int:
+    _write_json(
+        {
+            "ok": False,
+            "error": {
+                "code": "experiment_artifact_error",
+                "message": str(error),
+            },
+        },
+        stream=sys.stderr,
+    )
+    return 6
+
+
+def _json_object(path: Path) -> dict[str, Any]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError("artifact must be a JSON object")
+    for candidate in (value, value.get("prereg")):
+        if isinstance(candidate, dict) and isinstance(
+            ceiling := candidate.get("claim_ceiling"), dict
+        ):
+            candidate["claim_ceiling"] = {
+                key: ceiling[key]
+                for key in EXPERIMENT_CLAIM_CEILING
+                if key in ceiling
+            } | {
+                key: item
+                for key, item in ceiling.items()
+                if key not in EXPERIMENT_CLAIM_CEILING
+            }
+    return value
+
+
+def _export_experiment_prereg(arguments: argparse.Namespace) -> int:
+    try:
+        result = export_experiment_prereg(
+            DevelopmentalRuntime.load(arguments.dev_home),
+            hypothesis_refs=arguments.hypothesis_ref or [],
+            control_refs=arguments.control_ref or [],
+        )
+    except Exception as error:
+        return _experiment_artifact_error(error)
+    _write_json({"ok": True, "result": result})
+    return 0
+
+
+def _export_experiment_pack(arguments: argparse.Namespace) -> int:
+    try:
+        prereg = _json_object(arguments.prereg)
+        result = export_experiment_pack(
+            DevelopmentalRuntime.load(arguments.dev_home),
+            prereg,
+            end_sequence=arguments.end_sequence,
+        )
+    except Exception as error:
+        return _experiment_artifact_error(error)
+    _write_json({"ok": True, "result": result})
+    return 0
+
+
+def _verify_experiment_artifact(arguments: argparse.Namespace) -> int:
+    try:
+        result = verify_experiment_artifact(_json_object(arguments.artifact))
+    except _ExperimentArtifactConsistencyError as error:
+        _write_json(
+            {"ok": False, "result": {"code": error.code, "message": str(error)}},
+            stream=sys.stderr,
+        )
+        return 7
+    except Exception as error:
+        return _experiment_artifact_error(error)
+    _write_json({"ok": True, "result": result})
+    return 0
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="agentic-evo",
@@ -506,6 +590,25 @@ def _parser() -> argparse.ArgumentParser:
         "plan-install",
         help="Print a deterministic plan that performs no installation writes.",
     )
+    prereg = commands.add_parser(
+        "export-experiment-prereg",
+        help="Export a detached experiment preregistration artifact.",
+    )
+    prereg.add_argument("--dev-home", type=Path, required=True)
+    prereg.add_argument("--hypothesis-ref", action="append")
+    prereg.add_argument("--control-ref", action="append")
+    pack = commands.add_parser(
+        "export-experiment-pack",
+        help="Export a detached experiment evidence pack.",
+    )
+    pack.add_argument("--dev-home", type=Path, required=True)
+    pack.add_argument("--prereg", type=Path, required=True)
+    pack.add_argument("--end-sequence", type=int, required=True)
+    artifact = commands.add_parser(
+        "verify-experiment-artifact",
+        help="Verify a detached experiment artifact without loading a runtime.",
+    )
+    artifact.add_argument("--artifact", type=Path, required=True)
     for name, help_text in (
         (
             "prepare-windows-gate-a",
@@ -557,6 +660,12 @@ def main(argv: list[str] | None = None) -> int:
     if arguments.command == "plan-install":
         _write_json(build_install_plan())
         return 0
+    if arguments.command == "export-experiment-prereg":
+        return _export_experiment_prereg(arguments)
+    if arguments.command == "export-experiment-pack":
+        return _export_experiment_pack(arguments)
+    if arguments.command == "verify-experiment-artifact":
+        return _verify_experiment_artifact(arguments)
     if arguments.command in {
         "prepare-windows-gate-a",
         "verify-windows-gate-a",
