@@ -40,6 +40,27 @@ EXPECTED_ATTACK_FAILURE_CODES = {
     "A05_undeclared_bundle_entry": "undeclared_bundle_entry",
     "A07_cleanup_root_swap": "cleanup_root_swap_blocked",
 }
+EVIDENCE_CORPUS_PATH = (
+    REPOSITORY_ROOT
+    / "tests"
+    / "fixtures"
+    / "windows_gate_b"
+    / "corpus.manifest.json"
+)
+HISTORICAL_V1_FROZEN_HASHES = {
+    "bundle_manifest_sha256": (
+        "a4c3e2f87830044312279e657d366640c8ce64628bd4436af142bfd40e7ceb04"
+    ),
+    "bundle_artifact_sha256": (
+        "2fa4058e74a37ef4d3f378ad7607774dc7ac4de0bcc9f3a3cd3617dbb4e6623b"
+    ),
+    "evidence_plan_sha256": (
+        "3ac6057c02df0e3674c3909fd3cbaf7445a7412b3a81abb101673b1bc5e18c8a"
+    ),
+    "evidence_result_sha256": (
+        "13629892dc470e2dbb7ee73aa2219c28da25b38673b6a4e801b32e0229ee0e8a"
+    ),
+}
 
 
 def _canonical_json(value: dict[str, object]) -> bytes:
@@ -422,6 +443,195 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
         self._rewrite_result(fixture, result)
         fixture["manifest_sha256"] = _sha256(bundle / MANIFEST_NAME)
         return fixture
+
+    def _load_evidence_corpus(self) -> dict[str, object]:
+        return json.loads(EVIDENCE_CORPUS_PATH.read_text(encoding="utf-8"))
+
+    def _materialize_evidence_corpus_member(
+        self,
+        member: dict[str, object],
+        root: Path,
+    ) -> dict[str, object]:
+        if member["label"] == "historical_v1_synthetic":
+            return self._materialize_historical_v1_synthetic(root)
+        if member["label"] == "v2_synthetic":
+            return self._create_v2_synthetic_fixture(root)
+        self.fail(f"corpus member is not materializable: {member['label']!r}")
+
+    def test_frozen_evidence_corpus_has_exact_membership_and_safe_metadata(
+        self,
+    ) -> None:
+        corpus = self._load_evidence_corpus()
+
+        self.assertEqual(set(corpus), {"schema", "members"})
+        self.assertEqual(
+            corpus["schema"],
+            "agentic-evo.windows-gate-b-evidence-corpus.v1",
+        )
+        members = corpus["members"]
+        self.assertIsInstance(members, list)
+        self.assertEqual(
+            [member["label"] for member in members],
+            [
+                "historical_v1_hash_provenance",
+                "historical_v1_synthetic",
+                "v2_synthetic",
+            ],
+        )
+        provenance, historical, v2 = members
+        self.assertLessEqual(
+            set(provenance),
+            {
+                "label",
+                "kind",
+                "materializable",
+                "raw_tracked",
+                "compatibility_only",
+                "lab_binding",
+                "frozen_hashes",
+                "notes",
+            },
+        )
+        self.assertEqual(
+            {field: provenance[field] for field in set(provenance) - {"notes"}},
+            {
+                "label": "historical_v1_hash_provenance",
+                "kind": "hash_provenance",
+                "materializable": False,
+                "raw_tracked": False,
+                "compatibility_only": True,
+                "lab_binding": "inconclusive",
+                "frozen_hashes": HISTORICAL_V1_FROZEN_HASHES,
+            },
+        )
+        self.assertEqual(
+            set(historical),
+            {
+                "label",
+                "kind",
+                "materializable",
+                "raw_tracked",
+                "compatibility_only",
+                "lab_binding",
+                "bundle_seed",
+                "evidence_seed",
+            }
+            | ({"notes"} if "notes" in historical else set()),
+        )
+        self.assertEqual(
+            {
+                field: historical[field]
+                for field in (
+                    "label",
+                    "kind",
+                    "materializable",
+                    "raw_tracked",
+                    "compatibility_only",
+                    "lab_binding",
+                )
+            },
+            {
+                "label": "historical_v1_synthetic",
+                "kind": "synthetic_executable",
+                "materializable": True,
+                "raw_tracked": False,
+                "compatibility_only": True,
+                "lab_binding": "inconclusive",
+            },
+        )
+        self.assertEqual(
+            set(historical["bundle_seed"]),
+            {"artifact_file", "artifact_bytes_b64", "gate_a_manifest"},
+        )
+        self.assertEqual(
+            historical["bundle_seed"]["artifact_file"],
+            ARTIFACT_NAME,
+        )
+        self.assertTrue(historical["bundle_seed"]["artifact_bytes_b64"])
+        base64.b64decode(
+            historical["bundle_seed"]["artifact_bytes_b64"],
+            validate=True,
+        )
+        self.assertIsInstance(historical["bundle_seed"]["gate_a_manifest"], dict)
+        self.assertEqual(
+            set(historical["evidence_seed"]),
+            {"plan_overrides", "result_overrides"},
+        )
+        self.assertIsInstance(historical["evidence_seed"]["plan_overrides"], dict)
+        self.assertIsInstance(historical["evidence_seed"]["result_overrides"], dict)
+        self.assertNotIn("lab_id", historical["evidence_seed"]["plan_overrides"])
+        self.assertNotIn("lab_id", historical["evidence_seed"]["result_overrides"])
+        self.assertNotIn("challenge", historical["evidence_seed"]["result_overrides"])
+        self.assertNotIn("claims", historical["evidence_seed"]["result_overrides"])
+        self.assertEqual(
+            set(v2),
+            {
+                "label",
+                "kind",
+                "materializable",
+                "raw_tracked",
+                "compatibility_only",
+                "lab_binding",
+                "lab_id",
+            }
+            | ({"notes"} if "notes" in v2 else set()),
+        )
+        self.assertEqual(
+            {field: v2[field] for field in set(v2) - {"notes"}},
+            {
+                "label": "v2_synthetic",
+                "kind": "synthetic_executable",
+                "materializable": True,
+                "raw_tracked": False,
+                "compatibility_only": False,
+                "lab_binding": "bound",
+                "lab_id": "3060-computer",
+            },
+        )
+
+        serialized = json.dumps(corpus, ensure_ascii=False)
+        self.assertNotIn(str(REPOSITORY_ROOT), serialized)
+        self.assertNotIn(str(REPOSITORY_ROOT).replace("\\", "/"), serialized)
+        self.assertNotIn("rawle", serialized.casefold())
+        self.assertNotRegex(serialized, r"(?i)(?:[a-z]:[\\/]|(?:^|[\"'])/)")
+        self.assertNotRegex(serialized, r"(?i)\b(?:username|hostname|serial|gpu)\b")
+        self.assertNotRegex(serialized, r"(?i)\bS-\d+(?:-\d+)+\b")
+        self.assertNotRegex(
+            serialized,
+            r"(?i)\b[0-9a-f]{2}(?::[0-9a-f]{2}){5}\b",
+        )
+
+    def test_materializable_evidence_corpus_members_close_temp_bundles(
+        self,
+    ) -> None:
+        corpus = self._load_evidence_corpus()
+        materializable = [
+            member for member in corpus["members"] if member["materializable"]
+        ]
+        self.assertEqual(
+            [member["label"] for member in materializable],
+            ["historical_v1_synthetic", "v2_synthetic"],
+        )
+
+        for member in materializable:
+            with self.subTest(label=member["label"]), tempfile.TemporaryDirectory() as temporary:
+                fixture = self._materialize_evidence_corpus_member(
+                    member,
+                    Path(temporary),
+                )
+                bundle = Path(fixture["bundle"])
+                evidence = Path(fixture["evidence"])
+
+                self.assertEqual(
+                    {path.name for path in bundle.iterdir()},
+                    {ARTIFACT_NAME, MANIFEST_NAME},
+                )
+                self.assertEqual(
+                    {path.name for path in evidence.iterdir()},
+                    {"plan.json", "result.json"},
+                )
+                self.assertTrue(all(path.is_file() for path in bundle.iterdir()))
+                self.assertTrue(all(path.is_file() for path in evidence.iterdir()))
 
     def _run_gate_b_cli(
         self,
