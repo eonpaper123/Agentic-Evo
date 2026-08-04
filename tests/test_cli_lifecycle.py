@@ -13,6 +13,7 @@ import time
 import unittest
 
 from agentic_evo._util import canonical_json_bytes
+from agentic_evo.cli import MAX_SURFACE_STDIO_TEXT_BYTES
 from agentic_evo.ipc import (
     MAX_PUBLIC_FRAME_BYTES,
     PUBLIC_IO_TIMEOUT_SECONDS,
@@ -590,6 +591,89 @@ class CLILifecycleTests(unittest.TestCase):
             request_id="status-after-public-frame-oversize",
             ok=True,
         )
+
+    def test_surface_stdio_preflight_uses_internal_public_request_id(self) -> None:
+        service = self._spawn_service()
+        self._wait_until_ready(service)
+        request_id = "i" * MAX_SURFACE_STDIO_TEXT_BYTES
+        text = "t" * MAX_SURFACE_STDIO_TEXT_BYTES
+        execution_surface = "s" * MAX_SURFACE_STDIO_TEXT_BYTES
+        params = {
+            "event_kind": text,
+            "payload": {"payload": ""},
+            "execution_surface": execution_surface,
+            "session_id": text,
+            "turn_id": text,
+            "tool_call_id": text,
+            "project_environment": text,
+            "coverage_gap": text,
+        }
+        payload = {
+            "payload": "x"
+            * (
+                MAX_PUBLIC_FRAME_BYTES
+                - len(
+                    canonical_json_bytes(
+                        build_public_request(
+                            "observe",
+                            params,
+                            request_id="r" * 32,
+                        )
+                    )
+                )
+            )
+        }
+        params["payload"] = payload
+        self.assertEqual(
+            len(
+                canonical_json_bytes(
+                    build_public_request("observe", params, request_id="r" * 32)
+                )
+            ),
+            MAX_PUBLIC_FRAME_BYTES,
+        )
+        self.assertLessEqual(
+            len(canonical_json_bytes(payload)),
+            60 * 1024,
+        )
+        self.assertGreater(
+            len(
+                canonical_json_bytes(
+                    build_public_request("observe", params, request_id=request_id)
+                )
+            ),
+            MAX_PUBLIC_FRAME_BYTES,
+        )
+        before_records = self.runtime.evidence.records()
+        process = self._spawn_surface_stdio(execution_surface)
+
+        self._write_jsonl(
+            process,
+            {
+                "schema": "agentic-evo.surface-stdio.v1",
+                "id": request_id,
+                "op": "observe",
+                "args": {
+                    "event_kind": text,
+                    "payload": payload,
+                    "session_id": text,
+                    "turn_id": text,
+                    "tool_call_id": text,
+                    "project_environment": text,
+                    "coverage_gap": text,
+                },
+            },
+        )
+        response = self._read_jsonl(process)
+        self.assertIs(response["ok"], True, response)
+        receipt = self._assert_surface_response(
+            response,
+            request_id=request_id,
+            ok=True,
+        )
+        self._assert_observe_receipt_shape(receipt)
+        self.assertEqual(len(self.runtime.evidence.records()), len(before_records) + 1)
+        self.assertIsNone(process.poll())
 
     def test_surface_stdio_invalid_line_returns_invalid_input_without_mutation(self) -> None:
         service = self._spawn_service()

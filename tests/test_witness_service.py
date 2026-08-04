@@ -22,6 +22,7 @@ from agentic_evo.ipc import (
     ServiceRejectedError,
     ServiceUnavailableError,
     SurfaceClient,
+    build_public_request,
     control_endpoint,
     open_public_connection,
     receive_public_message,
@@ -264,6 +265,59 @@ class WitnessServiceTests(unittest.TestCase):
         self.assertEqual(record.tool_call_id, "")
         self.assertEqual(record.project_environment, "")
         self.assertEqual(record.coverage_gap, "")
+
+    def test_public_client_maps_oversized_request_to_unavailable(self) -> None:
+        process = self._spawn()
+        client = self._wait_until_ready(process)
+        params = {
+            "event_kind": "tool_result",
+            "payload": {"payload": ""},
+            "execution_surface": "codex",
+            "session_id": None,
+            "turn_id": None,
+            "tool_call_id": None,
+            "project_environment": None,
+            "coverage_gap": None,
+        }
+        payload = {
+            "payload": "x"
+            * (
+                MAX_PUBLIC_FRAME_BYTES
+                + 1
+                - len(
+                    canonical_json_bytes(
+                        build_public_request(
+                            "observe",
+                            params,
+                            request_id="r" * 32,
+                        )
+                    )
+                )
+            )
+        }
+        params["payload"] = payload
+        self.assertEqual(
+            len(
+                canonical_json_bytes(
+                    build_public_request("observe", params, request_id="r" * 32)
+                )
+            ),
+            MAX_PUBLIC_FRAME_BYTES + 1,
+        )
+        before_status = self.runtime.status()
+        before_records = self.runtime.evidence.records()
+
+        with self.assertRaises(ServiceUnavailableError) as caught:
+            client.observe(
+                event_kind="tool_result",
+                payload=payload,
+                execution_surface="codex",
+            )
+
+        self.assertNotIsInstance(caught.exception, InvalidPublicFrame)
+        self.assertEqual(self.runtime.status(), before_status)
+        self.assertEqual(self.runtime.evidence.records(), before_records)
+        self.assertEqual(client.status()["head"], before_status.head)
 
     def test_public_sleep_requires_surface_and_preserves_state_when_missing(
         self,
