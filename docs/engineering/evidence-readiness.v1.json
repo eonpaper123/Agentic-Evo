@@ -1,0 +1,166 @@
+{
+  "schema": "agentic-evo.evidence-readiness.v1",
+  "project": "agentic-evo",
+  "scope": "p0-p1-project-local-pre-genesis",
+  "baseline_commit": "936e9393352bc7f0e7521a9d53e1ca76abc77be1",
+  "overall_status": "not_ready",
+  "claim_ceiling": {
+    "gate_a_complete": false,
+    "gate_b_outcome": "not_established",
+    "native_security_verified": false,
+    "ready_to_install": false
+  },
+  "provenance_classes": [
+    "synthetic_fixture",
+    "observed_local_test",
+    "agent_authored_decision",
+    "external_authorized_observation"
+  ],
+  "lanes": [
+    {
+      "id": "L1",
+      "title": "contract/receipt",
+      "owner_role": "p0-contract-implementer",
+      "status": "planned",
+      "scope": "Project-local readiness rendering and local test-process receipt contract only.",
+      "inputs": [
+        "docs/engineering/evidence-readiness.v1.json",
+        "src/agentic_evo/test_result_receipts.py"
+      ],
+      "deliverables": [
+        "strict readiness checker and generated Markdown",
+        "atomic local receipt runner and verifier"
+      ],
+      "exit_criteria": [
+        {
+          "description": "Matrix/render checker, atomic receipt runner/verifier, and all L1 unit and negative tests pass.",
+          "fulfilled": false
+        },
+        {
+          "description": "No Gate B files changed.",
+          "fulfilled": false
+        }
+      ],
+      "evidence_classes": [
+        "observed_local_test"
+      ],
+      "authorization": "none",
+      "non_claims": [
+        "A local receipt is only a local test-process outcome.",
+        "This lane does not establish Gate A, Gate B, native security, or installation readiness."
+      ]
+    },
+    {
+      "id": "L2",
+      "title": "provenance/namespace",
+      "owner_role": "p1-evidence-custodian",
+      "status": "planned",
+      "scope": "Closed P0/P1 provenance classes and writer-owned project-relative namespaces.",
+      "inputs": [
+        "tests/fixtures/windows_gate_b/corpus.manifest.json",
+        "src/agentic_evo/evidence_provenance.py"
+      ],
+      "deliverables": [
+        "closed class/root validators",
+        "synthetic fixture non-promotion and namespace-negative tests"
+      ],
+      "exit_criteria": [
+        {
+          "description": "Closed classes and root checks pass.",
+          "fulfilled": false
+        },
+        {
+          "description": "Synthetic promotion, link/reparse, reserved-lab, collision, and tamper cases fail closed.",
+          "fulfilled": false
+        }
+      ],
+      "evidence_classes": [
+        "synthetic_fixture",
+        "observed_local_test"
+      ],
+      "authorization": "none",
+      "non_claims": [
+        "Synthetic fixture material cannot be promoted by a digest, lab binding, or passing parser test.",
+        "The generic P0/P1 verifier does not read or rewrite artifacts/labs."
+      ]
+    },
+    {
+      "id": "L3",
+      "title": "routing audit",
+      "owner_role": "p1-routing-auditor",
+      "status": "planned",
+      "scope": "Explicit agent-authored route decisions with no provider invocation or configuration change.",
+      "inputs": [
+        "src/agentic_evo/model_routing_audit.py",
+        "approved observed-local receipt references when present"
+      ],
+      "deliverables": [
+        "closed decision writer and verifier",
+        "policy digest and candidate-membership checks"
+      ],
+      "exit_criteria": [
+        {
+          "description": "Decision writer/verifier binds candidate, policy digest, and optional local receipt references.",
+          "fulfilled": false
+        },
+        {
+          "description": "No raw prompt, credential, provider call, or effective-model claim is retained.",
+          "fulfilled": false
+        }
+      ],
+      "evidence_classes": [
+        "agent_authored_decision",
+        "observed_local_test"
+      ],
+      "authorization": "none",
+      "non_claims": [
+        "A declared route decision does not observe provider execution.",
+        "A route audit does not change provider or model configuration."
+      ]
+    },
+    {
+      "id": "L4",
+      "title": "P2 disposition",
+      "owner_role": "p2-project-disposition-agent",
+      "status": "stopped",
+      "scope": "This repository's P2 disposition only; it is not a cross-repository policy or authorization grant.",
+      "inputs": [
+        "docs/engineering/p2-stop-decision.v1.json",
+        "L1-L3 readiness state"
+      ],
+      "deliverables": [
+        "integrity-valid project-local stop/not_authorized record"
+      ],
+      "exit_criteria": [
+        {
+          "description": "The P2 stop record validates and links L1-L3 state.",
+          "fulfilled": false
+        },
+        {
+          "description": "Any reopening has the listed project-local evidence and necessary explicit authorization.",
+          "fulfilled": false
+        }
+      ],
+      "evidence_classes": [
+        "agent_authored_decision"
+      ],
+      "authorization": "Rawle_explicit",
+      "non_claims": [
+        "The stop record is not consent, a schedule, a live-goal change, or a provider invocation.",
+        "The stop record does not authorize a Windows retained experiment."
+      ]
+    }
+  ],
+  "blocked_by": [
+    "L1",
+    "L2",
+    "L3",
+    "Rawle_explicit authorization"
+  ],
+  "non_claims": [
+    "This matrix is project-local Pre-Genesis planning and does not establish readiness.",
+    "Gate A remains incomplete and Gate B outcome remains not established.",
+    "No native security verification, installation, provider-effective route, or external observation is claimed.",
+    "No P0/P1 generated receipt or model-route record is committed by this matrix."
+  ]
+}

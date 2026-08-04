@@ -79,3 +79,9 @@
 - 开发框架保存研究方法、Agent 自由空间、科学可观察性与开发决策标准。
 - 专题文件保留公式、关系图、推导过程、阶段性开放问题、观点修正与最终停止点。
 - 现有协议、模型和工具只作为实验材料，不能反向缩小最终科研目标。
+
+
+## P0/P1 evidence readiness
+
+- [P0/P1 evidence readiness](engineering/evidence-readiness.md) -- generated from the canonical project-local readiness matrix.
+- [P2 scoped stop decision](engineering/p2-stop-decision.v1.json) -- integrity-bound `stop` / `not_authorized` disposition for this repository only.

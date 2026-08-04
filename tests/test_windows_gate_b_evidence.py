@@ -101,6 +101,78 @@ def _namespace_members(path: Path) -> set[str]:
     return {entry.name for entry in path.iterdir()}
 
 
+def _cleanup_test_evidence_namespace(evidence: Path) -> None:
+    """Remove one synthetic run leaf and only its empty owned parents."""
+
+    # The plan owns one run-specific leaf below this exact namespace.  Refuse
+    # cleanup for any other path, then stop as soon as an owned parent is not
+    # empty (or cannot be removed); this cannot reach the reference namespace.
+    if evidence.parent != TEST_LAB_GATE_B_NAMESPACE:
+        return
+    shutil.rmtree(evidence, ignore_errors=True)
+    for parent in (TEST_LAB_GATE_B_NAMESPACE, TEST_LAB_EVIDENCE_NAMESPACE):
+        try:
+            parent.rmdir()
+        except FileNotFoundError:
+            continue
+        except OSError:
+            break
+
+
+def _run_captured(
+    command: list[str],
+    *,
+    timeout: int,
+    **kwargs: object,
+) -> subprocess.CompletedProcess[str]:
+    """Run a Windows host command and capture text without losing output.
+
+    Native Windows tools (sc.exe, PowerShell, cmd.exe) write console text in
+    the active OEM/ANSI code page (GBK on this lab host), which is not valid
+    UTF-8.  With bare ``text=True`` the subprocess reader thread dies on the
+    first undecodable byte, so ``subprocess.run`` returns ``stdout=None`` /
+    ``stderr=None`` and every downstream assertion fails with a TypeError.
+    Decode as UTF-8 and replace undecodable host bytes: ASCII JSON and SIDs
+    stay parseable, and only nonsemantic localized text is lossy.  This
+    mirrors the project convention in ``windows_gate_a`` of decoding host
+    output with ``errors="replace"``.
+    """
+
+    return subprocess.run(
+        command,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=timeout,
+        check=False,
+        **kwargs,
+    )
+
+
+# The CLI child runs the verifier/attacker in-process.  Its own text-mode
+# subprocess calls (windows_gate_b_evidence/windows_gate_a) decode with the
+# locale UTF-8 default, so GBK console text from sc.exe/cmd.exe kills the
+# reader thread and dumps an "Exception in thread" trace onto the child's
+# stderr, corrupting the JSON-on-stderr contract these tests assert.  Launch
+# the child through this bootstrap so it applies the same utf-8 + replace
+# policy as _run_captured; only text-mode calls are patched, so bytes-mode
+# calls (e.g. windows_gate_a compiler probes) keep their byte semantics.
+_CLI_SUBPROCESS_BOOTSTRAP = (
+    "import subprocess as _sp\n"
+    "_sp_run = _sp.run\n"
+    "def _run(*args, **kwargs):\n"
+    "    if (kwargs.get(\"text\") or kwargs.get(\"universal_newlines\")\n"
+    "            or \"encoding\" in kwargs or \"errors\" in kwargs):\n"
+    "        kwargs.setdefault(\"encoding\", \"utf-8\")\n"
+    "        kwargs.setdefault(\"errors\", \"replace\")\n"
+    "    return _sp_run(*args, **kwargs)\n"
+    "_sp.run = _run\n"
+    "import sys as _sys\n"
+    "from agentic_evo.cli import main as _main\n"
+    "_sys.exit(_main())\n"
+)
+
+
 class FourStateReductionTests(unittest.TestCase):
     def test_required_case_reduction_preserves_counterexamples_and_unknowns(
         self,
@@ -178,7 +250,7 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
         run_id = uuid4().hex
         challenge = uuid4().hex
         evidence = root / "evidence"
-        plan_process = subprocess.run(
+        plan_process = _run_captured(
             [
                 "powershell.exe",
                 "-NoProfile",
@@ -200,30 +272,24 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
                 "-EvidenceRoot",
                 str(evidence),
             ],
-            capture_output=True,
-            text=True,
             timeout=20,
-            check=False,
         )
         self.assertEqual(plan_process.returncode, 0, plan_process.stderr)
         plan = json.loads(plan_process.stdout)
         evidence = Path(plan["evidence_root"])
         evidence.mkdir(parents=True)
-        self.addCleanup(shutil.rmtree, evidence, ignore_errors=True)
+        self.addCleanup(_cleanup_test_evidence_namespace, evidence)
         plan_bytes = _canonical_json(plan)
         (evidence / "plan.json").write_bytes(plan_bytes)
         plan_sha256 = hashlib.sha256(plan_bytes[:-1]).hexdigest()
 
-        showsid = subprocess.run(
+        showsid = _run_captured(
             [
                 str(Path(plan["trusted_system_directory"]) / "sc.exe"),
                 "showsid",
                 plan["service_name"],
             ],
-            capture_output=True,
-            text=True,
             timeout=10,
-            check=False,
         )
         self.assertEqual(showsid.returncode, 0, showsid.stderr)
         service_sid_match = re.search(
@@ -704,12 +770,12 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
             if not prior
             else os.pathsep.join((str(REPOSITORY_ROOT / "src"), prior))
         )
-        return subprocess.run(
+        return _run_captured(
             [
                 sys.executable,
                 "-P",
-                "-m",
-                "agentic_evo.cli",
+                "-c",
+                _CLI_SUBPROCESS_BOOTSTRAP,
                 command,
                 "--bundle-dir",
                 str(fixture["bundle"]),
@@ -730,12 +796,9 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
                 "--expected-challenge",
                 str(fixture["challenge"]),
             ],
+            timeout=15,
             cwd=REPOSITORY_ROOT,
             env=environment,
-            capture_output=True,
-            text=True,
-            timeout=15,
-            check=False,
         )
 
     def test_cli_verifies_historical_v1_synthetic_corpus_in_process(self) -> None:
@@ -1495,7 +1558,7 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
                 except OSError:
                     attack["blocked"] = True
                     return verified
-                linked = subprocess.run(
+                linked = _run_captured(
                     [
                         "cmd.exe",
                         "/d",
@@ -1505,10 +1568,7 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
                         str(path),
                         str(external),
                     ],
-                    capture_output=True,
-                    text=True,
                     timeout=10,
-                    check=False,
                 )
                 self.assertEqual(linked.returncode, 0, linked.stderr)
                 attack["swapped"] = True

@@ -426,7 +426,7 @@ def _validate_artifact(path: Path, manifest: dict[str, Any] | None, fail: Any) -
     if not isinstance(artifact, dict) or path.stat().st_size != artifact.get("bytes") or _sha256(path) != artifact.get("sha256"):
         fail("artifact_commitment_mismatch", "artifact does not match manifest")
         return
-    probe = subprocess.run([str(path), "console-probe"], cwd=path.parent, capture_output=True, text=True, timeout=10, check=False)
+    probe = subprocess.run([str(path), "console-probe"], cwd=path.parent, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10, check=False)
     if probe.returncode != 1063 or probe.stdout or probe.stderr:
         fail("artifact_console_probe_invalid", "artifact did not fail closed outside SCM")
 
@@ -610,7 +610,7 @@ def _observe_current_zero_residue(plan: dict[str, Any], fail: Any) -> bool:
     if not sc.is_file() or _is_reparse_point(sc):
         fail("trusted_scm_query_unavailable", "trusted sc.exe is unavailable")
         return False
-    check = subprocess.run([str(sc), "query", service_name], capture_output=True, text=True, timeout=10, check=False)
+    check = subprocess.run([str(sc), "query", service_name], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10, check=False)
     # 1060 is the documented not-found code.  Any successful query means residue.
     service_absent = check.returncode == 1060
     return paths_absent and service_absent
@@ -670,6 +670,8 @@ def _run_module(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         env=environment,
     )
     stdout, stderr = child.communicate(timeout=45)
@@ -731,7 +733,7 @@ def _attack_worker(
             except OSError:
                 outcome["blocked"] = True
                 return verified
-            link = subprocess.run(["cmd.exe", "/d", "/c", "mklink", "/J", str(path), str(external)], capture_output=True, text=True, timeout=10, check=False)
+            link = subprocess.run(["cmd.exe", "/d", "/c", "mklink", "/J", str(path), str(external)], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10, check=False)
             if link.returncode == 0:
                 outcome["swapped"] = True
             return verified

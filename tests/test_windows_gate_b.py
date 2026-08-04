@@ -73,6 +73,36 @@ CLAIM_CEILING = {
 }
 
 
+def _run_captured(
+    command: list[str],
+    *,
+    timeout: int,
+    **kwargs: object,
+) -> subprocess.CompletedProcess[str]:
+    """Run a Windows host command and capture text without losing output.
+
+    Native Windows tools (sc.exe, PowerShell) write console text in the
+    active OEM/ANSI code page (GBK on this lab host), which is not valid
+    UTF-8.  With bare ``text=True`` the subprocess reader thread dies on the
+    first undecodable byte, so ``subprocess.run`` returns ``stdout=None`` /
+    ``stderr=None`` and every downstream assertion fails with a TypeError.
+    Decode as UTF-8 and replace undecodable host bytes: ASCII JSON and SIDs
+    stay parseable, and only nonsemantic localized text is lossy.  This
+    mirrors the project convention in ``windows_gate_a`` of decoding host
+    output with ``errors="replace"``.
+    """
+
+    return subprocess.run(
+        command,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=timeout,
+        check=False,
+        **kwargs,
+    )
+
+
 @unittest.skipUnless(sys.platform == "win32", "Windows Gate B plan contract")
 class WindowsGateBPlanTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -217,16 +247,13 @@ class WindowsGateBPlanTests(unittest.TestCase):
             self.assertFalse(Path(plan["evidence_root"]).exists())
             self.assertFalse(Path(plan["artifact_root"]).exists())
             self.assertFalse(Path(plan["state_root"]).exists())
-            service = subprocess.run(
+            service = _run_captured(
                 [
                     str(Path(plan["trusted_system_directory"]) / "sc.exe"),
                     "query",
                     plan["service_name"],
                 ],
-                capture_output=True,
-                text=True,
                 timeout=10,
-                check=False,
             )
             self.assertEqual(service.returncode, 1060, service.stderr)
             self._assert_environment_excludes_pii(plan["environment"])
@@ -265,12 +292,9 @@ class WindowsGateBPlanTests(unittest.TestCase):
             self.assertFalse(artifact_root.exists())
             self.assertFalse(state_root.exists())
             self.assertFalse(evidence_root.exists())
-            service = subprocess.run(
+            service = _run_captured(
                 [str(sc_exe), "query", service_name],
-                capture_output=True,
-                text=True,
                 timeout=10,
-                check=False,
             )
             self.assertEqual(service.returncode, 1060, service.stderr)
 
@@ -466,12 +490,9 @@ class WindowsGateBPlanTests(unittest.TestCase):
             self.assertFalse(artifact_root.exists())
             self.assertFalse(state_root.exists())
             self.assertFalse(evidence_root.exists())
-            service = subprocess.run(
+            service = _run_captured(
                 [str(sc_exe), "query", service_name],
-                capture_output=True,
-                text=True,
                 timeout=10,
-                check=False,
             )
             self.assertEqual(service.returncode, 1060, service.stderr)
             self.assertEqual(
@@ -508,7 +529,7 @@ class WindowsGateBPlanTests(unittest.TestCase):
             evidence = root / "evidence"
             run_id = uuid4().hex
 
-            result = subprocess.run(
+            result = _run_captured(
                 [
                     "powershell.exe",
                     "-NoProfile",
@@ -530,10 +551,7 @@ class WindowsGateBPlanTests(unittest.TestCase):
                     "-EvidenceRoot",
                     str(evidence),
                 ],
-                capture_output=True,
-                text=True,
                 timeout=20,
-                check=False,
             )
 
             self.assertNotEqual(result.returncode, 0)
@@ -559,7 +577,7 @@ class WindowsGateBPlanTests(unittest.TestCase):
                 f"-EvidenceRoot {quote(evidence)}"
             )
 
-            result = subprocess.run(
+            result = _run_captured(
                 [
                     "powershell.exe",
                     "-NoProfile",
@@ -569,10 +587,7 @@ class WindowsGateBPlanTests(unittest.TestCase):
                     "-Command",
                     command,
                 ],
-                capture_output=True,
-                text=True,
                 timeout=20,
-                check=False,
             )
 
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -600,7 +615,7 @@ class WindowsGateBPlanTests(unittest.TestCase):
             environment = os.environ.copy()
             environment["PSModulePath"] = str(fake_modules)
 
-            result = subprocess.run(
+            result = _run_captured(
                 [
                     "powershell.exe",
                     "-NoProfile",
@@ -622,10 +637,7 @@ class WindowsGateBPlanTests(unittest.TestCase):
                     "-EvidenceRoot",
                     str(evidence),
                 ],
-                capture_output=True,
-                text=True,
                 timeout=20,
-                check=False,
                 env=environment,
             )
 
@@ -665,13 +677,7 @@ class WindowsGateBPlanTests(unittest.TestCase):
         ]
         if lab_id is not None:
             command.extend(("-LabId", lab_id))
-        return subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            timeout=20,
-            check=False,
-        )
+        return _run_captured(command, timeout=20)
 
     def _assert_environment_excludes_pii(self, environment: object) -> None:
         serialized = json.dumps(environment, ensure_ascii=False).casefold()

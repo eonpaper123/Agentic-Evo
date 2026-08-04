@@ -143,6 +143,8 @@ class WindowsGateABundleTests(unittest.TestCase):
                 [str(bundle / artifact["file"]), "console-probe"],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=10,
                 check=False,
             )
@@ -231,6 +233,8 @@ class WindowsGateABundleTests(unittest.TestCase):
                 ],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=10,
                 check=False,
             )
@@ -261,6 +265,8 @@ class WindowsGateABundleTests(unittest.TestCase):
                 ["cmd.exe", "/d", "/c", "mklink", "/J", str(junction), str(target)],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=10,
                 check=False,
             )
@@ -290,6 +296,39 @@ class WindowsGateAPlatformTests(unittest.TestCase):
                 ):
                     prepare_gate_a_bundle(output)
             self.assertFalse(output.exists())
+
+    def test_console_probe_rejects_replaced_undecodable_output(self) -> None:
+        from agentic_evo.windows_gate_a import GateABundleError, _run_console_probe
+
+        observed: dict[str, object] = {}
+
+        def run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            observed.update(kwargs)
+            decoded_output = b"\xff".decode(
+                str(kwargs["encoding"]),
+                str(kwargs["errors"]),
+            )
+            return subprocess.CompletedProcess(
+                command,
+                1063,
+                stdout=decoded_output,
+                stderr="",
+            )
+
+        with mock.patch(
+            "agentic_evo.windows_gate_a.subprocess.run",
+            side_effect=run,
+        ):
+            with self.assertRaisesRegex(
+                GateABundleError,
+                "SCM entrypoint did not fail closed outside SCM",
+            ):
+                _run_console_probe(Path("probe.exe"))
+
+        self.assertEqual(observed["encoding"], "utf-8")
+        self.assertEqual(observed["errors"], "replace")
+        self.assertEqual(observed["timeout"], 10)
+        self.assertIs(observed["check"], False)
 
 
 if __name__ == "__main__":

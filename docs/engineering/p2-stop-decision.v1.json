@@ -1,0 +1,36 @@
+{
+  "schema": "agentic-evo.p2-stop-decision.v1",
+  "project": "agentic-evo",
+  "scope": "agentic-evo repository/P2 only",
+  "owner_role": "p2-project-disposition-agent",
+  "decision": "stop",
+  "status": "not_authorized",
+  "baseline_commit": "936e9393352bc7f0e7521a9d53e1ca76abc77be1",
+  "basis_refs": [
+    "docs/engineering/evidence-readiness.v1.json#L1",
+    "docs/engineering/evidence-readiness.v1.json#L2",
+    "docs/engineering/evidence-readiness.v1.json#L3"
+  ],
+  "blocked_by": [
+    "L1-L3 remain planned/not_ready",
+    "Rawle_explicit authorization is absent"
+  ],
+  "reopen_conditions": [
+    "Project-local L1-L3 exit criteria are fulfilled and independently reviewed.",
+    "Necessary Rawle_explicit authorization for this repository/P2 is recorded before reopening."
+  ],
+  "non_actions": [
+    "treating this record as consent",
+    "scheduling work",
+    "changing a live goal",
+    "invoking a provider",
+    "running a Windows retained experiment"
+  ],
+  "does_not_apply_to": [
+    "global Rawle rules",
+    "other repositories",
+    "model-provider configuration",
+    "authorization grants"
+  ],
+  "record_integrity_sha256": "76925fd5741e2cd07ec47662b3ee797d914cb1deb8334d0d51bee5c57f21fe49"
+}
