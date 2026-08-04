@@ -300,7 +300,7 @@ subprocess_rehearsal
 17. 屏障测试证明 cutoff 前已 admission 的变更可以恰好提交一次，而 `request_stop()` 必须等该 dispatch 归静后才返回；
 18. 每条已接受 transport 只有一个 raw-close owner；stop、worker cleanup 与 control receive deadline 竞争关闭时不会再次关闭同一底层句柄；
 19. Windows 与 WSL Ubuntu 均验证 accept 唤醒、active connection 关闭、Body/lease/singleton 回收及同一 home 重启；macOS 尚未实机复验；
-20. 当前 HEAD 在 Windows 上由捆绑 Python 执行 `unittest discover -s tests -v`：共运行 205 项测试，耗时 71.248 秒，进程退出码为 0，末尾结果为 `OK`；这只证明当前代码回归为绿，不建立 Gate B。
+20. 当前 HEAD 在 Windows 上由捆绑 Python 执行 `unittest discover -s tests -v`：共运行 205 项测试，进程退出码为 0，末尾结果为 `OK`；这只证明当前代码回归为绿，不建立 Gate B，也不改变 A07 的 `same_principal_harness` 上限。
 
 本轮不依赖 pywin32 或其他第三方包；实现只使用 Python 标准库、`ctypes` 与 Windows Kernel32 / Advapi32。
 
@@ -674,6 +674,6 @@ service self-report
 
 在申请该授权前，仓库只允许生成 `agentic-evo.windows-gate-b-retained-preflight.v1` 预注册计划；它固定一次跨单次重启的临时 service 实验边界，但不创建 service、不触发 UAC、不写入 evidence，也不提升任何 Gate B 结论。
 
-c643c91 将 synthetic Gate B fixture 绑定到专用 test lab/namespace；当前 HEAD 全仓回归前后 3060 reference namespace membership 不变。A07 仍仅为 `same_principal_harness`，且本轮未执行 UAC、SCM、restart 或其他 privileged Gate B action。
+c643c91 将 synthetic Gate B fixture 绑定到专用 test lab/namespace；当前 HEAD 全仓回归前后 3060 reference namespace membership 不变。隔离前遗留的 exact orphan `artifacts/labs/3060-computer/windows-gate-b/1ed1e8b16f554059b77ceb99a8b40cd6/` 仍为 `present / removal_not_executed`；`Remove-Item` 被本地命令策略在执行前阻止，删除并未执行。该 orphan 不属于 3060 当前证据。A07 仍仅为 `same_principal_harness`，且本轮未执行 UAC、SCM、restart 或其他 privileged Gate B action。
 
 它只固定未来获授权的 effects/retention；在已单独授权的保留重启实验实际执行并完成独立验证前，当前 ceiling 不高于 `configuration_probe_only` / `partial_cleanup_if_service_lifecycle_occurs`。
