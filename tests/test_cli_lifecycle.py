@@ -697,6 +697,247 @@ class CLILifecycleTests(unittest.TestCase):
         self.assertEqual(len(self.runtime.evidence.records()), len(before_records) + 1)
         self.assertIsNone(process.poll())
 
+    def test_surface_stdio_links_delayed_outcome_across_service_restart_and_surface(
+        self,
+    ) -> None:
+        baseline = self.runtime.status()
+        baseline_records = self.runtime.evidence.records()
+        first = self._spawn_service()
+        first_client = self._wait_until_ready(first)
+        first_client.wake(
+            execution_surface="codex",
+            session_id="cause-session",
+            project_environment="project-a",
+        )
+        cause_receipt = first_client.observe(
+            event_kind="tool_result",
+            payload={"outcome": "initial-result"},
+            execution_surface="codex",
+            session_id="cause-session",
+            project_environment="project-a",
+        )
+        first_client.sleep(
+            execution_surface="codex",
+            session_id="cause-session",
+        )
+        self._terminate(first)
+
+        second = self._spawn_service()
+        self._wait_until_ready(second)
+        process = self._spawn_surface_stdio("generic-stdio")
+        self._write_jsonl(
+            process,
+            {
+                "schema": "agentic-evo.surface-stdio.v1",
+                "id": "wake-outcome",
+                "op": "wake",
+                "args": {
+                    "session_id": "outcome-session",
+                    "project_environment": "project-b",
+                },
+            },
+        )
+        self._assert_surface_response(
+            self._read_jsonl(process),
+            request_id="wake-outcome",
+            ok=True,
+        )
+        self._write_jsonl(
+            process,
+            {
+                "schema": "agentic-evo.surface-stdio.v1",
+                "id": "observe-delayed-outcome",
+                "op": "observe",
+                "args": {
+                    "event_kind": "delayed_outcome_observed",
+                    "payload": {"outcome": "accepted"},
+                    "occurred_at": "2026-08-04T12:34:56Z",
+                    "session_id": "outcome-session",
+                    "turn_id": "outcome-turn",
+                    "tool_call_id": None,
+                    "project_environment": "project-b",
+                    "correlation_ref": "experiment-001-run-a",
+                    "causation_ref": cause_receipt["event_id"],
+                    "parent_ref": cause_receipt["event_id"],
+                    "coverage_gap": None,
+                },
+            },
+        )
+        receipt = self._assert_surface_response(
+            self._read_jsonl(process),
+            request_id="observe-delayed-outcome",
+            ok=True,
+        )
+        self._assert_observe_receipt_shape(receipt)
+        self._write_jsonl(
+            process,
+            {
+                "schema": "agentic-evo.surface-stdio.v1",
+                "id": "sleep-outcome",
+                "op": "sleep",
+                "args": {"session_id": "outcome-session"},
+            },
+        )
+        self._assert_surface_response(
+            self._read_jsonl(process),
+            request_id="sleep-outcome",
+            ok=True,
+        )
+
+        reloaded = DevelopmentalRuntime.load(self.home)
+        records = reloaded.evidence.records()
+        cause = next(
+            record for record in records if record.event_id == cause_receipt["event_id"]
+        )
+        outcome = next(
+            record for record in records if record.event_id == receipt["event_id"]
+        )
+        self.assertEqual(reloaded.status().root, baseline.root)
+        self.assertEqual(reloaded.status().head, baseline.head)
+        self.assertEqual(len(records), len(baseline_records) + 6)
+        self.assertEqual(reloaded.status().active_sessions, ())
+        self.assertTrue(reloaded.evidence.verify())
+        self.assertEqual(outcome.event_kind, "delayed_outcome_observed")
+        self.assertEqual(outcome.occurred_at, "2026-08-04T12:34:56Z")
+        self.assertEqual(outcome.correlation_ref, "experiment-001-run-a")
+        self.assertEqual(outcome.causation_ref, cause.event_id)
+        self.assertEqual(outcome.parent_ref, cause.event_id)
+        self.assertEqual(
+            outcome.previous_integrity_hash,
+            records[outcome.sequence - 2].integrity_hash,
+        )
+        for record, surface, session, project in (
+            (cause, "codex", "cause-session", "project-a"),
+            (outcome, "generic-stdio", "outcome-session", "project-b"),
+        ):
+            self.assertEqual(record.source_kind, "execution_surface")
+            self.assertEqual(record.author_kind, "surface_unverified")
+            self.assertIsNone(record.human_intervention_kind)
+            self.assertEqual(record.execution_surface, surface)
+            self.assertEqual(record.session_id, session)
+            self.assertEqual(record.project_environment, project)
+
+    def test_surface_stdio_rejects_invalid_temporal_and_causal_refs_locally_without_mutation(
+        self,
+    ) -> None:
+        service = self._spawn_service()
+        self._wait_until_ready(service)
+        before_status = self.runtime.status()
+        before_records = self.runtime.evidence.records()
+        process = self._spawn_surface_stdio("generic-stdio")
+
+        for field in (
+            "occurred_at",
+            "correlation_ref",
+            "causation_ref",
+            "parent_ref",
+        ):
+            for suffix, value, message in (
+                ("false", False, f"{field} must be a non-empty string or null"),
+                ("empty", "", f"{field} must be a non-empty string or null"),
+                ("long", "x" * 1025, f"{field} exceeds the stdio text byte bound"),
+            ):
+                with self.subTest(field=field, value=suffix):
+                    request_id = f"invalid-{field}-{suffix}"
+                    self._write_jsonl(
+                        process,
+                        {
+                            "schema": "agentic-evo.surface-stdio.v1",
+                            "id": request_id,
+                            "op": "observe",
+                            "args": {
+                                "event_kind": "tool_result",
+                                "payload": {"outcome": "ignored"},
+                                field: value,
+                            },
+                        },
+                    )
+                    error = self._assert_surface_response(
+                        self._read_jsonl(process),
+                        request_id=request_id,
+                        ok=False,
+                    )
+                    self.assertEqual(error["code"], "invalid_input")
+                    self.assertEqual(error["message"], message)
+                    self.assertEqual(self.runtime.status(), before_status)
+                    self.assertEqual(self.runtime.evidence.records(), before_records)
+
+        self._write_jsonl(
+            process,
+            {
+                "schema": "agentic-evo.surface-stdio.v1",
+                "id": "status-after-invalid-causal-ref",
+                "op": "status",
+                "args": {},
+            },
+        )
+        self._assert_surface_response(
+            self._read_jsonl(process),
+            request_id="status-after-invalid-causal-ref",
+            ok=True,
+        )
+        self.assertIsNone(process.poll())
+
+    def test_surface_stdio_rejects_witness_owned_evidence_fields_locally(self) -> None:
+        service = self._spawn_service()
+        self._wait_until_ready(service)
+        before_status = self.runtime.status()
+        before_records = self.runtime.evidence.records()
+        process = self._spawn_surface_stdio("generic-stdio")
+
+        for field, value in {
+            "source_kind": "body",
+            "author_kind": "agent_self_authored",
+            "human_intervention_kind": "none",
+            "observed_at": "2026-08-04T12:34:56Z",
+            "root_commitment": "forged-root",
+            "head_before": "forged-head",
+            "head_after": "forged-head",
+        }.items():
+            with self.subTest(field=field):
+                request_id = f"forged-{field}"
+                self._write_jsonl(
+                    process,
+                    {
+                        "schema": "agentic-evo.surface-stdio.v1",
+                        "id": request_id,
+                        "op": "observe",
+                        "args": {
+                            "event_kind": "tool_result",
+                            "payload": {"outcome": "ignored"},
+                            field: value,
+                        },
+                    },
+                )
+                error = self._assert_surface_response(
+                    self._read_jsonl(process),
+                    request_id=request_id,
+                    ok=False,
+                )
+                self.assertEqual(error["code"], "invalid_input")
+                self.assertEqual(
+                    error["message"],
+                    "operation arguments do not match the stdio contract",
+                )
+                self.assertEqual(self.runtime.status(), before_status)
+                self.assertEqual(self.runtime.evidence.records(), before_records)
+
+        self._write_jsonl(
+            process,
+            {
+                "schema": "agentic-evo.surface-stdio.v1",
+                "id": "status-after-forged-evidence-field",
+                "op": "status",
+                "args": {},
+            },
+        )
+        self._assert_surface_response(
+            self._read_jsonl(process),
+            request_id="status-after-forged-evidence-field",
+            ok=True,
+        )
+        self.assertIsNone(process.poll())
+
     def test_surface_stdio_invalid_line_returns_invalid_input_without_mutation(self) -> None:
         service = self._spawn_service()
         self._wait_until_ready(service)
