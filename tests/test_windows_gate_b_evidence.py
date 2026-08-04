@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -679,6 +680,135 @@ class WindowsGateBEvidenceTests(unittest.TestCase):
             timeout=15,
             check=False,
         )
+
+    def test_cli_verifies_historical_v1_synthetic_corpus_in_process(self) -> None:
+        from agentic_evo import cli
+
+        with tempfile.TemporaryDirectory() as temporary:
+            historical = next(
+                member
+                for member in self._load_evidence_corpus()["members"]
+                if member["label"] == "historical_v1_synthetic"
+            )
+            fixture = self._materialize_historical_v1_synthetic(
+                historical,
+                Path(temporary),
+            )
+            artifact = Path(fixture["bundle"]) / ARTIFACT_NAME
+            original_run = subprocess.run
+
+            def synthetic_artifact_runner(command: object, **kwargs: object) -> object:
+                if isinstance(command, list) and command[:2] == [str(artifact), "console-probe"]:
+                    return subprocess.CompletedProcess(command, 1063, "", "")
+                return original_run(command, **kwargs)
+
+            output = io.StringIO()
+            with (
+                mock.patch(
+                    "agentic_evo.windows_gate_b_evidence.subprocess.run",
+                    side_effect=synthetic_artifact_runner,
+                ),
+                mock.patch("sys.stdout", output),
+            ):
+                exit_code = cli.main(
+                    [
+                        "verify-windows-gate-b-evidence",
+                        "--bundle-dir", str(fixture["bundle"]),
+                        "--evidence-dir", str(fixture["evidence"]),
+                        "--gate-b-script", str(GATE_B_SCRIPT),
+                        "--expected-manifest-sha256", str(fixture["manifest_sha256"]),
+                        "--expected-script-sha256", str(fixture["script_sha256"]),
+                        "--expected-result-sha256", str(fixture["result_sha256"]),
+                        "--lab-id", str(fixture["lab_id"]),
+                        "--expected-run-id", str(fixture["run_id"]),
+                        "--expected-challenge", str(fixture["challenge"]),
+                    ]
+                )
+
+            payload = json.loads(output.getvalue())
+            result = payload["result"]
+            self.assertEqual(exit_code, 0)
+            self.assertTrue(payload["ok"])
+            self.assertEqual(result["status"], "passed")
+            self.assertEqual(result["scope"], "bounded_evidence_and_current_zero_residue")
+            self.assertEqual(result["historical_configuration"]["status"], "inconclusive")
+            self.assertEqual(result["claims"]["gate_b_outcome"], "not_established")
+            for case_id, case in result["case_matrix"].items():
+                self.assertEqual(
+                    case["status"],
+                    "inconclusive" if case_id == "U01" else "not_run",
+                )
+
+    def test_cli_exercises_v2_synthetic_corpus_verify_and_attacks(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            v2 = next(
+                member
+                for member in self._load_evidence_corpus()["members"]
+                if member["label"] == "v2_synthetic"
+            )
+            fixture = self._materialize_evidence_corpus_member(v2, Path(temporary))
+
+            verification = self._run_gate_b_cli(
+                "verify-windows-gate-b-evidence",
+                fixture,
+            )
+            attack = self._run_gate_b_cli(
+                "attack-windows-gate-b-evidence",
+                fixture,
+            )
+
+            self.assertEqual(verification.returncode, 0, verification.stderr)
+            verified_payload = json.loads(verification.stdout)
+            self.assertTrue(verified_payload["ok"])
+            verified = verified_payload["result"]
+            self.assertEqual(verified["status"], "passed")
+            self.assertEqual(verified["historical_configuration"]["status"], "inconclusive")
+            self.assertEqual(verified["claims"]["gate_b_outcome"], "not_established")
+
+            self.assertEqual(attack.returncode, 0, attack.stderr)
+            attack_payload = json.loads(attack.stdout)
+            self.assertTrue(attack_payload["ok"])
+            attacked = attack_payload["result"]
+            self.assertEqual(attacked["status"], "passed")
+            self.assertEqual(set(attacked["cases"]), set(EXPECTED_ATTACK_FAILURE_CODES))
+            for case_id, expected_code in EXPECTED_ATTACK_FAILURE_CODES.items():
+                case = attacked["cases"][case_id]
+                self.assertEqual(case["status"], "passed")
+                self.assertEqual(case["expected_failure_code"], expected_code)
+                self.assertIn(expected_code, case["observed_failure_codes"])
+            self.assertEqual(
+                attacked["cases"]["A07_cleanup_root_swap"]["role"],
+                "cleanup_defender",
+            )
+            self.assertEqual(
+                attacked["cases"]["A07_cleanup_root_swap"]["trust_boundary"],
+                "same_principal_harness",
+            )
+
+    def test_cli_rejects_v2_corpus_bundle_with_undeclared_entry(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            v2 = next(
+                member
+                for member in self._load_evidence_corpus()["members"]
+                if member["label"] == "v2_synthetic"
+            )
+            fixture = self._materialize_evidence_corpus_member(v2, Path(temporary))
+            (Path(fixture["bundle"]) / "extra.txt").write_text("extra", encoding="utf-8")
+
+            completed = self._run_gate_b_cli(
+                "verify-windows-gate-b-evidence",
+                fixture,
+            )
+
+            self.assertEqual(completed.returncode, 7, completed.stderr)
+            payload = json.loads(completed.stderr)
+            self.assertFalse(payload["ok"])
+            result = payload["result"]
+            self.assertEqual(result["status"], "failed")
+            self.assertIn(
+                "undeclared_bundle_entry",
+                {failure["code"] for failure in result["failures"]},
+            )
 
     def test_verifier_recomputes_bounded_evidence_without_writes_or_overclaim(
         self,
