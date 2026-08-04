@@ -274,14 +274,22 @@ class WitnessServiceTests(unittest.TestCase):
         self.assertEqual(record.parent_ref, "")
         self.assertEqual(record.coverage_gap, "")
 
-        null_receipt = client.observe(
-            event_kind="tool_result",
-            payload={"outcome": "null"},
-            occurred_at=None,
-            execution_surface="codex",
-            correlation_ref=None,
-            causation_ref=None,
-            parent_ref=None,
+        null_receipt = client._request(
+            "observe",
+            {
+                "event_kind": "tool_result",
+                "payload": {"outcome": "null"},
+                "execution_surface": "codex",
+                "session_id": None,
+                "turn_id": None,
+                "tool_call_id": None,
+                "project_environment": None,
+                "coverage_gap": None,
+                "occurred_at": None,
+                "correlation_ref": None,
+                "causation_ref": None,
+                "parent_ref": None,
+            },
         )
         null_record = self.runtime.evidence.records()[null_receipt["sequence"] - 1]
         self.assertIsInstance(null_record.occurred_at, str)

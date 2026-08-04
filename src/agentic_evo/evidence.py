@@ -164,7 +164,7 @@ class EvidenceLedger:
                 "instrument_version": self.instrument_version,
                 "protocol_version": self.protocol_version,
                 "event_kind": event_kind,
-                "occurred_at": occurred_at or utc_now(),
+                "occurred_at": utc_now() if occurred_at is None else occurred_at,
                 "observed_at": utc_now(),
                 "root_commitment": root_commitment,
                 "head_before": head_before,

@@ -94,6 +94,10 @@ class WitnessService:
                     "turn_id",
                     "tool_call_id",
                     "project_environment",
+                    "occurred_at",
+                    "correlation_ref",
+                    "causation_ref",
+                    "parent_ref",
                     "coverage_gap",
                 }
             ),

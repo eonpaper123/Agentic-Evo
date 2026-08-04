@@ -217,6 +217,10 @@ def _surface_stdio_request(
             "turn_id",
             "tool_call_id",
             "project_environment",
+            "occurred_at",
+            "correlation_ref",
+            "causation_ref",
+            "parent_ref",
             "coverage_gap",
         },
         "sleep": set(),
@@ -249,6 +253,18 @@ def _surface_stdio_request(
                 raise _SurfaceStdioInputError(
                     "payload exceeds the stdio payload byte bound"
                 )
+            occurred_at = _surface_stdio_text(
+                args.get("occurred_at"), "occurred_at", optional=True
+            )
+            correlation_ref = _surface_stdio_text(
+                args.get("correlation_ref"), "correlation_ref", optional=True
+            )
+            causation_ref = _surface_stdio_text(
+                args.get("causation_ref"), "causation_ref", optional=True
+            )
+            parent_ref = _surface_stdio_text(
+                args.get("parent_ref"), "parent_ref", optional=True
+            )
             params = {
                 "event_kind": event_kind,
                 "payload": payload,
@@ -271,6 +287,14 @@ def _surface_stdio_request(
                     args.get("coverage_gap"), "coverage_gap", optional=True
                 ),
             }
+            if occurred_at is not None:
+                params["occurred_at"] = occurred_at
+            if correlation_ref is not None:
+                params["correlation_ref"] = correlation_ref
+            if causation_ref is not None:
+                params["causation_ref"] = causation_ref
+            if parent_ref is not None:
+                params["parent_ref"] = parent_ref
         elif operation == "sleep":
             params = {
                 "execution_surface": execution_surface,

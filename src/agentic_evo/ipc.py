@@ -297,25 +297,38 @@ class SurfaceClient:
         *,
         event_kind: str,
         payload: Mapping[str, Any],
+        occurred_at: str | None = None,
         execution_surface: str | None = None,
         session_id: str | None = None,
         turn_id: str | None = None,
         tool_call_id: str | None = None,
         project_environment: str | None = None,
+        correlation_ref: str | None = None,
+        causation_ref: str | None = None,
+        parent_ref: str | None = None,
         coverage_gap: str | None = None,
     ) -> dict[str, Any]:
+        params = {
+            "event_kind": event_kind,
+            "payload": dict(payload),
+            "execution_surface": execution_surface,
+            "session_id": session_id,
+            "turn_id": turn_id,
+            "tool_call_id": tool_call_id,
+            "project_environment": project_environment,
+            "coverage_gap": coverage_gap,
+        }
+        if occurred_at is not None:
+            params["occurred_at"] = occurred_at
+        if correlation_ref is not None:
+            params["correlation_ref"] = correlation_ref
+        if causation_ref is not None:
+            params["causation_ref"] = causation_ref
+        if parent_ref is not None:
+            params["parent_ref"] = parent_ref
         return self._request(
             "observe",
-            {
-                "event_kind": event_kind,
-                "payload": dict(payload),
-                "execution_surface": execution_surface,
-                "session_id": session_id,
-                "turn_id": turn_id,
-                "tool_call_id": tool_call_id,
-                "project_environment": project_environment,
-                "coverage_gap": coverage_gap,
-            },
+            params,
         )
 
     def _request(
