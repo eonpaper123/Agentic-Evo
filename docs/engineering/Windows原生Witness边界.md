@@ -1,7 +1,7 @@
 # Windows 原生 Witness 边界
 
 更新时间：2026-07-30  
-状态：四项 foreground 局部原生证据、内部 supervisor-stop、SCM-only probe bundle，以及一次无启动、无重启、零持久残留的 UAC 配置探针已形成；完整 Gate A 仍缺独立 verifier、真实 attacker 与 running-service stop→delete→cleanup，完整 Gate B、运行中 SCM principal、service-owned protected state、distinct Body principal、HostPresence 与持久安装均未形成
+状态：四项 foreground 局部原生证据、内部 supervisor-stop、SCM-only probe bundle，以及一次无启动、无重启、零持久残留的 UAC 配置探针已形成；有界无 UAC 的独立 verifier + real-attacker harness 与冻结 v1/v2 corpus/CLI regression 已完成；Gate B 原生安全 / 特权 service 证明尚未建立，`native_security_verified=false`、`ready_to_install=false`
 对应实现：`src/agentic_evo/windows_native.py`、`src/agentic_evo/body_process.py`、`src/agentic_evo/windows_pipe.py`、`src/agentic_evo/ipc.py`、`src/agentic_evo/service.py`、`src/agentic_evo/windows_gate_a.py`、`src/agentic_evo/native/AgenticEvo.ScmProbe.cs`、`tools/windows-gate-b-experiment.ps1`、`tests/test_windows_gate_b.py`
 
 ---
@@ -458,13 +458,7 @@ GateAReady=false
 }
 \]
 
-原因不是形式上的“还少几个文件”。独立审查曾发现，早期 stub 只按 receipt 是否存在返回固定结果，属于伪 verifier/attacker；它已被删除，`passed/ready` 过度声明也已降级为 `partial/scm_probe_bundle_ready`。后续配置探针已经实机执行 config-object exact-target cleanup 与宿主批准摘要的 trusted elevated handoff，但没有运行 service、读取 token 或执行攻击矩阵；因此 \(C\) 只形成 config-only 子证据，U01 仍是 partial。完整 Gate A 仍明确缺少：
-
-```text
-independent_verifier
-+ real_attacker
-+ running_service_stop_delete_cleanup
-```
+原因不是形式上的“还少几个文件”。独立审查曾发现，早期 stub 只按 receipt 是否存在返回固定结果，属于伪 verifier/attacker；它已被删除。现有有界无 UAC 的独立 verifier + real-attacker harness 已完成，并以冻结 v1/v2 corpus/CLI regression 固化。后续配置探针已经实机执行 config-object exact-target cleanup 与宿主批准摘要的 trusted elevated handoff，但没有运行 service、读取 token 或执行攻击矩阵；因此 \(C\) 只形成 config-only 子证据，U01 仍是 partial，Gate B 原生安全 / 特权 service 证明仍未建立。
 
 2026-07-30 本机保存于 ignored `artifacts/windows-gate-a/` 的可重建 probe 证据为：
 
