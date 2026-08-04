@@ -1,7 +1,7 @@
 # Agentic-Evo 实现状态：Pre-Genesis
 
-更新时间：2026-07-30
-状态：Pre-Genesis Python 可移植层已到停止点；Windows foreground 四项局部证据、内部 supervisor stop、SCM-only probe bundle 与一次零持久残留的 UAC 配置探针已形成，但完整 Gate A/Gate B、运行中 SCM principal、service-owned protected state、distinct Body principal、HostPresence、原生安装和正式 Genesis 均未形成
+更新时间：2026-08-04
+状态：Pre-Genesis Python 可移植层已到停止点；Windows foreground 四项局部证据、内部 supervisor stop、SCM-only probe bundle、一次零持久残留的 UAC 配置探针，以及无 UAC independent verifier/real-attacker harness 已形成，但 Gate B 未建立，native security 为 false，尚未 ready-to-install，也没有真实 UAC/SCM proof、运行中 SCM principal、service-owned protected state、distinct Body principal、HostPresence、原生安装或正式 Genesis
 适用范围：当前仓库中的真实实现、已验证性质、未成立性质和 Genesis 前阻断项
 
 ---
@@ -22,6 +22,7 @@ Trusted State（身份锚 + Head + session + evidence + checkpoint）
 + CLI / Off-only control / zero-install-effect native plan
 + Windows no-UAC SCM probe bundle builder / verifier / confined local cleanup
 + Windows pinned-hash UAC configuration probe / exact privileged cleanup
++ Windows no-UAC independent verifier / real-attacker harness（lab-bound v2 receipts）
 + Codex Adapter
 ```
 
@@ -50,7 +51,7 @@ Genesis
 → exact-hash Windows SCM probe bundle（Gate A partial）
 ```
 
-但这里的“模拟 Genesis”只是自动化测试夹具，不是正式 Genesis。仓库没有写入用户级 Codex hook，没有安装原生后台服务，没有创建机器级唯一 Root，也没有开始正式纵向实验。`plan-install` 仍只输出 `ready_to_install=false` 的 canonical JSON。Windows builder 本身仍是零 UAC；单独的实验脚本只在宿主明确批准的一次运行中短暂创建 SCM/ACL 对象，service 从未启动，随后由提升端和普通权限端双重确认零残留。该结果是 `configuration_probe_completed`，不是完整 Gate A、Gate B 或安装。
+但这里的“模拟 Genesis”只是自动化测试夹具，不是正式 Genesis。仓库没有写入用户级 Codex hook，没有安装原生后台服务，没有创建机器级唯一 Root，也没有开始正式纵向实验。`plan-install` 仍只输出 `ready_to_install=false` 的 canonical JSON。Windows builder 本身仍是零 UAC；单独的实验脚本只在宿主明确批准的一次运行中短暂创建 SCM/ACL 对象，service 从未启动，随后由提升端和普通权限端双重确认零残留。该结果是 `configuration_probe_completed`，不是完整 Gate A、Gate B 或安装。无 UAC independent verifier/real-attacker harness 已存在：活跃 receipt 族为 lab-bound `plan.v2`、`config-probe.v2` 与 `result.v2`，`-LabId` 必填；冻结 v1 只作兼容读取，其 lab binding 结论为 inconclusive；A07 只证明 `same_principal_harness`。
 
 ---
 
@@ -115,7 +116,7 @@ Nira 不拥有 Root，不产生独立 Agent，也不是本工具的安装范围�
 | 前台 Witness / 子进程演练 | 固定 dev-home、cooperative-singleton service lock、Windows 原生 public named pipe / POSIX AF_UNIX、public allowlist、exact-Head package、Windows explicit inherited anonymous pipes / POSIX stdio fallback、Boot / ReadyEcho、sanitized environment | Windows public pipe 校验 peer SID；Windows child 是 restricted Low-Integrity suspended process并在 Resume 前加入 Job；Body 真实发起严格序号谱系请求，结果绑定 authoritative Witness response；只证明 foreground `subprocess_rehearsal + private_lineage_transport_rehearsal` |
 | CLI / Off 控制演练 | `serve / status / hook / off / plan-install`；独立 generic、未认证的 Off endpoint；事务内原子幂等；Body 退出后回包；receive Timer 与 response Timer 分离 | Off 控制协议仍只提供 Off，不提供 On 或谱系操作；Off 与 crash/restart 因果可区分；public pipe 的 SID 认证不扩展到 Off，也不证明 HostPresence 或真实 transport partial-frame / response-frame 取消 |
 | Windows Gate A probe 子切片 | `prepare / verify / cleanup-windows-gate-a`；系统 C# compiler 构建 SCM-only own-process probe；source/compiler/artifact 三重摘要；console 1063 负向 handshake；canonical protected-target manifest；junction/tamper fail closed | 证明 exact probe bundle 可构建、可复核并局部安全清理；不证明完整 Gate A、SCM/token/ACL、independent verifier/attacker、可信提权交接或可逆 service uninstall |
-| Windows Gate B 配置探针 | 外部固定脚本摘要的双层 bootstrap；系统 PowerShell 模块闭包；随机临时 SCM service；restricted SID 配置回读；protected artifact/state ACL；提升端 exact cleanup + 普通权限端独立零残留复核 | 证明一次配置级 trusted handoff、SCM/ACL 对象构造和清理闭环；service 未启动、未重启、token/攻击矩阵均 `not_run`，所以 `gate_b_outcome=not_established` |
+| Windows Gate B 配置探针与证据 harness | 外部固定脚本摘要的双层 bootstrap；系统 PowerShell 模块闭包；随机临时 SCM service；restricted SID 配置回读；protected artifact/state ACL；提升端 exact cleanup + 普通权限端独立零残留复核；无 UAC independent verifier/real-attacker harness | 活跃 receipt 族为 lab-bound `plan.v2 / config-probe.v2 / result.v2`，`-LabId` 必填；冻结 v1 仅兼容读取且 lab binding inconclusive；A07 仅为 `same_principal_harness`。service 未启动、未重启，token/攻击矩阵均 `not_run`，所以 Gate B 未建立 |
 | Codex adapter | `SessionStart / SessionEnd / prompt / tool / compact / subagent / stop / permission` 映射；实现路径只经 `SurfaceClient`；原文哈希化；失败隔离 | Codex 可作为端口而不成为身份；当前 adapter 没有 trusted-state 或 Off 操作，观测失败不阻断 coding-agent 主任务；同 OS 用户下的实际读取/调用能力尚未隔离 |
 | 有界公共投影 | string parameter 1024 UTF-8 bytes、Body path 512 bytes；wake body files 最多 16 项/8 KiB、activation context 24 KiB；status active sessions 最多 32 项/24 KiB；按 canonical JSON bytes 预算并返回 total/truncated | 合法大 Head、增长中的 session 集合和 escape-heavy 文本不再必然撑破 64 KiB 响应；内部事实没有被截断，只有公共投影有界 |
 | 三平台安装计划 | canonical、无时间/随机/home/env 的 Windows/macOS/Linux target contract；macOS 明确 Witness UID 与 dedicated Body UID；installation effects 全 false；Hook 映射为 planned/not installed/not integration tested | 可移植协议的原生目标可审查；代码签名不冒充权限主体；不证明任何平台已安装或通过 native security test |
@@ -191,7 +192,7 @@ Nira 不拥有 Root，不产生独立 Agent，也不是本工具的安装范围�
 - `plan-install` 跨 cwd、环境和伪 home 逐字节确定，不创建 Agent 文件或状态、不安装服务或 Hook、不启动受管 Agent 进程，也不执行 Genesis；
 - Windows、macOS、Linux 目标均保持 `native_test_status=not_run`；
 - Windows Gate A builder 在显式目录生成两个 exact 文件；probe 从普通控制台启动准确返回 1063，不退化为 foreground daemon；manifest 与 artifact 篡改、junction cleanup 和非 Windows materialization 均 fail closed；
-- 本轮先发现并删除了只按 receipt 存在返回固定 JSON 的伪 verifier/attacker，并把 `passed/ready` 降级为 `partial/scm_probe_bundle_ready`；独立审查确认完整 Gate A 仍未成立；
+- 本轮已形成无 UAC independent verifier/real-attacker harness：新 receipts 必须成套使用 lab-bound `plan.v2 / config-probe.v2 / result.v2` 且 `-LabId` 必填；冻结 v1 仅兼容读取、lab binding inconclusive；A07 仅为 `same_principal_harness`。这不建立 Gate B，也不构成真实 UAC/SCM proof；
 - 一次固定摘要 UAC 配置探针实机观察到 `create/sidtype/qsidtype/delete=0/0/0/0` 与 `SERVICE_SID_TYPE: RESTRICTED`；service 始终 `Stopped`、PID 为 0，未执行重启、token 读取或攻击案例；
 - 同一次配置探针的提升端 cleanup 与普通权限端独立 cleanup 均为 complete；事后精确 service query 为 1060、匹配临时服务为 0、Program Files/ProgramData 两棵实验树均不存在；Genesis 只记录为 `not_measured`，不冒充 0；
 - 内部 supervisor stop 不经过 public/Off operation：`request_stop()` 在 lifecycle lock 上建立 dispatch cutoff，唤醒/关闭 listener 与 active transports，拒绝 cutoff 后才尝试 admission 的请求，并等待 cutoff 前已 admission 的请求归静；service loop 随后 join workers、回收 Body/lease、释放 singleton；
@@ -380,7 +381,9 @@ Authority
 [已完成] 可构建、可复核、SCM-only negative handshake、junction-safe local cleanup 的 exact Windows probe bundle
 [已完成] 一次 externally pinned、config-only、no-start/no-reboot 的 UAC SCM/ACL 配置探针与双重零残留复核
 [已完成] 把跨 coding-agent 会话身份改为 `(execution_surface, session_id)` 复合主键，并用 public-v2 与版本化结构承诺消除覆盖、误删和哈希二义性
-→ 补齐 independent verifier / real attacker；Windows 权限实验等待新的“保留临时 service + 重启”授权
+[已完成] 无 UAC independent verifier / real-attacker harness；活跃 receipt 族为 lab-bound v2，冻结 v1 仅兼容读取且 lab binding inconclusive，A07 仅为 `same_principal_harness`
+→ 冻结可复现的 v1/v2 evidence corpus，并做 CLI/verifier regression；不执行系统操作
+→ Windows 权限实验等待新的“保留临时 service + 重启”授权
 → 用运行中 SCM service principal / service-owned protected state 形成机器生命周期边界
 → 在临时安装中攻击并复验 public / Body capability / crash / uninstall
 → 隔离 Authority、Witness、Current Body 与 probation principal
