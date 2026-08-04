@@ -4,6 +4,8 @@ param(
     [ValidateSet("Plan", "Run", "Elevated")]
     [string]$Mode,
     [Parameter(Mandatory = $true)]
+    [string]$LabId,
+    [Parameter(Mandatory = $true)]
     [string]$RunId,
     [Parameter(Mandatory = $true)]
     [string]$ArtifactPath,
@@ -76,6 +78,15 @@ $script:PowerShellExe = [IO.Path]::Combine(
     "powershell.exe"
 )
 $script:ArtifactName = "AgenticEvo.ScmProbe.exe"
+$script:RepositoryRoot = [IO.Directory]::GetParent(
+    $(if ($Mode -eq "Elevated" -and -not [string]::IsNullOrWhiteSpace(
+        $VerifiedScriptPath
+    )) {
+        [IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($VerifiedScriptPath))
+    } else {
+        $PSScriptRoot
+    })
+).FullName
 
 function Get-FileSha256([string]$Path) {
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -150,6 +161,75 @@ function Get-Plan {
     if ($RunId -notmatch "^[0-9a-f]{32}$") {
         throw "run_id_must_be_32_lower_hex"
     }
+    if ($LabId -notmatch "^[a-z0-9][a-z0-9-]*$") {
+        throw "lab_id_invalid"
+    }
+    $labDirectory = [IO.Path]::GetFullPath(
+        (Join-Path $script:RepositoryRoot "experiments\labs")
+    )
+    $labDeclarationPath = "experiments/labs/$LabId.json"
+    $labDeclarationFile = [IO.Path]::GetFullPath(
+        (Join-Path $labDirectory "$LabId.json")
+    )
+    if (
+        -not $labDeclarationFile.StartsWith(
+            $labDirectory.TrimEnd([IO.Path]::DirectorySeparatorChar) +
+            [IO.Path]::DirectorySeparatorChar,
+            [StringComparison]::OrdinalIgnoreCase
+        ) -or
+        -not [IO.File]::Exists($labDeclarationFile)
+    ) {
+        throw "lab_declaration_missing"
+    }
+    Assert-NoReparsePath $labDeclarationFile
+    try {
+        $labDeclaration = [IO.File]::ReadAllText(
+            $labDeclarationFile,
+            [Text.UTF8Encoding]::new($false, $true)
+        ) | ConvertFrom-Json
+    }
+    catch {
+        throw "lab_declaration_invalid"
+    }
+    if (
+        $labDeclaration.schema -ne "agentic-evo.lab-declaration.v1" -or
+        $labDeclaration.lab_id -ne $LabId -or
+        $labDeclaration.status -ne "active_reference_lab" -or
+        [string]::IsNullOrWhiteSpace($labDeclaration.evidence_namespace)
+    ) {
+        throw "lab_declaration_invalid"
+    }
+    $evidenceNamespace = [string]$labDeclaration.evidence_namespace
+    if (
+        [IO.Path]::IsPathRooted($evidenceNamespace) -or
+        ($evidenceNamespace -split "[\\/]+") -contains ".."
+    ) {
+        throw "lab_evidence_namespace_invalid"
+    }
+    $evidenceNamespaceRoot = [IO.Path]::GetFullPath(
+        (Join-Path $script:RepositoryRoot $evidenceNamespace)
+    )
+    if (-not $evidenceNamespaceRoot.StartsWith(
+        $script:RepositoryRoot.TrimEnd([IO.Path]::DirectorySeparatorChar) +
+        [IO.Path]::DirectorySeparatorChar,
+        [StringComparison]::OrdinalIgnoreCase
+    )) {
+        throw "lab_evidence_namespace_invalid"
+    }
+    $evidenceRoot = Join-Path $evidenceNamespaceRoot "windows-gate-b\$RunId"
+    $environment = [ordered]@{
+        os_family = "Windows"
+        os_version = [Environment]::OSVersion.Version.ToString()
+        os_architecture = $(if ([Environment]::Is64BitOperatingSystem) {
+            "x64"
+        } else {
+            "x86"
+        })
+        powershell_edition = [string]$PSVersionTable.PSEdition
+        powershell_version = $PSVersionTable.PSVersion.ToString()
+        trusted_system_directory = $script:SystemDirectory
+    }
+    $environmentSha256 = Get-TextSha256 (ConvertTo-CompactJson $environment)
     $digest = $ExpectedArtifactSha256.ToLowerInvariant()
     if ($digest -notmatch "^[0-9a-f]{64}$") {
         throw "expected_artifact_sha256_must_be_64_lower_hex"
@@ -194,8 +274,9 @@ function Get-Plan {
     }
 
     return [ordered]@{
-        schema = "agentic-evo.windows-gate-b-plan.v1"
+        schema = "agentic-evo.windows-gate-b-plan.v2"
         mode = "plan"
+        lab_id = $LabId
         run_id = $RunId
         service_name = $serviceName
         source_artifact = $source
@@ -206,8 +287,13 @@ function Get-Plan {
         state_product_base = $stateProductBase
         state_root = $stateRoot
         probe_path = Join-Path $stateRoot "scm-write.probe"
-        evidence_root = [IO.Path]::GetFullPath($EvidenceRoot)
+        evidence_root = $evidenceRoot
         trusted_system_directory = $script:SystemDirectory
+        lab_declaration_path = $labDeclarationPath
+        lab_declaration_sha256 = Get-FileSha256 $labDeclarationFile
+        evidence_namespace = $evidenceNamespace
+        environment = $environment
+        environment_sha256 = $environmentSha256
         authorized_effects = [ordered]@{
             temporary_service = $true
             permanent_service = $false
@@ -763,6 +849,11 @@ function Invoke-Elevated($Plan, [string]$PlanJson) {
         [string]::IsNullOrWhiteSpace($VerifiedScriptPath) -or
         $PlanSha256 -notmatch "^[0-9a-f]{64}$" -or
         (Get-TextSha256 $PlanJson) -ne $PlanSha256 -or
+        $Plan.schema -ne "agentic-evo.windows-gate-b-plan.v2" -or
+        $Plan.lab_id -ne $LabId -or
+        $Plan.environment_sha256 -ne (
+            Get-TextSha256 (ConvertTo-CompactJson $Plan.environment)
+        ) -or
         $Challenge -notmatch "^[0-9a-f]{32}$" -or
         $PipeName -ne "AgenticEvoGateB-$($Plan.run_id)-$Challenge"
     ) {
@@ -935,11 +1026,13 @@ function Invoke-Elevated($Plan, [string]$PlanJson) {
             $imagePath `
             $created
         $report = [ordered]@{
-            schema = "agentic-evo.windows-gate-b-config-probe.v1"
+            schema = "agentic-evo.windows-gate-b-config-probe.v2"
+            lab_id = $Plan.lab_id
             run_id = $Plan.run_id
             challenge = $Challenge
             plan_sha256 = $PlanSha256
             script_sha256 = $ExpectedScriptSha256
+            environment_sha256 = $Plan.environment_sha256
             status = $(if ($errorMessage) {
                 "failed"
             } else {
@@ -1035,6 +1128,7 @@ if (`$actual -ne "$ScriptSha") {
 & ([ScriptBlock]::Create(`$source)) ``
     -Mode Elevated ``
     -RunId "$($Plan.run_id)" ``
+    -LabId "$($Plan.lab_id)" ``
     -ArtifactPath (Decode("$artifact64")) ``
     -ExpectedArtifactSha256 "$($Plan.artifact_sha256)" ``
     -EvidenceRoot (Decode("$evidence64")) ``
@@ -1116,8 +1210,12 @@ function Invoke-Controller($Plan, [string]$PlanJson) {
             $exception = $exception.InnerException
         }
         $failedElevation = [ordered]@{
-            schema = "agentic-evo.windows-gate-b-result.v1"
+            schema = "agentic-evo.windows-gate-b-result.v2"
+            lab_id = $Plan.lab_id
             run_id = $Plan.run_id
+            challenge = $challengeValue
+            plan_sha256 = $planDigest
+            environment_sha256 = $Plan.environment_sha256
             status = $(if ($wasCancelled) {
                 "elevation_cancelled"
             } else {
@@ -1170,10 +1268,12 @@ function Invoke-Controller($Plan, [string]$PlanJson) {
         throw "elevated_cleanup_deadline_exceeded"
     }
     if (
+        $report.lab_id -ne $Plan.lab_id -or
         $report.run_id -ne $Plan.run_id -or
         $report.challenge -ne $challengeValue -or
         $report.plan_sha256 -ne $planDigest -or
-        $report.script_sha256 -ne $scriptSha
+        $report.script_sha256 -ne $scriptSha -or
+        $report.environment_sha256 -ne $Plan.environment_sha256
     ) {
         throw "elevated_report_binding_mismatch"
     }
@@ -1188,8 +1288,12 @@ function Invoke-Controller($Plan, [string]$PlanJson) {
         state_tree_absent = $stateAbsent
     }
     $result = [ordered]@{
-        schema = "agentic-evo.windows-gate-b-result.v1"
+        schema = "agentic-evo.windows-gate-b-result.v2"
+        lab_id = $Plan.lab_id
         run_id = $Plan.run_id
+        challenge = $challengeValue
+        plan_sha256 = $planDigest
+        environment_sha256 = $Plan.environment_sha256
         status = $(
             if (
                 $report.status -eq "configuration_probe_completed" -and
@@ -1208,6 +1312,9 @@ function Invoke-Controller($Plan, [string]$PlanJson) {
         elevated_pipe_client_pid = $pipeClientPid
         report = $report
         independent_cleanup = $independentCleanup
+    }
+    if ($result.challenge -ne $report.challenge) {
+        throw "result_challenge_binding_mismatch"
     }
     Write-AtomicJson (Join-Path $Plan.evidence_root "result.json") $result
     Write-Output (ConvertTo-CompactJson $result)
