@@ -51,7 +51,7 @@ Genesis
 → exact-hash Windows SCM probe bundle（Gate A partial）
 ```
 
-但这里的“模拟 Genesis”只是自动化测试夹具，不是正式 Genesis。仓库没有写入用户级 Codex hook，没有安装原生后台服务，没有创建机器级唯一 Root，也没有开始正式纵向实验。`plan-install` 仍只输出 `ready_to_install=false` 的 canonical JSON。Windows builder 本身仍是零 UAC；单独的实验脚本只在宿主明确批准的一次运行中短暂创建 SCM/ACL 对象，service 从未启动，随后由提升端和普通权限端双重确认零残留。该结果是 `configuration_probe_completed`，不是完整 Gate A、Gate B 或安装。无 UAC independent verifier/real-attacker harness 已存在：活跃 receipt 族为 lab-bound `plan.v2`、`config-probe.v2` 与 `result.v2`，`-LabId` 必填；冻结 v1 只作兼容读取，其 lab binding 结论为 inconclusive；A07 只证明 `same_principal_harness`。
+但这里的“模拟 Genesis”只是自动化测试夹具，不是正式 Genesis。仓库没有写入用户级 Codex hook，没有安装原生后台服务，没有创建机器级唯一 Root，也没有开始正式纵向实验。`plan-install` 仍只输出 `ready_to_install=false` 的 canonical JSON。Windows builder 本身仍是零 UAC；单独的实验脚本只在宿主明确批准的一次运行中短暂创建 SCM/ACL 对象，service 从未启动，随后由提升端和普通权限端双重确认零残留。该结果是 `configuration_probe_completed`，不是完整 Gate A、Gate B 或安装。无 UAC independent verifier/real-attacker harness 已存在：活跃 receipt 族为 lab-bound `plan.v2`、`config-probe.v2` 与 `result.v2`，`-LabId` 必填；冻结 v1 只作兼容读取，其 lab binding 结论为 inconclusive；A07 只证明 `same_principal_harness`。`agentic-evo.windows-gate-b-retained-preflight.v1` 已实现为 deterministic、plan-only、lab-bound 的预注册工件，只为一个跨恰好一次重启的保留临时 SCM service 固定边界；它不创建 service、不触发 UAC/reboot、不发出 evidence receipt/file、不运行 verifier/attacker/cleanup，也不提出 Gate B 结论，且不是 `plan.v2`、`config-probe.v2` 或 `result.v2` evidence。实际 retained service/restart/token/state/capability/recovery/uninstall 实验仍须重新取得精确用户授权；不得 Genesis 或永久安装。
 
 ---
 
@@ -197,7 +197,7 @@ Nira 不拥有 Root，不产生独立 Agent，也不是本工具的安装范围�
 - 同一次配置探针的提升端 cleanup 与普通权限端独立 cleanup 均为 complete；事后精确 service query 为 1060、匹配临时服务为 0、Program Files/ProgramData 两棵实验树均不存在；Genesis 只记录为 `not_measured`，不冒充 0；
 - 内部 supervisor stop 不经过 public/Off operation：`request_stop()` 在 lifecycle lock 上建立 dispatch cutoff，唤醒/关闭 listener 与 active transports，拒绝 cutoff 后才尝试 admission 的请求，并等待 cutoff 前已 admission 的请求归静；service loop 随后 join workers、回收 Body/lease、释放 singleton；
 - 屏障测试证明 cutoff 前已 admission 的变更可以恰好提交一次且 stop 必须等待；stop 路径自身的可信状态增量为空；每条 transport 的 raw close 由 stop、worker 与 deadline timer 共享的单一 owner 串行化；
-- Windows 全仓 151/151 项测试在 `ResourceWarning` 作为错误时通过；WSL Ubuntu-24.04 发现同样 151 项，其中 126 项通过、25 项 Windows-only contract 明确 skipped；macOS 尚未实机运行。
+- Windows 全仓 189/189 项 unittest 通过，其中 Windows Gate B 相关 43 项通过。
 
 这些结果证明的是代码契约，不是长期学习、自我进化或独立科研证据已经成立。
 
