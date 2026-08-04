@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Final
+from types import MappingProxyType
+from typing import Final, Mapping
 
 
 NATIVE_BACKEND_FIELDS: Final[tuple[str, ...]] = (
@@ -15,7 +16,7 @@ NATIVE_BACKEND_FIELDS: Final[tuple[str, ...]] = (
     "native_test_status",
 )
 
-DARWIN_BACKEND: Final[dict[str, str]] = {
+DARWIN_BACKEND: Final[Mapping[str, str]] = MappingProxyType({
     "service_scope": "machine",
     "supervisor": "launchd_launchdaemon",
     "witness_principal": "dedicated_non_login_uid",
@@ -25,9 +26,9 @@ DARWIN_BACKEND: Final[dict[str, str]] = {
     "private_lineage": "private_xpc_audit_token_body_uid_and_code_requirement",
     "worker_fencing": "launchd_managed_body_job_required",
     "native_test_status": "not_run",
-}
+})
 
-LINUX_BACKEND: Final[dict[str, str]] = {
+LINUX_BACKEND: Final[Mapping[str, str]] = MappingProxyType({
     "service_scope": "machine",
     "supervisor": "systemd_system_service",
     "witness_principal": "dedicated_witness_system_uid",
@@ -37,4 +38,4 @@ LINUX_BACKEND: Final[dict[str, str]] = {
     "private_lineage": "private_pathname_af_unix_so_peercred_body_uid",
     "worker_fencing": "systemd_managed_body_cgroup_required",
     "native_test_status": "not_run",
-}
+})
