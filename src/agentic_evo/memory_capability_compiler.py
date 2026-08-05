@@ -349,7 +349,7 @@ def _extract_procedure(record: Mapping[str, Any]) -> list[str] | None:
     provenance = g.get("provenance")
     if isinstance(provenance, str):
         steps = [ln.strip() for ln in provenance.splitlines() if ln.strip()]
-        if len(steps) >= 2:
+        if steps:
             return steps
     if isinstance(expected, dict) and expected.get("description"):
         return [str(expected["description"])]

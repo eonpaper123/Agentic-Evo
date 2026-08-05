@@ -813,6 +813,42 @@ def _memory_capability_list(arguments: argparse.Namespace) -> int:
     return 0
 
 
+def _memory_experience_ingest(arguments: argparse.Namespace) -> int:
+    """Ground a Body CAMU memory in a real session's TrustedState evidence."""
+    try:
+        from .trusted import TrustedState
+        from .experience_memory_ingest import ingest_session
+
+        home = Path(arguments.dev_home)
+        trusted = TrustedState.load(home / "trusted")
+        records = trusted.records()
+        store_path = (
+            Path(arguments.store)
+            if arguments.store
+            else home / "memory" / "camus.jsonl"
+        )
+        if store_path.exists():
+            store = MemoryStore(store_path)
+        else:
+            store = MemoryStore.create(store_path)
+        camu_id = ingest_session(
+            store,
+            records,
+            task_class=arguments.task_class,
+            task_prompt=arguments.task_prompt,
+            session_id=arguments.session,
+            outcome_matched=not arguments.no_outcome,
+        )
+    except MemoryIntegrityError as exc:
+        return _memory_integrity_error(exc)
+    except (OSError, ValueError) as exc:
+        return _memory_error(exc)
+    _write_json(
+        {"ok": True, "result": {"camu_id": camu_id, "store": str(store_path)}}
+    )
+    return 0
+
+
 
 def _genesis_arguments(command: argparse.ArgumentParser) -> None:
     """Add the complete, externally confirmed Genesis parameter contract."""
@@ -1180,6 +1216,41 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         help="Capability registry JSONL path; default capabilities/capabilities.jsonl.",
     )
+    memory_exp_ingest = commands.add_parser(
+        "memory-experience-ingest",
+        help="Ground a Body CAMU memory in a real session's TrustedState evidence.",
+    )
+    memory_exp_ingest.add_argument(
+        "--dev-home",
+        type=Path,
+        required=True,
+        help="Born home whose trusted/ holds the evidence records.",
+    )
+    memory_exp_ingest.add_argument(
+        "--session",
+        required=True,
+        help="Session id whose evidence records ground the CAMU memory.",
+    )
+    memory_exp_ingest.add_argument(
+        "--task-class",
+        required=True,
+        help="Body-authored problem class for the activation predicate.",
+    )
+    memory_exp_ingest.add_argument(
+        "--task-prompt",
+        required=True,
+        help="Body-authored task prompt used as CAMU provenance.",
+    )
+    memory_exp_ingest.add_argument(
+        "--store",
+        type=Path,
+        help="CAMU store JSONL path; default <dev-home>/memory/camus.jsonl.",
+    )
+    memory_exp_ingest.add_argument(
+        "--no-outcome",
+        action="store_true",
+        help="Record the CAMU without verifying the outcome (status stays pending).",
+    )
     return parser
 
 
@@ -1246,6 +1317,8 @@ def main(argv: list[str] | None = None) -> int:
         return _memory_capability_compile(arguments)
     if arguments.command == "memory-capability-list":
         return _memory_capability_list(arguments)
+    if arguments.command == "memory-experience-ingest":
+        return _memory_experience_ingest(arguments)
     if arguments.command == "memory-camu-show":
         return _memory_camu_show(arguments)
     if arguments.command == "memory-camu-outcome":
