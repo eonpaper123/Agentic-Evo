@@ -1,0 +1,44 @@
+{
+  "schema": "agentic-evo.experiment-prereg.v1",
+  "protocol_ref": "experiments/001_机器级连续生命循环.md",
+  "instrument_version": "agentic-evo-cli-genesis-v1",
+  "protocol_version": "agentic-evo-trusted-v2",
+  "root_commitment": "c78860b7a6dc65c6af61f69a6e54f4b5c86f9b8b5d612019a7159c95daabe497",
+  "head_start": "1628ca500af68509084609a47a692efdad903c47fa612e1fdd070f8e796a5884",
+  "execution_surface": "opencode",
+  "project_environment": "D:\\rawle\\Coding\\Agentic-Evo",
+  "hypothesis_refs": [
+    "H001-A",
+    "H001-B",
+    "H001-C",
+    "H001-D",
+    "H001-E",
+    "H001-F"
+  ],
+  "control_refs": [
+    "C1",
+    "C2",
+    "C3",
+    "C4",
+    "C5",
+    "C6",
+    "C7",
+    "C8"
+  ],
+  "start_anchor": {
+    "sequence": 1,
+    "integrity_hash": "9c74390ca2f25bf65fd0538a7fb55230e4c1eb219b8fd01bce203346ef9403b9"
+  },
+  "claim_ceiling": {
+    "artifact_integrity": "established",
+    "committed_head_lineage": "established",
+    "declared_metadata_truth": "not_established",
+    "causal_attribution": "not_established",
+    "future_capability_gain": "not_established",
+    "memory_formation": "not_established",
+    "autonomous_learning": "not_established",
+    "self_evolution": "not_established",
+    "second_real_coding_agent_natural_usage": "not_established",
+    "zero_human_learning_intervention": "not_established"
+  }
+}
