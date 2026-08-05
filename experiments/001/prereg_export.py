@@ -121,8 +121,9 @@ def main() -> int:
     # The module's own prereg validation (raises IntegrityError on failure).
     _validate_prereg(final)
 
-    # Probe the pack exporter against this prereg/home (read-only; expected to
-    # be blocked because status.root is a non-hex born string).
+    # Probe the pack exporter against this prereg/home (read-only).  Since
+    # Slice I the module canonicalizes the born (non-hex) root and accepts the
+    # born+adopted lineage, so this probe must be accepted (exit 0).
     pack_probe = "not_run"
     try:
         export_experiment_pack(runtime, final, end_sequence=2)

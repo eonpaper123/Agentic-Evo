@@ -112,7 +112,7 @@ Worktree：`D:\rawle\Coding\Agentic-Evo\.lingtai\agentic-evo-total\work\dev-inte
 
 - `experiments/001/prereg_export.py`（repo runtime python `C:\Users\1\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe` 3.12.13，PYTHONPATH=src）exit **0**：home 核对 7/7 true → 基线导出 → 固定值应用 → `_validate_prereg`（内存）通过 → 工件写盘（SHA-256 `5ebc3245bb50b739ae2410625f6e991c1ec739f135b46cb875edb77bd8319511`，1389 bytes）→ `_validate_prereg`（磁盘回读）通过（`artifact_reload_validation: valid`）。
 - `verify_experiment_artifact` 仅接受 `experiment-pack.v1` schema，对 prereg 工件不适用（prereg 层校验即 `_validate_prereg`；pack 层校验在运行期结束后执行）。
-- 实测探针：`export_experiment_pack(runtime, prereg, end_sequence=2)` 被 `invalid_prereg` 拒绝（见 §7 第 2 条）——如实记录，不视为结果。
+- 实测探针：Slice I 前 xport_experiment_pack(runtime, prereg, end_sequence=2) 被 invalid_prereg 拒绝（见 §7 第 2 条）；Slice I 后 ccepted 且 erify_experiment_artifact → alid: true（见 xperiment_pack_born_home_report.md）。
 
 ## 6. 声明上限（claim ceilings）
 
@@ -136,7 +136,7 @@ Worktree：`D:\rawle\Coding\Agentic-Evo\.lingtai\agentic-evo-total\work\dev-inte
 ## 7. 实际运行纵向实验的下一步
 
 1. **正式生命史**：在真实 home 上以 `opencode` 表面唤醒同一 Root/Head 的 Body（`wake`），跨会话/跨项目/跨表面执行真实任务，`observe` 产生 seq ≥ 3 的 evidence window；不复制提示词、不告知 Agent 该记住什么（协议 §8–§10、Run A/B/C）。
-2. **先解决 pack 导出耦合**（本次预注册已实测的硬阻塞）：当前 `export_experiment_pack` 要求 `status.root` 为 64-hex 且等于 `prereg.root_commitment`，而本 home 的 root 是字符串 `agentic-evo-root-v1`，因此任一 prereg 的 pack 导出都会被 `invalid_prereg` 拒绝；同时起点锚定在 genesis（head_after `ee79ae49…`）与 `head_start`（`1628ca50…`）不一致也需模块层适配（或对 pack 另作 tail 锚定）。这些属模块变更，超出本任务范围，需在运行前由独立 slice 处理。
+2. **pack 导出耦合（已由 Slice I 解除，2026-08-05）**：`experiment_pack.py` 现统一规范化 `root_commitment`（非 hex 出生 root 取 `sha256_hex(root)`），prereg/evidence/manifest 的 root 比较一致；pack 与锚点校验接受 born+adopted 谱系（`start_anchor` = genesis 证据、`head_start` 为被采纳的 Body head、genesis `head_after` ≠ 当前 head 合法）。实测：`export_experiment_pack` → `accepted`，`verify_experiment_artifact` → `valid: true`（详见 `experiment_pack_born_home_report.md`）。
 3. **对照控制**：按协议 C1–C8 冻结 Body、历史消融、Root/Head 错配、模型与资源匹配、仪器升级、Human Learning Intervention、Off 后无活体计算。
 4. **包导出与验证**：window 结束（seq N）后 `export_experiment_pack(runtime, prereg, end_sequence=N)` → `verify_experiment_artifact`，验证 evidence window 连续性、`authority_end`、body manifest 链；产物与 prereg 一起构成可复现最小实验包。
 5. **结论纪律**：只允许声明 §6 中 `established` 两项（内部一致性）；所有学习/进化主张必须来自后续实验（依赖链：连续身份 → 历史可达 → 记忆产生未来因果差异 → 普通能力学习 → 自主体改造 → 自主实验学习 → 现实选择与谱系延续 → 能力积累与跨端口迁移 → 元进化）。
