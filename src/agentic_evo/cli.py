@@ -849,6 +849,27 @@ def _memory_experience_ingest(arguments: argparse.Namespace) -> int:
     return 0
 
 
+def _memory_capability_apply(arguments: argparse.Namespace) -> int:
+    """Resolve a matching capability card into an actionable plan."""
+    try:
+        from .memory_capability_compiler import resolve_plan
+
+        context = json.loads(arguments.context)
+    except json.JSONDecodeError as exc:
+        return _memory_error(ValueError(f"--context must be JSON: {exc}"))
+    registry_path = arguments.registry or DEFAULT_CAPABILITY_REGISTRY
+    try:
+        registry = CapabilityRegistry(registry_path)
+        registry.verify_chain()
+        resolved = resolve_plan(registry, context)
+    except MemoryIntegrityError as exc:
+        return _memory_integrity_error(exc)
+    except (OSError, ValueError) as exc:
+        return _memory_error(exc)
+    _write_json({"ok": True, "result": resolved})
+    return 0
+
+
 
 def _genesis_arguments(command: argparse.ArgumentParser) -> None:
     """Add the complete, externally confirmed Genesis parameter contract."""
@@ -1251,6 +1272,20 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Record the CAMU without verifying the outcome (status stays pending).",
     )
+    memory_cap_apply = commands.add_parser(
+        "memory-capability-apply",
+        help="Resolve a matching capability card into an actionable plan.",
+    )
+    memory_cap_apply.add_argument(
+        "--registry",
+        type=Path,
+        help="Capability registry JSONL path; default capabilities/capabilities.jsonl.",
+    )
+    memory_cap_apply.add_argument(
+        "--context",
+        required=True,
+        help="JSON task context matched against each card trigger.",
+    )
     return parser
 
 
@@ -1319,6 +1354,8 @@ def main(argv: list[str] | None = None) -> int:
         return _memory_capability_list(arguments)
     if arguments.command == "memory-experience-ingest":
         return _memory_experience_ingest(arguments)
+    if arguments.command == "memory-capability-apply":
+        return _memory_capability_apply(arguments)
     if arguments.command == "memory-camu-show":
         return _memory_camu_show(arguments)
     if arguments.command == "memory-camu-outcome":

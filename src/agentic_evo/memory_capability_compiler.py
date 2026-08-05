@@ -458,6 +458,29 @@ def matches_trigger(card: Mapping[str, Any], task_context: Mapping[str, Any]) ->
     )
 
 
+def resolve_plan(
+    registry: CapabilityRegistry,
+    task_context: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Resolve the first matching capability card into an actionable plan.
+
+    Returns ``{"used_capability": bool, "card_id": str|None,
+    "plan": [steps]|None, "domain": str|None}``. This is the runtime-facing
+    entry: when a task matches a compiled card, the body receives the card's
+    procedure as a plan instead of re-deriving from scratch.
+    """
+    for entry in registry.list():
+        card = entry["card"]
+        if matches_trigger(card, task_context):
+            return {
+                "used_capability": True,
+                "card_id": card.get("id"),
+                "plan": list(card.get("procedure", [])),
+                "domain": card.get("domain"),
+            }
+    return {"used_capability": False, "card_id": None, "plan": None, "domain": None}
+
+
 def apply_capability(
     card: Mapping[str, Any],
     task_context: Mapping[str, Any],

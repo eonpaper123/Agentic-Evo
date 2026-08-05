@@ -14,6 +14,7 @@ from agentic_evo.memory_capability_compiler import (
     apply_capability,
     make_capability_card,
     matches_trigger,
+    resolve_plan,
     successful_camu_evaluator,
     verify_behavior_change,
 )
@@ -195,6 +196,24 @@ class CompilerClosedLoopTests(unittest.TestCase):
         self.assertEqual(
             self.store.recall(context, evaluator=successful_camu_evaluator), [camu_id]
         )
+
+    def test_resolve_plan_returns_matching_card_procedure(self) -> None:
+        camu_id = self._seed_verified_skill()
+        cards = self.compiler.compile(self.store, {"problem_class": "off_by_one_window"})
+        self.registry.register(cards[0])
+        resolved = resolve_plan(self.registry, {"problem_class": "off_by_one_window"})
+        self.assertTrue(resolved["used_capability"])
+        self.assertEqual(resolved["card_id"], cards[0]["id"])
+        self.assertGreaterEqual(len(resolved["plan"]), 3)
+        self.assertEqual(resolved["domain"], "executable_skill")
+
+    def test_resolve_plan_returns_baseline_when_no_match(self) -> None:
+        camu_id = self._seed_verified_skill()
+        cards = self.compiler.compile(self.store, {"problem_class": "off_by_one_window"})
+        self.registry.register(cards[0])
+        resolved = resolve_plan(self.registry, {"other": 1})
+        self.assertFalse(resolved["used_capability"])
+        self.assertIsNone(resolved["plan"])
 
 
 if __name__ == "__main__":
