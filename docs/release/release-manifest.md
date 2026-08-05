@@ -6,6 +6,13 @@
 
 > **集成状态（2026-08-05 03:03 +08）**：四个切片已在本地集成分支 `agent/v1.0-integration`（tip `e9fa817`）合并完成：`113db04 merge(slice-b)`、`0a6f92e merge(slice-c)`、`e9fa817 merge(slice-d)`（均在 `1f886b0` 之上；cli.py 冲突已手工解决，保留两套子命令）。集成树全量测试：**275 tests OK**（77.2s）。私有远程推送仍 `blocked_authorization`。
 
+> **Slice H 集成状态（2026-08-05 +08，worktree `dev-genesis`）**：新增 `runtime-adopt` 子命令
+> （`src/agentic_evo/runtime_adopt.py` + `cli.py` 加法接线；未改 `trusted.py`/`body.py`/`kernel.py`）。
+> 真实出生 home（`D:\rawle\Coding\Agentic-Evo\.agentic-evo\runtime-home`）已备份、采纳并 serve/status 冒烟通过
+> （详见 `runtime_home_report.md`）。`tests/test_runtime_adopt.py` 7 例全绿；全量 299 tests 仅余
+> 两个**预先存在**的环境性失败模块（`test_windows_gate_b_evidence.py` 43 例、`test_windows_gate_b.py` 1 例，
+> 均为 sandbox 子进程非 UTF-8 输出解码）。
+
 ## 状态图例（Status Legend）
 
 | 状态标签 | 含义 |

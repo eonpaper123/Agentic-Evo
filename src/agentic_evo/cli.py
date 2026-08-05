@@ -8,9 +8,15 @@ import sys
 from typing import Any, Mapping
 
 from .adapters.codex import handle_codex_hook
+from .adapters.opencode import handle_opencode_hook
 from .autonomous_loop import smoke_main as autonomous_loop_smoke_main
 from ._util import canonical_json_bytes
-from .errors import AgenticEvoError, MemoryIntegrityError, MemoryRecordError
+from .errors import (
+    AgenticEvoError,
+    GenesisExistsError,
+    MemoryIntegrityError,
+    MemoryRecordError,
+)
 from .loop_integration import DefectWorkspace, run_loop_demo
 from .experiment_pack import (
     EXPERIMENT_CLAIM_CEILING,
@@ -32,6 +38,8 @@ from .ipc import (
 from .memory_store import MemoryStore
 from .service import main as service_main
 from .runtime import DevelopmentalRuntime
+from .runtime_adopt import RuntimeAdoptError, adopt_genesis_home
+from .trusted import TRUSTED_SCHEMA_VERSION, TrustedState
 from .windows_gate_a import (
     GateABundleError,
     cleanup_gate_a_bundle,
@@ -41,6 +49,7 @@ from .windows_gate_a import (
 
 
 MAX_HOOK_INPUT_BYTES = 2 * 1024 * 1024
+GENESIS_INSTRUMENT_VERSION = "agentic-evo-cli-genesis-v1"
 SURFACE_STDIO_SCHEMA = "agentic-evo.surface-stdio.v1"
 MAX_SURFACE_STDIO_TEXT_BYTES = 1024
 MAX_SURFACE_STDIO_PAYLOAD_BYTES = 60 * 1024
@@ -115,11 +124,14 @@ def _off_rehearsal(home: Path) -> int:
     return 0
 
 
-def _codex_hook(home: Path) -> int:
+def _surface_hook(home: Path, surface: str) -> int:
     payload = _read_hook_input()
     if payload is None:
         return 0
-    result = handle_codex_hook(home, payload)
+    if surface == "opencode":
+        result = handle_opencode_hook(home, payload)
+    else:
+        result = handle_codex_hook(home, payload)
     if result is not None:
         _write_json(result)
     return 0
@@ -762,6 +774,133 @@ def _memory_verify_chain(arguments: argparse.Namespace) -> int:
     return 0
 
 
+def _genesis_arguments(command: argparse.ArgumentParser) -> None:
+    """Add the complete, externally confirmed Genesis parameter contract."""
+
+    command.add_argument(
+        "--home",
+        type=Path,
+        required=True,
+        help=(
+            "New permanent home for one sovereign identity; must not already "
+            "contain Genesis or be a non-empty state directory."
+        ),
+    )
+    command.add_argument(
+        "--host-binding",
+        required=True,
+        help="Host identity string bound at birth; stored only as who=sha256(host-binding).",
+    )
+    command.add_argument(
+        "--purpose-anchor",
+        required=True,
+        help="Non-secret purpose anchor string; stored only as why=sha256(purpose-anchor).",
+    )
+    command.add_argument(
+        "--root",
+        required=True,
+        help="Exact Root commitment for the new identity lineage.",
+    )
+    command.add_argument(
+        "--initial-head",
+        required=True,
+        help="Exact initial Head commitment for the new identity lineage.",
+    )
+
+
+def _genesis(arguments: argparse.Namespace) -> int:
+    """Birth the permanent sovereign identity of one new home (irreversible)."""
+
+    home = Path(arguments.home).resolve()
+    try:
+        if TrustedState.has_genesis(home):
+            raise GenesisExistsError("home already contains a Genesis")
+        if TrustedState.has_genesis(home / "trusted"):
+            raise GenesisExistsError("home looks like an existing runtime home")
+        if home.exists() and any(home.iterdir()):
+            raise GenesisExistsError("home is not an empty state directory")
+        trusted = TrustedState.genesis(
+            home,
+            host_binding=arguments.host_binding,
+            purpose_anchor=arguments.purpose_anchor,
+            root=arguments.root,
+            initial_head=arguments.initial_head,
+            instrument_version=GENESIS_INSTRUMENT_VERSION,
+            protocol_version=TRUSTED_SCHEMA_VERSION,
+            genesis_payload={
+                "trusted_schema": TRUSTED_SCHEMA_VERSION,
+                "source": "genesis_cli",
+            },
+        )
+    except (AgenticEvoError, OSError) as error:
+        _write_json(
+            {
+                "ok": False,
+                "error": {"code": "genesis_error", "message": str(error)},
+            },
+            stream=sys.stderr,
+        )
+        return 6
+    snapshot = trusted.snapshot()
+    genesis_record = trusted.records()[0]
+    _write_json(
+        {
+            "ok": True,
+            "result": {
+                "who": snapshot.who,
+                "why": snapshot.why,
+                "root": snapshot.root,
+                "head": snapshot.head,
+                "authority": snapshot.authority,
+                "evidence_ref": {
+                    "sequence": genesis_record.sequence,
+                    "event_id": genesis_record.event_id,
+                    "integrity_hash": genesis_record.integrity_hash,
+                },
+                "home": str(home),
+            },
+        }
+    )
+    return 0
+
+
+def _runtime_adopt_arguments(command: argparse.ArgumentParser) -> None:
+    """Add the runtime-adopt parameter contract."""
+
+    command.add_argument(
+        "--home",
+        type=Path,
+        required=True,
+        help=(
+            "Genesis-born home (state.sqlite3 + witness.key at the home root) "
+            "to restructure into the servable runtime layout; never runs on a "
+            "dev-home."
+        ),
+    )
+
+
+def _runtime_adopt(arguments: argparse.Namespace) -> int:
+    """Adopt a Genesis-born home into the servable runtime layout."""
+
+    home = Path(arguments.home).resolve()
+    try:
+        result = adopt_genesis_home(home)
+    except (AgenticEvoError, OSError, ValueError) as error:
+        _write_json(
+            {
+                "ok": False,
+                "error": {
+                    "code": "runtime_adopt_error",
+                    "message": str(error),
+                },
+            },
+            stream=sys.stderr,
+        )
+        return 6
+    _write_json({"ok": True, "result": result})
+    return 0
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="agentic-evo",
@@ -772,7 +911,7 @@ def _parser() -> argparse.ArgumentParser:
         ("serve", "Run the fixed-home foreground Witness rehearsal."),
         ("status", "Read status through the public Surface."),
         ("off", "Request Off through the unauthenticated control rehearsal."),
-        ("hook", "Handle one bounded Codex lifecycle hook from stdin."),
+        ("hook", "Handle one bounded Codex or opencode lifecycle hook from stdin."),
     ):
         command = commands.add_parser(name, help=help_text)
         command.add_argument(
@@ -781,6 +920,29 @@ def _parser() -> argparse.ArgumentParser:
             required=True,
             help="Existing disposable runtime home; never performs Genesis.",
         )
+        if name == "hook":
+            command.add_argument(
+                "--surface",
+                choices=("codex", "opencode"),
+                default="codex",
+                help="Coding-agent hook adapter to dispatch to (default: codex).",
+            )
+    genesis = commands.add_parser(
+        "genesis",
+        help=(
+            "Birth the permanent sovereign identity of one new home "
+            "(irreversible; never runs on a dev-home)."
+        ),
+    )
+    _genesis_arguments(genesis)
+    runtime_adopt = commands.add_parser(
+        "runtime-adopt",
+        help=(
+            "Adopt a Genesis-born home into the servable runtime layout "
+            "(identity preserved; never runs on a dev-home)."
+        ),
+    )
+    _runtime_adopt_arguments(runtime_adopt)
     surface_stdio = commands.add_parser(
         "surface-stdio",
         help="Bridge a bounded generic stdio protocol to the public Surface.",
@@ -959,6 +1121,10 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     arguments = _parser().parse_args(argv)
+    if arguments.command == "genesis":
+        return _genesis(arguments)
+    if arguments.command == "runtime-adopt":
+        return _runtime_adopt(arguments)
     if arguments.command == "serve":
         return service_main(["--dev-home", str(arguments.dev_home)])
     if arguments.command == "status":
@@ -966,7 +1132,7 @@ def main(argv: list[str] | None = None) -> int:
     if arguments.command == "off":
         return _off_rehearsal(arguments.dev_home)
     if arguments.command == "hook":
-        return _codex_hook(arguments.dev_home)
+        return _surface_hook(arguments.dev_home, arguments.surface)
     if arguments.command == "surface-stdio":
         return _surface_stdio(arguments.dev_home, arguments.execution_surface)
     if arguments.command == "plan-install":
