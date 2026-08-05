@@ -73,6 +73,22 @@ def _is_hash(value: Any) -> bool:
     return isinstance(value, str) and _HASH.fullmatch(value) is not None
 
 
+def _canonical_root_commitment(root: Any) -> str:
+    """Return the canonical 64-hex root commitment for a root value.
+
+    A 64-hex root (``TrustedState.generate_root``) commits to itself; a born
+    home's named root (e.g. ``agentic-evo-root-v1``) commits to its sha256.
+    The same canonicalization is applied to the prereg, to every evidence
+    record's ``root_commitment`` and to every Body manifest's ``root`` so a
+    born+adopted home validates against its prereg.
+    """
+    if _is_hash(root):
+        return root
+    if not isinstance(root, str) or not root:
+        raise IntegrityError("invalid root commitment value")
+    return sha256_hex(root)
+
+
 def _is_sequence(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value > 0
 
@@ -108,7 +124,7 @@ def _validate_prereg(prereg: Any, *, status: Any | None = None) -> dict[str, Any
         if prereg.get(field) is not None and not isinstance(prereg[field], str):
             _fail("invalid_prereg")
     if status is not None and (
-        prereg["root_commitment"] != status.root
+        prereg["root_commitment"] != _canonical_root_commitment(status.root)
         or prereg["instrument_version"] != status.instrument_version
         or prereg["protocol_version"] != status.protocol_version
     ):
@@ -131,7 +147,7 @@ def export_experiment_prereg(
         "protocol_ref": EXPERIMENT_PROTOCOL_REF,
         "instrument_version": status.instrument_version,
         "protocol_version": status.protocol_version,
-        "root_commitment": status.root,
+        "root_commitment": _canonical_root_commitment(status.root),
         "head_start": status.head,
         "execution_surface": tail.execution_surface,
         "project_environment": tail.project_environment,
@@ -171,7 +187,12 @@ def _raw_manifest(runtime: Any, head: str) -> dict[str, Any]:
 
 def _manifest_entries(runtime: Any, prereg: Mapping[str, Any], window: list[dict[str, Any]]) -> list[dict[str, Any]]:
     heads = [prereg["head_start"]]
-    heads.extend(record["head_after"] for record in window if record["head_after"] != record["head_before"])
+    for record in window:
+        # Deduplicate: in a born+adopted lineage the first window record (the
+        # adoption head_advanced) advances TO head_start itself, so the same
+        # Body commitment must not appear twice in the manifest chain.
+        if record["head_after"] != record["head_before"] and record["head_after"] != heads[-1]:
+            heads.append(record["head_after"])
     entries = [{"head": head, "manifest": _raw_manifest(runtime, head)} for head in heads]
     _verify_manifests(entries, prereg, window[-1]["head_after"])
     return entries
@@ -188,7 +209,7 @@ def export_experiment_pack(
     records = [asdict(record) for record in runtime.evidence.records()]
     start = prereg["start_anchor"]
     anchor = next((record for record in records if record["sequence"] == start["sequence"]), None)
-    if anchor is None or anchor["integrity_hash"] != start["integrity_hash"] or anchor["head_after"] != prereg["head_start"]:
+    if anchor is None or anchor["integrity_hash"] != start["integrity_hash"]:
         _fail("invalid_prereg")
     tail = records[-1]["sequence"]
     end = tail if end_sequence is None else end_sequence
@@ -199,6 +220,23 @@ def export_experiment_pack(
     window = [record for record in records if start["sequence"] < record["sequence"] <= end]
     if not window or len(window) != end - start["sequence"]:
         _fail("evidence_window_inconsistent")
+    if window[0]["head_before"] != anchor["head_after"]:
+        _fail("evidence_window_inconsistent")
+    if _is_hash(anchor["head_after"]):
+        if prereg["head_start"] != anchor["head_after"]:
+            _fail("invalid_prereg")
+    else:
+        # Born+adopted lineage: the start anchor is the Genesis evidence whose
+        # head_after is the pinned (non-Body) birth head, so head_start cannot
+        # equal it; head_start must instead be the Body head the first
+        # head-changing window record (the runtime-adopt head_advanced)
+        # advances TO.
+        first_change = next(
+            (record for record in window if record["head_after"] != record["head_before"]),
+            None,
+        )
+        if first_change is None or prereg["head_start"] != first_change["head_after"]:
+            _fail("invalid_prereg")
     end_record = window[-1]
     body_manifests = _manifest_entries(runtime, prereg, window)
     return {
@@ -222,17 +260,24 @@ def _verify_window(prereg: Mapping[str, Any], window: Any, end_anchor: Any, head
     previous_head = prereg["head_start"]
     expected_sequence = prereg["start_anchor"]["sequence"] + 1
     checked: list[dict[str, Any]] = []
-    for record in window:
+    for index, record in enumerate(window):
         if not isinstance(record, dict) or set(record) != _RECORD_FIELDS:
             _fail("evidence_window_inconsistent")
+        head_before_matches = record.get("head_before") == previous_head
+        # Born+adopted lineage: the start anchor may be the Genesis evidence
+        # whose head_after is the pinned (non-Body) birth head, while head_start
+        # is the adopted Body head the first window record advances TO; then
+        # head_before != head_start is legitimate after runtime-adopt.
+        if index == 0 and not head_before_matches:
+            head_before_matches = record.get("head_after") == prereg["head_start"]
         if (
             record.get("schema_version") != EVIDENCE_SCHEMA_VERSION
             or record.get("sequence") != expected_sequence
             or record.get("previous_integrity_hash") != previous_hash
-            or record.get("root_commitment") != prereg["root_commitment"]
+            or _canonical_root_commitment(record.get("root_commitment")) != prereg["root_commitment"]
             or record.get("instrument_version") != prereg["instrument_version"]
             or record.get("protocol_version") != prereg["protocol_version"]
-            or record.get("head_before") != previous_head
+            or not head_before_matches
         ):
             _fail("evidence_window_inconsistent")
         claimed = record.get("integrity_hash")
@@ -265,7 +310,7 @@ def _verify_manifests(entries: Any, prereg: Mapping[str, Any], head_end: str) ->
             _fail("body_manifest_chain_inconsistent")
         if (
             manifest.get("schema_version") != BODY_SCHEMA_VERSION
-            or manifest.get("root") != prereg["root_commitment"]
+            or _canonical_root_commitment(manifest.get("root")) != prereg["root_commitment"]
             or sha256_hex(canonical_json_bytes(manifest)) != entry["head"]
         ):
             _fail("body_manifest_chain_inconsistent")
@@ -287,7 +332,9 @@ def verify_experiment_artifact(artifact: Any) -> dict[str, Any]:
     if not isinstance(artifact.get("authority_end"), str) or not artifact["authority_end"]:
         _fail("evidence_window_inconsistent")
     expected_heads = [prereg["head_start"]]
-    expected_heads.extend(record["head_after"] for record in window if record["head_after"] != record["head_before"])
+    for record in window:
+        if record["head_after"] != record["head_before"] and record["head_after"] != expected_heads[-1]:
+            expected_heads.append(record["head_after"])
     entries = artifact.get("body_manifests")
     _verify_manifests(entries, prereg, artifact["head_end"])
     if [entry["head"] for entry in entries] != expected_heads:

@@ -8,8 +8,16 @@ import sys
 from typing import Any, Mapping
 
 from .adapters.codex import handle_codex_hook
+from .adapters.opencode import handle_opencode_hook
+from .autonomous_loop import smoke_main as autonomous_loop_smoke_main
 from ._util import canonical_json_bytes
-from .errors import AgenticEvoError
+from .errors import (
+    AgenticEvoError,
+    GenesisExistsError,
+    MemoryIntegrityError,
+    MemoryRecordError,
+)
+from .loop_integration import DefectWorkspace, run_loop_demo
 from .experiment_pack import (
     EXPERIMENT_CLAIM_CEILING,
     _ExperimentArtifactConsistencyError,
@@ -27,8 +35,17 @@ from .ipc import (
     new_public_request_id,
     validate_public_request_frame,
 )
+from .memory_store import MemoryStore
+from .memory_capability_compiler import (
+    CapabilityRegistry,
+    MemoryCapabilityCompiler,
+    DEFAULT_CAPABILITY_REGISTRY,
+)
+from .memory_capability_report import DEFAULT_OUTCOME_LOG
 from .service import main as service_main
 from .runtime import DevelopmentalRuntime
+from .runtime_adopt import RuntimeAdoptError, adopt_genesis_home
+from .trusted import TRUSTED_SCHEMA_VERSION, TrustedState
 from .windows_gate_a import (
     GateABundleError,
     cleanup_gate_a_bundle,
@@ -38,6 +55,7 @@ from .windows_gate_a import (
 
 
 MAX_HOOK_INPUT_BYTES = 2 * 1024 * 1024
+GENESIS_INSTRUMENT_VERSION = "agentic-evo-cli-genesis-v1"
 SURFACE_STDIO_SCHEMA = "agentic-evo.surface-stdio.v1"
 MAX_SURFACE_STDIO_TEXT_BYTES = 1024
 MAX_SURFACE_STDIO_PAYLOAD_BYTES = 60 * 1024
@@ -112,11 +130,14 @@ def _off_rehearsal(home: Path) -> int:
     return 0
 
 
-def _codex_hook(home: Path) -> int:
+def _surface_hook(home: Path, surface: str) -> int:
     payload = _read_hook_input()
     if payload is None:
         return 0
-    result = handle_codex_hook(home, payload)
+    if surface == "opencode":
+        result = handle_opencode_hook(home, payload)
+    else:
+        result = handle_codex_hook(home, payload)
     if result is not None:
         _write_json(result)
     return 0
@@ -476,6 +497,31 @@ def _gate_b_evidence(arguments: argparse.Namespace, *, attack: bool) -> int:
     return 0
 
 
+def _loop_demo_run(arguments: argparse.Namespace) -> int:
+    """Run the real-task autonomous-loop demo against fresh caller-owned dirs."""
+
+    try:
+        workspace = DefectWorkspace.create(
+            arguments.workspace_dir,
+            defect=arguments.defect,
+        )
+        result = run_loop_demo(workspace, arguments.loop_home)
+    except (AgenticEvoError, OSError, ValueError, subprocess.SubprocessError) as error:
+        _write_json(
+            {
+                "ok": False,
+                "error": {
+                    "code": "loop_demo_run_error",
+                    "message": str(error),
+                },
+            },
+            stream=sys.stderr,
+        )
+        return 6
+    _write_json({"ok": True, "result": result})
+    return 0 if result.get("final_module_passed") else 7
+
+
 def _experiment_artifact_error(error: Exception) -> int:
     _write_json(
         {
@@ -552,6 +598,497 @@ def _verify_experiment_artifact(arguments: argparse.Namespace) -> int:
     return 0
 
 
+MEMORY_STORE_DEFAULT = Path("memory/camus.jsonl")
+
+
+def _memory_store_arguments(command: argparse.ArgumentParser) -> None:
+    command.add_argument(
+        "--store",
+        type=Path,
+        default=MEMORY_STORE_DEFAULT,
+        help=(
+            "CAMU store JSONL path; default memory/camus.jsonl under the "
+            "current directory."
+        ),
+    )
+
+
+def _open_memory_store(path: Path, *, create: bool = False) -> MemoryStore:
+    if create and not path.exists():
+        return MemoryStore.create(path)
+    return MemoryStore.load(path)
+
+
+def _memory_error(error: Exception) -> int:
+    _write_json(
+        {
+            "ok": False,
+            "error": {"code": "memory_error", "message": str(error)},
+        },
+        stream=sys.stderr,
+    )
+    return 6
+
+
+def _memory_integrity_error(error: Exception) -> int:
+    _write_json(
+        {
+            "ok": False,
+            "result": {"verified": False, "message": str(error)},
+        },
+        stream=sys.stderr,
+    )
+    return 7
+
+
+def _memory_bool(value: str) -> bool:
+    lowered = value.strip().lower()
+    if lowered in ("true", "1", "yes"):
+        return True
+    if lowered in ("false", "0", "no"):
+        return False
+    raise argparse.ArgumentTypeError("must be true or false")
+
+
+def _memory_camu_add(arguments: argparse.Namespace) -> int:
+    if (arguments.record is None) == (arguments.record_file is None):
+        _write_json(
+            {
+                "ok": False,
+                "error": {
+                    "code": "memory_error",
+                    "message": "exactly one of --record or --record-file is required",
+                },
+            },
+            stream=sys.stderr,
+        )
+        return 6
+    if arguments.record is not None:
+        try:
+            record = json.loads(arguments.record)
+        except (json.JSONDecodeError, RecursionError) as exc:
+            return _memory_error(
+                ValueError(f"--record must be one JSON object: {exc}")
+            )
+    else:
+        try:
+            record = json.loads(arguments.record_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, RecursionError) as exc:
+            return _memory_error(exc)
+    if not isinstance(record, dict):
+        return _memory_error(
+            MemoryRecordError("CAMU record must be one JSON object")
+        )
+    try:
+        store = _open_memory_store(arguments.store, create=True)
+        camu_id = store.add_camu(record)
+    except (MemoryIntegrityError, MemoryRecordError, OSError, ValueError) as exc:
+        return _memory_error(exc)
+    _write_json({"ok": True, "result": {"id": camu_id}})
+    return 0
+
+
+def _memory_camu_list(arguments: argparse.Namespace) -> int:
+    try:
+        store = _open_memory_store(arguments.store)
+        camus = store.list()
+    except (MemoryIntegrityError, MemoryRecordError, OSError, ValueError) as exc:
+        return _memory_error(exc)
+    summary = [
+        {
+            "id": item["id"],
+            "influence_domain": item["record"]["I"]["domain"],
+            "prediction_status": item["record"]["P"]["status"],
+            "condition": item["record"]["P"]["condition"],
+            "recorded_at": item["recorded_at"],
+        }
+        for item in camus
+    ]
+    _write_json({"ok": True, "result": {"count": len(summary), "camus": summary}})
+    return 0
+
+
+def _memory_camu_show(arguments: argparse.Namespace) -> int:
+    try:
+        store = _open_memory_store(arguments.store)
+        result = store.get(arguments.id)
+    except (MemoryIntegrityError, MemoryRecordError, OSError, ValueError) as exc:
+        return _memory_error(exc)
+    _write_json({"ok": True, "result": result})
+    return 0
+
+
+def _memory_camu_outcome(arguments: argparse.Namespace) -> int:
+    observed: Any = None
+    if arguments.observed is not None:
+        try:
+            observed = json.loads(arguments.observed)
+        except (json.JSONDecodeError, RecursionError) as exc:
+            return _memory_error(ValueError(f"--observed must be JSON: {exc}"))
+    try:
+        store = _open_memory_store(arguments.store)
+        result = store.record_outcome(
+            arguments.id, observed=observed, matched=arguments.matched
+        )
+    except (MemoryIntegrityError, MemoryRecordError, OSError, ValueError) as exc:
+        return _memory_error(exc)
+    _write_json(
+        {
+            "ok": True,
+            "result": {
+                "id": result["id"],
+                "prediction_status": result["record"]["P"]["status"],
+            },
+        }
+    )
+    return 0
+
+
+def _memory_recall(arguments: argparse.Namespace) -> int:
+    try:
+        context = json.loads(arguments.context)
+    except (json.JSONDecodeError, RecursionError) as exc:
+        return _memory_error(ValueError(f"--context must be JSON: {exc}"))
+    try:
+        store = _open_memory_store(arguments.store)
+        matches = store.recall(context)
+    except (MemoryIntegrityError, MemoryRecordError, OSError, ValueError) as exc:
+        return _memory_error(exc)
+    _write_json({"ok": True, "result": {"matches": matches}})
+    return 0
+
+
+def _memory_consolidate(arguments: argparse.Namespace) -> int:
+    try:
+        store = _open_memory_store(arguments.store)
+        summary = store.consolidate(ttl_seconds=arguments.ttl_days * 24 * 60 * 60)
+    except (MemoryIntegrityError, MemoryRecordError, OSError, ValueError) as exc:
+        return _memory_error(exc)
+    _write_json({"ok": True, "result": summary})
+    return 0
+
+
+def _memory_verify_chain(arguments: argparse.Namespace) -> int:
+    try:
+        store = _open_memory_store(arguments.store)
+        store.verify_chain()
+    except MemoryIntegrityError as exc:
+        return _memory_integrity_error(exc)
+    except (OSError, ValueError) as exc:
+        return _memory_error(exc)
+    _write_json({"ok": True, "result": {"verified": True, "records": store.count()}})
+    return 0
+
+
+def _memory_capability_compile(arguments: argparse.Namespace) -> int:
+    """Compile recalled verified CAMUs into a capability card (first closed loop)."""
+    try:
+        context = json.loads(arguments.context)
+    except json.JSONDecodeError as exc:
+        return _memory_error(ValueError(f"--context must be JSON: {exc}"))
+    registry_path = arguments.registry or DEFAULT_CAPABILITY_REGISTRY
+    try:
+        store = _open_memory_store(arguments.store)
+        registry = CapabilityRegistry(registry_path)
+        compiler = MemoryCapabilityCompiler(registry)
+        cards = compiler.compile_and_register(store, context)
+    except MemoryIntegrityError as exc:
+        return _memory_integrity_error(exc)
+    except (OSError, ValueError) as exc:
+        return _memory_error(exc)
+    _write_json({"ok": True, "result": {"compiled": cards, "registry": str(registry_path)}})
+    return 0
+
+
+def _memory_capability_list(arguments: argparse.Namespace) -> int:
+    registry_path = arguments.registry or DEFAULT_CAPABILITY_REGISTRY
+    try:
+        registry = CapabilityRegistry(registry_path)
+        entries = registry.list()
+        registry.verify_chain()
+    except MemoryIntegrityError as exc:
+        return _memory_integrity_error(exc)
+    except (OSError, ValueError) as exc:
+        return _memory_error(exc)
+    _write_json({"ok": True, "result": {"capabilities": entries}})
+    return 0
+
+
+def _memory_experience_ingest(arguments: argparse.Namespace) -> int:
+    """Ground a Body CAMU memory in a real session's TrustedState evidence."""
+    try:
+        from .trusted import TrustedState
+        from .experience_memory_ingest import ingest_session
+
+        home = Path(arguments.dev_home)
+        trusted = TrustedState.load(home / "trusted")
+        records = trusted.records()
+        store_path = (
+            Path(arguments.store)
+            if arguments.store
+            else home / "memory" / "camus.jsonl"
+        )
+        if store_path.exists():
+            store = MemoryStore(store_path)
+        else:
+            store = MemoryStore.create(store_path)
+        camu_id = ingest_session(
+            store,
+            records,
+            task_class=arguments.task_class,
+            task_prompt=arguments.task_prompt,
+            session_id=arguments.session,
+            outcome_matched=not arguments.no_outcome,
+        )
+    except MemoryIntegrityError as exc:
+        return _memory_integrity_error(exc)
+    except (OSError, ValueError) as exc:
+        return _memory_error(exc)
+    _write_json(
+        {"ok": True, "result": {"camu_id": camu_id, "store": str(store_path)}}
+    )
+    return 0
+
+
+def _memory_capability_apply(arguments: argparse.Namespace) -> int:
+    """Resolve a matching capability card into an actionable plan."""
+    try:
+        from .memory_capability_compiler import resolve_plan
+
+        context = json.loads(arguments.context)
+    except json.JSONDecodeError as exc:
+        return _memory_error(ValueError(f"--context must be JSON: {exc}"))
+    registry_path = arguments.registry or DEFAULT_CAPABILITY_REGISTRY
+    try:
+        registry = CapabilityRegistry(registry_path)
+        registry.verify_chain()
+        resolved = resolve_plan(registry, context)
+    except MemoryIntegrityError as exc:
+        return _memory_integrity_error(exc)
+    except (OSError, ValueError) as exc:
+        return _memory_error(exc)
+    _write_json({"ok": True, "result": resolved})
+    return 0
+
+
+def _memory_capability_record_use(arguments: argparse.Namespace) -> int:
+    """Record that a capability plan was offered for a task (MC-6)."""
+    from .memory_capability_report import CapabilityOutcomeLog
+
+    try:
+        context = json.loads(arguments.context)
+    except json.JSONDecodeError as exc:
+        return _memory_error(ValueError(f"--context must be JSON: {exc}"))
+    outcomes_path = arguments.outcomes or DEFAULT_OUTCOME_LOG
+    try:
+        log = CapabilityOutcomeLog(outcomes_path)
+        event_id = log.record_use(
+            arguments.card_id,
+            context,
+            session_id=arguments.session_id,
+            provenance=arguments.provenance,
+        )
+        log.verify_chain()
+    except MemoryIntegrityError as exc:
+        return _memory_integrity_error(exc)
+    except (OSError, ValueError) as exc:
+        return _memory_error(exc)
+    _write_json(
+        {"ok": True, "result": {"event_id": event_id, "outcomes": str(outcomes_path)}}
+    )
+    return 0
+
+
+def _memory_capability_record_outcome(arguments: argparse.Namespace) -> int:
+    """Record a verified task outcome for a capability card (MC-6)."""
+    from .memory_capability_report import CapabilityOutcomeLog
+
+    details: dict[str, Any] = {}
+    if arguments.details:
+        try:
+            details = json.loads(arguments.details)
+        except json.JSONDecodeError as exc:
+            return _memory_error(ValueError(f"--details must be JSON: {exc}"))
+    if arguments.task_class:
+        details["task_class"] = arguments.task_class
+    if arguments.opencode_exit is not None:
+        details["opencode_exit"] = arguments.opencode_exit
+    if arguments.test_exit is not None:
+        details["test_exit"] = arguments.test_exit
+    outcomes_path = arguments.outcomes or DEFAULT_OUTCOME_LOG
+    try:
+        log = CapabilityOutcomeLog(outcomes_path)
+        event_id = log.record_outcome(
+            arguments.card_id,
+            ok=arguments.ok,
+            session_id=arguments.session_id,
+            details=details,
+        )
+        log.verify_chain()
+    except MemoryIntegrityError as exc:
+        return _memory_integrity_error(exc)
+    except (OSError, ValueError) as exc:
+        return _memory_error(exc)
+    _write_json(
+        {"ok": True, "result": {"event_id": event_id, "outcomes": str(outcomes_path)}}
+    )
+    return 0
+
+
+def _memory_capability_report(arguments: argparse.Namespace) -> int:
+    """Build the capability outcome measurement report (MC-6)."""
+    from .memory_capability_report import (
+        CapabilityOutcomeLog,
+        build_capability_report,
+        render_report_text,
+    )
+
+    registry_path = arguments.registry or DEFAULT_CAPABILITY_REGISTRY
+    outcomes_path = arguments.outcomes or DEFAULT_OUTCOME_LOG
+    try:
+        registry = CapabilityRegistry(registry_path)
+        registry.verify_chain()
+        log = CapabilityOutcomeLog(outcomes_path)
+        report = build_capability_report(registry, log)
+    except MemoryIntegrityError as exc:
+        return _memory_integrity_error(exc)
+    except (OSError, ValueError) as exc:
+        return _memory_error(exc)
+    if arguments.json:
+        _write_json({"ok": True, "result": report})
+    else:
+        print(render_report_text(report))
+    return 0
+
+
+
+def _genesis_arguments(command: argparse.ArgumentParser) -> None:
+    """Add the complete, externally confirmed Genesis parameter contract."""
+
+    command.add_argument(
+        "--home",
+        type=Path,
+        required=True,
+        help=(
+            "New permanent home for one sovereign identity; must not already "
+            "contain Genesis or be a non-empty state directory."
+        ),
+    )
+    command.add_argument(
+        "--host-binding",
+        required=True,
+        help="Host identity string bound at birth; stored only as who=sha256(host-binding).",
+    )
+    command.add_argument(
+        "--purpose-anchor",
+        required=True,
+        help="Non-secret purpose anchor string; stored only as why=sha256(purpose-anchor).",
+    )
+    command.add_argument(
+        "--root",
+        required=True,
+        help="Exact Root commitment for the new identity lineage.",
+    )
+    command.add_argument(
+        "--initial-head",
+        required=True,
+        help="Exact initial Head commitment for the new identity lineage.",
+    )
+
+
+def _genesis(arguments: argparse.Namespace) -> int:
+    """Birth the permanent sovereign identity of one new home (irreversible)."""
+
+    home = Path(arguments.home).resolve()
+    try:
+        if TrustedState.has_genesis(home):
+            raise GenesisExistsError("home already contains a Genesis")
+        if TrustedState.has_genesis(home / "trusted"):
+            raise GenesisExistsError("home looks like an existing runtime home")
+        if home.exists() and any(home.iterdir()):
+            raise GenesisExistsError("home is not an empty state directory")
+        trusted = TrustedState.genesis(
+            home,
+            host_binding=arguments.host_binding,
+            purpose_anchor=arguments.purpose_anchor,
+            root=arguments.root,
+            initial_head=arguments.initial_head,
+            instrument_version=GENESIS_INSTRUMENT_VERSION,
+            protocol_version=TRUSTED_SCHEMA_VERSION,
+            genesis_payload={
+                "trusted_schema": TRUSTED_SCHEMA_VERSION,
+                "source": "genesis_cli",
+            },
+        )
+    except (AgenticEvoError, OSError) as error:
+        _write_json(
+            {
+                "ok": False,
+                "error": {"code": "genesis_error", "message": str(error)},
+            },
+            stream=sys.stderr,
+        )
+        return 6
+    snapshot = trusted.snapshot()
+    genesis_record = trusted.records()[0]
+    _write_json(
+        {
+            "ok": True,
+            "result": {
+                "who": snapshot.who,
+                "why": snapshot.why,
+                "root": snapshot.root,
+                "head": snapshot.head,
+                "authority": snapshot.authority,
+                "evidence_ref": {
+                    "sequence": genesis_record.sequence,
+                    "event_id": genesis_record.event_id,
+                    "integrity_hash": genesis_record.integrity_hash,
+                },
+                "home": str(home),
+            },
+        }
+    )
+    return 0
+
+
+def _runtime_adopt_arguments(command: argparse.ArgumentParser) -> None:
+    """Add the runtime-adopt parameter contract."""
+
+    command.add_argument(
+        "--home",
+        type=Path,
+        required=True,
+        help=(
+            "Genesis-born home (state.sqlite3 + witness.key at the home root) "
+            "to restructure into the servable runtime layout; never runs on a "
+            "dev-home."
+        ),
+    )
+
+
+def _runtime_adopt(arguments: argparse.Namespace) -> int:
+    """Adopt a Genesis-born home into the servable runtime layout."""
+
+    home = Path(arguments.home).resolve()
+    try:
+        result = adopt_genesis_home(home)
+    except (AgenticEvoError, OSError, ValueError) as error:
+        _write_json(
+            {
+                "ok": False,
+                "error": {
+                    "code": "runtime_adopt_error",
+                    "message": str(error),
+                },
+            },
+            stream=sys.stderr,
+        )
+        return 6
+    _write_json({"ok": True, "result": result})
+    return 0
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="agentic-evo",
@@ -562,7 +1099,7 @@ def _parser() -> argparse.ArgumentParser:
         ("serve", "Run the fixed-home foreground Witness rehearsal."),
         ("status", "Read status through the public Surface."),
         ("off", "Request Off through the unauthenticated control rehearsal."),
-        ("hook", "Handle one bounded Codex lifecycle hook from stdin."),
+        ("hook", "Handle one bounded Codex or opencode lifecycle hook from stdin."),
     ):
         command = commands.add_parser(name, help=help_text)
         command.add_argument(
@@ -571,6 +1108,29 @@ def _parser() -> argparse.ArgumentParser:
             required=True,
             help="Existing disposable runtime home; never performs Genesis.",
         )
+        if name == "hook":
+            command.add_argument(
+                "--surface",
+                choices=("codex", "opencode"),
+                default="codex",
+                help="Coding-agent hook adapter to dispatch to (default: codex).",
+            )
+    genesis = commands.add_parser(
+        "genesis",
+        help=(
+            "Birth the permanent sovereign identity of one new home "
+            "(irreversible; never runs on a dev-home)."
+        ),
+    )
+    _genesis_arguments(genesis)
+    runtime_adopt = commands.add_parser(
+        "runtime-adopt",
+        help=(
+            "Adopt a Genesis-born home into the servable runtime layout "
+            "(identity preserved; never runs on a dev-home)."
+        ),
+    )
+    _runtime_adopt_arguments(runtime_adopt)
     surface_stdio = commands.add_parser(
         "surface-stdio",
         help="Bridge a bounded generic stdio protocol to the public Surface.",
@@ -590,6 +1150,33 @@ def _parser() -> argparse.ArgumentParser:
         "plan-install",
         help="Print a deterministic plan that performs no installation writes.",
     )
+    loop_smoke = commands.add_parser(
+        "autonomous-loop-smoke",
+        help="Run an in-memory autonomous-loop smoke fixture and write JSONL records.",
+    )
+    loop_smoke.add_argument("--output", type=Path, required=True)
+    loop_smoke.add_argument("--fixture", choices=("passed", "failed"), default="passed")
+    loop_smoke.add_argument("--promotion-passes", type=int, default=2)
+    loop_demo = commands.add_parser(
+        "loop-demo-run",
+        help=(
+            "Run the real-task autonomous-loop demo "
+            "(synthetic defect, real file/test/patch flow)."
+        ),
+    )
+    loop_demo.add_argument(
+        "--workspace-dir",
+        type=Path,
+        required=True,
+        help="Fresh caller-owned directory for the demo module + unittest.",
+    )
+    loop_demo.add_argument(
+        "--loop-home",
+        type=Path,
+        required=True,
+        help="Fresh autonomous-loop home (meta/events/consolidation stores).",
+    )
+    loop_demo.add_argument("--defect", default="off_by_one")
     prereg = commands.add_parser(
         "export-experiment-prereg",
         help="Export a detached experiment preregistration artifact.",
@@ -642,11 +1229,250 @@ def _parser() -> argparse.ArgumentParser:
     ):
         command = commands.add_parser(name, help=help_text)
         _gate_b_evidence_arguments(command)
+    memory_list = commands.add_parser(
+        "memory-camu-list",
+        help="List effective CAMU records in a Body-owned memory store.",
+    )
+    _memory_store_arguments(memory_list)
+    memory_add = commands.add_parser(
+        "memory-camu-add",
+        help="Add one content-addressed CAMU record to a Body-owned memory store.",
+    )
+    _memory_store_arguments(memory_add)
+    memory_add.add_argument(
+        "--record",
+        help="Inline JSON CAMU record (one object).",
+    )
+    memory_add.add_argument(
+        "--record-file",
+        type=Path,
+        help="Path to a file containing one JSON CAMU record object.",
+    )
+    memory_show = commands.add_parser(
+        "memory-camu-show",
+        help="Show one effective CAMU record by id.",
+    )
+    _memory_store_arguments(memory_show)
+    memory_show.add_argument(
+        "--id",
+        required=True,
+        help="CAMU content-address id.",
+    )
+    memory_outcome = commands.add_parser(
+        "memory-camu-outcome",
+        help="Record one outcome and apply pending/verified/contradicted bookkeeping.",
+    )
+    _memory_store_arguments(memory_outcome)
+    memory_outcome.add_argument(
+        "--id",
+        required=True,
+        help="CAMU content-address id.",
+    )
+    memory_outcome.add_argument(
+        "--observed",
+        help="Optional JSON value observed after the prediction window.",
+    )
+    memory_outcome.add_argument(
+        "--matched",
+        type=_memory_bool,
+        required=True,
+        help="Whether the observed result supported the prediction (true/false).",
+    )
+    memory_recall = commands.add_parser(
+        "memory-recall",
+        help="Recall matching CAMU ids with the default placeholder evaluator.",
+    )
+    _memory_store_arguments(memory_recall)
+    memory_recall.add_argument(
+        "--context",
+        required=True,
+        help="JSON context object evaluated against each CAMU activation.",
+    )
+    memory_consolidate = commands.add_parser(
+        "memory-consolidate",
+        help="Sleep-consolidation scaffold: mark stale pending predictions overdue.",
+    )
+    _memory_store_arguments(memory_consolidate)
+    memory_consolidate.add_argument(
+        "--ttl-days",
+        type=int,
+        default=7,
+        help="Age in days after which a pending prediction becomes overdue.",
+    )
+    memory_verify = commands.add_parser(
+        "memory-verify-chain",
+        help="Verify the memory store hash chain.",
+    )
+    _memory_store_arguments(memory_verify)
+    memory_cap_compile = commands.add_parser(
+        "memory-capability-compile",
+        help="Compile recalled verified CAMU experiences into a capability card.",
+    )
+    _memory_store_arguments(memory_cap_compile)
+    memory_cap_compile.add_argument(
+        "--context",
+        required=True,
+        help="JSON task context used for recall and trigger compilation.",
+    )
+    memory_cap_compile.add_argument(
+        "--registry",
+        type=Path,
+        help="Capability registry JSONL path; default capabilities/capabilities.jsonl.",
+    )
+    memory_cap_list = commands.add_parser(
+        "memory-capability-list",
+        help="List compiled capability cards in the registry.",
+    )
+    memory_cap_list.add_argument(
+        "--registry",
+        type=Path,
+        help="Capability registry JSONL path; default capabilities/capabilities.jsonl.",
+    )
+    memory_exp_ingest = commands.add_parser(
+        "memory-experience-ingest",
+        help="Ground a Body CAMU memory in a real session's TrustedState evidence.",
+    )
+    memory_exp_ingest.add_argument(
+        "--dev-home",
+        type=Path,
+        required=True,
+        help="Born home whose trusted/ holds the evidence records.",
+    )
+    memory_exp_ingest.add_argument(
+        "--session",
+        required=True,
+        help="Session id whose evidence records ground the CAMU memory.",
+    )
+    memory_exp_ingest.add_argument(
+        "--task-class",
+        required=True,
+        help="Body-authored problem class for the activation predicate.",
+    )
+    memory_exp_ingest.add_argument(
+        "--task-prompt",
+        required=True,
+        help="Body-authored task prompt used as CAMU provenance.",
+    )
+    memory_exp_ingest.add_argument(
+        "--store",
+        type=Path,
+        help="CAMU store JSONL path; default <dev-home>/memory/camus.jsonl.",
+    )
+    memory_exp_ingest.add_argument(
+        "--no-outcome",
+        action="store_true",
+        help="Record the CAMU without verifying the outcome (status stays pending).",
+    )
+    memory_cap_apply = commands.add_parser(
+        "memory-capability-apply",
+        help="Resolve a matching capability card into an actionable plan.",
+    )
+    memory_cap_apply.add_argument(
+        "--registry",
+        type=Path,
+        help="Capability registry JSONL path; default capabilities/capabilities.jsonl.",
+    )
+    memory_cap_apply.add_argument(
+        "--context",
+        required=True,
+        help="JSON task context matched against each card trigger.",
+    )
+    memory_cap_record_use = commands.add_parser(
+        "memory-capability-record-use",
+        help="Record that a capability plan was offered for a task (MC-6 measurement).",
+    )
+    memory_cap_record_use.add_argument(
+        "--card-id",
+        required=True,
+        help="Capability card id (sha256 hex).",
+    )
+    memory_cap_record_use.add_argument(
+        "--context",
+        required=True,
+        help="JSON task context at the time the plan was offered.",
+    )
+    memory_cap_record_use.add_argument(
+        "--session-id",
+        help="Optional session id for matched-outcome correlation.",
+    )
+    memory_cap_record_use.add_argument(
+        "--provenance",
+        help="Optional free-text provenance of the use event.",
+    )
+    memory_cap_record_use.add_argument(
+        "--outcomes",
+        type=Path,
+        help="Outcome log JSONL path; default capabilities/outcomes.jsonl.",
+    )
+    memory_cap_record_outcome = commands.add_parser(
+        "memory-capability-record-outcome",
+        help="Record a verified task outcome for a capability card (MC-6 measurement).",
+    )
+    memory_cap_record_outcome.add_argument(
+        "--card-id",
+        required=True,
+        help="Capability card id (sha256 hex).",
+    )
+    memory_cap_record_outcome.add_argument(
+        "--ok",
+        action="store_true",
+        help="Outcome passed the Body's verification (exit 0 + tests OK).",
+    )
+    memory_cap_record_outcome.add_argument(
+        "--session-id",
+        help="Optional session id for matched-outcome correlation.",
+    )
+    memory_cap_record_outcome.add_argument(
+        "--details",
+        help="Optional JSON details (e.g. task_class, elapsed, tests).",
+    )
+    memory_cap_record_outcome.add_argument(
+        "--task-class",
+        help="Optional task class folded into details as details.task_class.",
+    )
+    memory_cap_record_outcome.add_argument(
+        "--opencode-exit",
+        type=int,
+        help="Optional opencode exit code folded into details.",
+    )
+    memory_cap_record_outcome.add_argument(
+        "--test-exit",
+        type=int,
+        help="Optional test-suite exit code folded into details.",
+    )
+    memory_cap_record_outcome.add_argument(
+        "--outcomes",
+        type=Path,
+        help="Outcome log JSONL path; default capabilities/outcomes.jsonl.",
+    )
+    memory_cap_report = commands.add_parser(
+        "memory-capability-report",
+        help="Build the capability outcome measurement report (MC-6).",
+    )
+    memory_cap_report.add_argument(
+        "--registry",
+        type=Path,
+        help="Capability registry JSONL path; default capabilities/capabilities.jsonl.",
+    )
+    memory_cap_report.add_argument(
+        "--outcomes",
+        type=Path,
+        help="Outcome log JSONL path; default capabilities/outcomes.jsonl.",
+    )
+    memory_cap_report.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit the machine-readable JSON report instead of text.",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     arguments = _parser().parse_args(argv)
+    if arguments.command == "genesis":
+        return _genesis(arguments)
+    if arguments.command == "runtime-adopt":
+        return _runtime_adopt(arguments)
     if arguments.command == "serve":
         return service_main(["--dev-home", str(arguments.dev_home)])
     if arguments.command == "status":
@@ -654,7 +1480,7 @@ def main(argv: list[str] | None = None) -> int:
     if arguments.command == "off":
         return _off_rehearsal(arguments.dev_home)
     if arguments.command == "hook":
-        return _codex_hook(arguments.dev_home)
+        return _surface_hook(arguments.dev_home, arguments.surface)
     if arguments.command == "surface-stdio":
         return _surface_stdio(arguments.dev_home, arguments.execution_surface)
     if arguments.command == "plan-install":
@@ -696,6 +1522,47 @@ def main(argv: list[str] | None = None) -> int:
         return _gate_b_evidence(arguments, attack=False)
     if arguments.command == "attack-windows-gate-b-evidence":
         return _gate_b_evidence(arguments, attack=True)
+    if arguments.command == "memory-camu-add":
+        return _memory_camu_add(arguments)
+    if arguments.command == "memory-camu-list":
+        return _memory_camu_list(arguments)
+    if arguments.command == "memory-capability-compile":
+        return _memory_capability_compile(arguments)
+    if arguments.command == "memory-capability-list":
+        return _memory_capability_list(arguments)
+    if arguments.command == "memory-experience-ingest":
+        return _memory_experience_ingest(arguments)
+    if arguments.command == "memory-capability-apply":
+        return _memory_capability_apply(arguments)
+    if arguments.command == "memory-capability-record-use":
+        return _memory_capability_record_use(arguments)
+    if arguments.command == "memory-capability-record-outcome":
+        return _memory_capability_record_outcome(arguments)
+    if arguments.command == "memory-capability-report":
+        return _memory_capability_report(arguments)
+    if arguments.command == "memory-camu-show":
+        return _memory_camu_show(arguments)
+    if arguments.command == "memory-camu-outcome":
+        return _memory_camu_outcome(arguments)
+    if arguments.command == "memory-recall":
+        return _memory_recall(arguments)
+    if arguments.command == "memory-consolidate":
+        return _memory_consolidate(arguments)
+    if arguments.command == "memory-verify-chain":
+        return _memory_verify_chain(arguments)
+    if arguments.command == "loop-demo-run":
+        return _loop_demo_run(arguments)
+    if arguments.command == "autonomous-loop-smoke":
+        return autonomous_loop_smoke_main(
+            [
+                "--fixture",
+                arguments.fixture,
+                "--output",
+                str(arguments.output),
+                "--promotion-passes",
+                str(arguments.promotion_passes),
+            ]
+        )
     raise AssertionError("argparse accepted an unknown command")
 
 

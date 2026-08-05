@@ -1,0 +1,11 @@
+test_caller_owned_import_boundary (tests.test_loop_integration.LoopIntegrationTests.test_caller_owned_import_boundary) ... ok
+test_failed_candidate_rollback_restores_original_bytes (tests.test_loop_integration.LoopIntegrationTests.test_failed_candidate_rollback_restores_original_bytes) ... ok
+test_full_demo_cycle_final_module_passes_and_chain_verifies (tests.test_loop_integration.LoopIntegrationTests.test_full_demo_cycle_final_module_passes_and_chain_verifies) ... ok
+test_policy_gate_refuses_life_core_scope_and_unauthorized_external (tests.test_loop_integration.LoopIntegrationTests.test_policy_gate_refuses_life_core_scope_and_unauthorized_external) ... ok
+test_rerunnable_same_final_outcome_on_fresh_dirs (tests.test_loop_integration.LoopIntegrationTests.test_rerunnable_same_final_outcome_on_fresh_dirs) ... ok
+test_workspace_failing_test_fails_and_correct_patch_passes (tests.test_loop_integration.LoopIntegrationTests.test_workspace_failing_test_fails_and_correct_patch_passes) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 2.512s
+
+OK
