@@ -1,7 +1,9 @@
 # Genesis（诞生仪式）工程说明
 
-> 本文档描述 Slice E 交付的 `genesis` CLI 能力：一个 Agentic-Evo 主权身份的诞生仪式。
-> 它只证明「Genesis 能力」存在、可调用、可验证；**本切片不执行、也不声称执行过任何真实的 Genesis**。
+> 本文档描述 `genesis` CLI（Slice E）与 `runtime-adopt` CLI（Slice H）：一个 Agentic-Evo
+> 主权身份的诞生仪式，以及把出生 home 重整为运行时布局的采纳仪式。
+> Slice E 只证明「Genesis 能力」存在、可调用、可验证；**该切片不执行、也不声称执行过任何真实的 Genesis**。
+> Slice H 在**真实出生 home** 上执行了 `runtime-adopt` 并验证 serve/status 可用（见 `runtime_home_report.md`）。
 
 ## 1. 什么是 Genesis
 
@@ -73,7 +75,52 @@ $env:PYTHONPATH='src'
   不匹配即抛 `AuthorityError`（“host binding does not match trusted authority”）。
 - 也就是说：**只有诞生时绑定的那台主机**才能把权威切回 `on`；错误的主机绑定无法通过校验。
 
-## 6. 声明上限（claim ceilings）
+## 6. 运行时采纳（runtime-adopt）—— 让出生 home 立即可服务
+
+Slice H 新增 `runtime-adopt` 子命令：把一个**已出生（Genesis）的 home** 重整为运行时可服务的
+布局（`trusted/` + `body/`），并保持出生身份。**出生 = `genesis` + `runtime-adopt`**。
+
+### 6.1 布局差异
+
+- `genesis` CLI 把 `state.sqlite3` + `witness.key` 写在 **home 根目录**，不创建 `trusted/`、`body/`；
+- 运行时要求 `home/trusted/`（受信状态）与 `home/body/`（Body 存储），且受信 Head 必须是**真实
+  Body 承诺**：serve 会启动 Body 子进程，其 boot 协议校验 `sha256(manifest) == head`
+  （`body_process.py`）。
+
+### 6.2 身份语义（诚实说明）
+
+- `who` / `why` / `root` **逐字节不变**（`who`/`why` 是宿主绑定/目的锚的哈希，`root` 是出生时
+  钉定的根承诺；adopt 不触碰它们，Body 初始清单的 root 也写为出生 root）。
+- **Head 必然发生一次见证迁移**：真实出生 home 的 `--initial-head` 是人工钉定的字符串（例如
+  40 位 git SHA `ee79ae49…`），它**不可能是** sha256 Body 承诺（40 位 ≠ 64 位十六进制，且
+  `read_manifest` 要求 `sha256(清单) == 文件名`）——因此按原样不可能被 serve。adopt 以
+  `parent_head = 出生 head` 提交初始 Body，并通过一次**有见证的 `head_advanced` 证据记录**把
+  Head 迁移到该初始 Body 承诺（`TrustedState.advance_head`，revision/checkpoint 照常追加）。
+- 出生 head 并未丢失：它保留在初始 Body 清单的 `parent_head` 中，也保留在 genesis 证据记录
+  （seq 1）的 `head_after` 中；`records()` 在 adopt 后为 2 条（genesis + head_advanced）。
+- `witness.key` 原样保留（字节相同，仅移动到 `trusted/`）。
+
+### 6.3 如何运行
+
+```powershell
+$env:PYTHONPATH='src'
+& 'C:\Users\1\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' `
+  -m agentic_evo.cli runtime-adopt --home 'D:\path\to\born-home'
+```
+
+成功输出 JSON 收据（stdout，退出码 0）：`identity`（who/why/root/authority）、`genesis_head`、
+`head`（初始 Body 承诺）、`initial_body`（commitment/generation/parent_head/activation）、
+`trusted_layout`（trusted/state.sqlite3 + trusted/witness.key）、`evidence`
+（genesis seq 1 + adoption head_advanced seq 2）。失败输出错误 JSON（stderr，退出码 6，
+`runtime_adopt_error`）：非 Genesis home、已是运行时布局、已有 `body/`、二次 adopt、或校验失败。
+
+### 6.4 测试
+
+`tests/test_runtime_adopt.py`（7 例）：genesis → adopt → serve/status 冒烟；身份/证据保持；
+二次 adopt 拒绝；非 Genesis home 拒绝；已是运行时 home 拒绝；已有 `body/` 拒绝；
+`verify_adopted_home` API。
+
+## 7. 声明上限（claim ceilings）
 
 Genesis 只创建**身份**。它本身并**不证明**：
 

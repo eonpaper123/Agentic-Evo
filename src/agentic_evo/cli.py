@@ -38,6 +38,7 @@ from .ipc import (
 from .memory_store import MemoryStore
 from .service import main as service_main
 from .runtime import DevelopmentalRuntime
+from .runtime_adopt import RuntimeAdoptError, adopt_genesis_home
 from .trusted import TRUSTED_SCHEMA_VERSION, TrustedState
 from .windows_gate_a import (
     GateABundleError,
@@ -863,6 +864,43 @@ def _genesis(arguments: argparse.Namespace) -> int:
     return 0
 
 
+def _runtime_adopt_arguments(command: argparse.ArgumentParser) -> None:
+    """Add the runtime-adopt parameter contract."""
+
+    command.add_argument(
+        "--home",
+        type=Path,
+        required=True,
+        help=(
+            "Genesis-born home (state.sqlite3 + witness.key at the home root) "
+            "to restructure into the servable runtime layout; never runs on a "
+            "dev-home."
+        ),
+    )
+
+
+def _runtime_adopt(arguments: argparse.Namespace) -> int:
+    """Adopt a Genesis-born home into the servable runtime layout."""
+
+    home = Path(arguments.home).resolve()
+    try:
+        result = adopt_genesis_home(home)
+    except (AgenticEvoError, OSError, ValueError) as error:
+        _write_json(
+            {
+                "ok": False,
+                "error": {
+                    "code": "runtime_adopt_error",
+                    "message": str(error),
+                },
+            },
+            stream=sys.stderr,
+        )
+        return 6
+    _write_json({"ok": True, "result": result})
+    return 0
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="agentic-evo",
@@ -897,6 +935,14 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     _genesis_arguments(genesis)
+    runtime_adopt = commands.add_parser(
+        "runtime-adopt",
+        help=(
+            "Adopt a Genesis-born home into the servable runtime layout "
+            "(identity preserved; never runs on a dev-home)."
+        ),
+    )
+    _runtime_adopt_arguments(runtime_adopt)
     surface_stdio = commands.add_parser(
         "surface-stdio",
         help="Bridge a bounded generic stdio protocol to the public Surface.",
@@ -1077,6 +1123,8 @@ def main(argv: list[str] | None = None) -> int:
     arguments = _parser().parse_args(argv)
     if arguments.command == "genesis":
         return _genesis(arguments)
+    if arguments.command == "runtime-adopt":
+        return _runtime_adopt(arguments)
     if arguments.command == "serve":
         return service_main(["--dev-home", str(arguments.dev_home)])
     if arguments.command == "status":

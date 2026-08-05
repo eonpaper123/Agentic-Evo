@@ -61,6 +61,16 @@
 或手工导出/导入（`body.py` `export_manifest/import_manifest` 支持 body 迁移）。状态：`design_ready`（机制已设计：版本拒绝 + 追加迁移），
 升级工具本身 `not_proven_runtime`。
 
+**跨布局迁移（Slice H，`runtime-adopt`）**：这是仓库内第一个**跨目录布局**的迁移路径
+（Genesis 根布局 → 运行时布局 `trusted/` + `body/`）。它**不改变任何 schema 版本**：
+
+- 受信状态文件原样搬迁（`state.sqlite3` + `witness.key` 从 home 根 → `trusted/`，witness 密钥字节不变）；
+- 初始 Body 以 `parent_head = 出生 head` 提交（body-v2，commitment = sha256(canonical manifest)）；
+- 唯一的受信变更是一次**追加式、有见证的 `head_advanced` 过渡**（trusted-v2/evidence-v1/checkpoint-v1 原样追加，revision+1）；
+- 出生 head（人工钉定、非 Body 承诺的字符串）保留为初始 Body 的 `parent_head` 与 genesis 证据记录的 `head_after`。
+
+因此 `runtime-adopt` 完全遵守“append-only、无 in-place 重写、hash 链自证、版本拒绝”的迁移纪律。
+
 ## 4. 版本化 schema 要求映射（v1.0 要求 6）
 
 - 要求 6 要求发布物包含“版本化 schema”。本清单 + `release-manifest.md` 共同构成该交付物：
