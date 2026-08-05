@@ -909,6 +909,12 @@ def _memory_capability_record_outcome(arguments: argparse.Namespace) -> int:
             details = json.loads(arguments.details)
         except json.JSONDecodeError as exc:
             return _memory_error(ValueError(f"--details must be JSON: {exc}"))
+    if arguments.task_class:
+        details["task_class"] = arguments.task_class
+    if arguments.opencode_exit is not None:
+        details["opencode_exit"] = arguments.opencode_exit
+    if arguments.test_exit is not None:
+        details["test_exit"] = arguments.test_exit
     outcomes_path = arguments.outcomes or DEFAULT_OUTCOME_LOG
     try:
         log = CapabilityOutcomeLog(outcomes_path)
@@ -1419,6 +1425,20 @@ def _parser() -> argparse.ArgumentParser:
     memory_cap_record_outcome.add_argument(
         "--details",
         help="Optional JSON details (e.g. task_class, elapsed, tests).",
+    )
+    memory_cap_record_outcome.add_argument(
+        "--task-class",
+        help="Optional task class folded into details as details.task_class.",
+    )
+    memory_cap_record_outcome.add_argument(
+        "--opencode-exit",
+        type=int,
+        help="Optional opencode exit code folded into details.",
+    )
+    memory_cap_record_outcome.add_argument(
+        "--test-exit",
+        type=int,
+        help="Optional test-suite exit code folded into details.",
     )
     memory_cap_record_outcome.add_argument(
         "--outcomes",
