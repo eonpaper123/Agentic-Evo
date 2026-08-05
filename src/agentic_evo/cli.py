@@ -36,6 +36,11 @@ from .ipc import (
     validate_public_request_frame,
 )
 from .memory_store import MemoryStore
+from .memory_capability_compiler import (
+    CapabilityRegistry,
+    MemoryCapabilityCompiler,
+    DEFAULT_CAPABILITY_REGISTRY,
+)
 from .service import main as service_main
 from .runtime import DevelopmentalRuntime
 from .runtime_adopt import RuntimeAdoptError, adopt_genesis_home
@@ -774,6 +779,41 @@ def _memory_verify_chain(arguments: argparse.Namespace) -> int:
     return 0
 
 
+def _memory_capability_compile(arguments: argparse.Namespace) -> int:
+    """Compile recalled verified CAMUs into a capability card (first closed loop)."""
+    try:
+        context = json.loads(arguments.context)
+    except json.JSONDecodeError as exc:
+        return _memory_error(ValueError(f"--context must be JSON: {exc}"))
+    registry_path = arguments.registry or DEFAULT_CAPABILITY_REGISTRY
+    try:
+        store = _open_memory_store(arguments.store)
+        registry = CapabilityRegistry(registry_path)
+        compiler = MemoryCapabilityCompiler(registry)
+        cards = compiler.compile_and_register(store, context)
+    except MemoryIntegrityError as exc:
+        return _memory_integrity_error(exc)
+    except (OSError, ValueError) as exc:
+        return _memory_error(exc)
+    _write_json({"ok": True, "result": {"compiled": cards, "registry": str(registry_path)}})
+    return 0
+
+
+def _memory_capability_list(arguments: argparse.Namespace) -> int:
+    registry_path = arguments.registry or DEFAULT_CAPABILITY_REGISTRY
+    try:
+        registry = CapabilityRegistry(registry_path)
+        entries = registry.list()
+        registry.verify_chain()
+    except MemoryIntegrityError as exc:
+        return _memory_integrity_error(exc)
+    except (OSError, ValueError) as exc:
+        return _memory_error(exc)
+    _write_json({"ok": True, "result": {"capabilities": entries}})
+    return 0
+
+
+
 def _genesis_arguments(command: argparse.ArgumentParser) -> None:
     """Add the complete, externally confirmed Genesis parameter contract."""
 
@@ -1116,6 +1156,30 @@ def _parser() -> argparse.ArgumentParser:
         help="Verify the memory store hash chain.",
     )
     _memory_store_arguments(memory_verify)
+    memory_cap_compile = commands.add_parser(
+        "memory-capability-compile",
+        help="Compile recalled verified CAMU experiences into a capability card.",
+    )
+    _memory_store_arguments(memory_cap_compile)
+    memory_cap_compile.add_argument(
+        "--context",
+        required=True,
+        help="JSON task context used for recall and trigger compilation.",
+    )
+    memory_cap_compile.add_argument(
+        "--registry",
+        type=Path,
+        help="Capability registry JSONL path; default capabilities/capabilities.jsonl.",
+    )
+    memory_cap_list = commands.add_parser(
+        "memory-capability-list",
+        help="List compiled capability cards in the registry.",
+    )
+    memory_cap_list.add_argument(
+        "--registry",
+        type=Path,
+        help="Capability registry JSONL path; default capabilities/capabilities.jsonl.",
+    )
     return parser
 
 
@@ -1178,6 +1242,10 @@ def main(argv: list[str] | None = None) -> int:
         return _memory_camu_add(arguments)
     if arguments.command == "memory-camu-list":
         return _memory_camu_list(arguments)
+    if arguments.command == "memory-capability-compile":
+        return _memory_capability_compile(arguments)
+    if arguments.command == "memory-capability-list":
+        return _memory_capability_list(arguments)
     if arguments.command == "memory-camu-show":
         return _memory_camu_show(arguments)
     if arguments.command == "memory-camu-outcome":
