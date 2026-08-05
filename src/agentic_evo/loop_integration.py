@@ -235,6 +235,8 @@ def build_candidates_with_capabilities(
     *,
     registry: Any = None,
     task_context: Mapping[str, Any] | None = None,
+    outcome_log: Any = None,
+    session_id: str | None = None,
 ) -> list[CandidateRepair]:
     """Baseline candidates plus an optional capability-plan proposal (MC-4).
 
@@ -245,6 +247,10 @@ def build_candidates_with_capabilities(
     not fix content), so the loop's real probe will honestly evaluate it and
     fall through to the patch candidates. This demonstrates the integration
     path -- task -> recall -> capability plan -> loop -- without overclaiming.
+
+    MC-6: when ``outcome_log`` is provided, a matching card also records a
+    ``use`` event (measurement foundation for causal capability-gain work).
+    Recording is advisory: a failure to log never breaks the loop.
     """
     candidates = build_candidates(workspace)
     if registry is None:
@@ -257,6 +263,16 @@ def build_candidates_with_capabilities(
         return candidates
     if not resolved.get("used_capability"):
         return candidates
+    if outcome_log is not None:
+        try:
+            outcome_log.record_use(
+                resolved["card_id"],
+                dict(task_context or {}),
+                session_id=session_id,
+                provenance="loop_integration.build_candidates_with_capabilities",
+            )
+        except Exception:  # noqa: BLE001 - advisory measurement; never break the loop
+            pass
     noop = lambda _ws: None  # noqa: E731 - plan-proposal candidate applies nothing
     plan_proposal = CandidateRepair(
         candidate_id="capability-" + str(resolved["card_id"])[:12],

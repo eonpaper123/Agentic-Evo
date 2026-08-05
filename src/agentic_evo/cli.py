@@ -41,6 +41,7 @@ from .memory_capability_compiler import (
     MemoryCapabilityCompiler,
     DEFAULT_CAPABILITY_REGISTRY,
 )
+from .memory_capability_report import DEFAULT_OUTCOME_LOG
 from .service import main as service_main
 from .runtime import DevelopmentalRuntime
 from .runtime_adopt import RuntimeAdoptError, adopt_genesis_home
@@ -870,6 +871,90 @@ def _memory_capability_apply(arguments: argparse.Namespace) -> int:
     return 0
 
 
+def _memory_capability_record_use(arguments: argparse.Namespace) -> int:
+    """Record that a capability plan was offered for a task (MC-6)."""
+    from .memory_capability_report import CapabilityOutcomeLog
+
+    try:
+        context = json.loads(arguments.context)
+    except json.JSONDecodeError as exc:
+        return _memory_error(ValueError(f"--context must be JSON: {exc}"))
+    outcomes_path = arguments.outcomes or DEFAULT_OUTCOME_LOG
+    try:
+        log = CapabilityOutcomeLog(outcomes_path)
+        event_id = log.record_use(
+            arguments.card_id,
+            context,
+            session_id=arguments.session_id,
+            provenance=arguments.provenance,
+        )
+        log.verify_chain()
+    except MemoryIntegrityError as exc:
+        return _memory_integrity_error(exc)
+    except (OSError, ValueError) as exc:
+        return _memory_error(exc)
+    _write_json(
+        {"ok": True, "result": {"event_id": event_id, "outcomes": str(outcomes_path)}}
+    )
+    return 0
+
+
+def _memory_capability_record_outcome(arguments: argparse.Namespace) -> int:
+    """Record a verified task outcome for a capability card (MC-6)."""
+    from .memory_capability_report import CapabilityOutcomeLog
+
+    details: dict[str, Any] = {}
+    if arguments.details:
+        try:
+            details = json.loads(arguments.details)
+        except json.JSONDecodeError as exc:
+            return _memory_error(ValueError(f"--details must be JSON: {exc}"))
+    outcomes_path = arguments.outcomes or DEFAULT_OUTCOME_LOG
+    try:
+        log = CapabilityOutcomeLog(outcomes_path)
+        event_id = log.record_outcome(
+            arguments.card_id,
+            ok=arguments.ok,
+            session_id=arguments.session_id,
+            details=details,
+        )
+        log.verify_chain()
+    except MemoryIntegrityError as exc:
+        return _memory_integrity_error(exc)
+    except (OSError, ValueError) as exc:
+        return _memory_error(exc)
+    _write_json(
+        {"ok": True, "result": {"event_id": event_id, "outcomes": str(outcomes_path)}}
+    )
+    return 0
+
+
+def _memory_capability_report(arguments: argparse.Namespace) -> int:
+    """Build the capability outcome measurement report (MC-6)."""
+    from .memory_capability_report import (
+        CapabilityOutcomeLog,
+        build_capability_report,
+        render_report_text,
+    )
+
+    registry_path = arguments.registry or DEFAULT_CAPABILITY_REGISTRY
+    outcomes_path = arguments.outcomes or DEFAULT_OUTCOME_LOG
+    try:
+        registry = CapabilityRegistry(registry_path)
+        registry.verify_chain()
+        log = CapabilityOutcomeLog(outcomes_path)
+        report = build_capability_report(registry, log)
+    except MemoryIntegrityError as exc:
+        return _memory_integrity_error(exc)
+    except (OSError, ValueError) as exc:
+        return _memory_error(exc)
+    if arguments.json:
+        _write_json({"ok": True, "result": report})
+    else:
+        print(render_report_text(report))
+    return 0
+
+
 
 def _genesis_arguments(command: argparse.ArgumentParser) -> None:
     """Add the complete, externally confirmed Genesis parameter contract."""
@@ -1286,6 +1371,79 @@ def _parser() -> argparse.ArgumentParser:
         required=True,
         help="JSON task context matched against each card trigger.",
     )
+    memory_cap_record_use = commands.add_parser(
+        "memory-capability-record-use",
+        help="Record that a capability plan was offered for a task (MC-6 measurement).",
+    )
+    memory_cap_record_use.add_argument(
+        "--card-id",
+        required=True,
+        help="Capability card id (sha256 hex).",
+    )
+    memory_cap_record_use.add_argument(
+        "--context",
+        required=True,
+        help="JSON task context at the time the plan was offered.",
+    )
+    memory_cap_record_use.add_argument(
+        "--session-id",
+        help="Optional session id for matched-outcome correlation.",
+    )
+    memory_cap_record_use.add_argument(
+        "--provenance",
+        help="Optional free-text provenance of the use event.",
+    )
+    memory_cap_record_use.add_argument(
+        "--outcomes",
+        type=Path,
+        help="Outcome log JSONL path; default capabilities/outcomes.jsonl.",
+    )
+    memory_cap_record_outcome = commands.add_parser(
+        "memory-capability-record-outcome",
+        help="Record a verified task outcome for a capability card (MC-6 measurement).",
+    )
+    memory_cap_record_outcome.add_argument(
+        "--card-id",
+        required=True,
+        help="Capability card id (sha256 hex).",
+    )
+    memory_cap_record_outcome.add_argument(
+        "--ok",
+        action="store_true",
+        help="Outcome passed the Body's verification (exit 0 + tests OK).",
+    )
+    memory_cap_record_outcome.add_argument(
+        "--session-id",
+        help="Optional session id for matched-outcome correlation.",
+    )
+    memory_cap_record_outcome.add_argument(
+        "--details",
+        help="Optional JSON details (e.g. task_class, elapsed, tests).",
+    )
+    memory_cap_record_outcome.add_argument(
+        "--outcomes",
+        type=Path,
+        help="Outcome log JSONL path; default capabilities/outcomes.jsonl.",
+    )
+    memory_cap_report = commands.add_parser(
+        "memory-capability-report",
+        help="Build the capability outcome measurement report (MC-6).",
+    )
+    memory_cap_report.add_argument(
+        "--registry",
+        type=Path,
+        help="Capability registry JSONL path; default capabilities/capabilities.jsonl.",
+    )
+    memory_cap_report.add_argument(
+        "--outcomes",
+        type=Path,
+        help="Outcome log JSONL path; default capabilities/outcomes.jsonl.",
+    )
+    memory_cap_report.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit the machine-readable JSON report instead of text.",
+    )
     return parser
 
 
@@ -1356,6 +1514,12 @@ def main(argv: list[str] | None = None) -> int:
         return _memory_experience_ingest(arguments)
     if arguments.command == "memory-capability-apply":
         return _memory_capability_apply(arguments)
+    if arguments.command == "memory-capability-record-use":
+        return _memory_capability_record_use(arguments)
+    if arguments.command == "memory-capability-record-outcome":
+        return _memory_capability_record_outcome(arguments)
+    if arguments.command == "memory-capability-report":
+        return _memory_capability_report(arguments)
     if arguments.command == "memory-camu-show":
         return _memory_camu_show(arguments)
     if arguments.command == "memory-camu-outcome":
