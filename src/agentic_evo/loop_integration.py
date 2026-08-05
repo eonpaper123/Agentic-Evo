@@ -230,6 +230,54 @@ def build_candidates(workspace: DefectWorkspace) -> list[CandidateRepair]:
     ]
 
 
+def build_candidates_with_capabilities(
+    workspace: DefectWorkspace,
+    *,
+    registry: Any = None,
+    task_context: Mapping[str, Any] | None = None,
+) -> list[CandidateRepair]:
+    """Baseline candidates plus an optional capability-plan proposal (MC-4).
+
+    When ``registry`` is provided and a capability card matches ``task_context``,
+    the compiled card's procedure is prepended as a *plan-proposal* candidate
+    (candidate_id ``capability-<card>``). Its apply/revert are no-ops: the card
+    does not yet carry executable patch mechanics (TrustedState stores hashes,
+    not fix content), so the loop's real probe will honestly evaluate it and
+    fall through to the patch candidates. This demonstrates the integration
+    path -- task -> recall -> capability plan -> loop -- without overclaiming.
+    """
+    candidates = build_candidates(workspace)
+    if registry is None:
+        return candidates
+    try:
+        from .memory_capability_compiler import resolve_plan
+
+        resolved = resolve_plan(registry, dict(task_context or {}))
+    except Exception:  # noqa: BLE001 - capability is advisory; never break the loop
+        return candidates
+    if not resolved.get("used_capability"):
+        return candidates
+    noop = lambda _ws: None  # noqa: E731 - plan-proposal candidate applies nothing
+    plan_proposal = CandidateRepair(
+        candidate_id="capability-" + str(resolved["card_id"])[:12],
+        scope=_CANDIDATE_SCOPE,
+        effect_kind="external",
+        plan={
+            "kind": "capability_card",
+            "card_id": resolved["card_id"],
+            "domain": resolved.get("domain"),
+            "procedure": resolved.get("plan"),
+            "applies": "plan-proposal compiled from real experience; patch mechanics pending",
+            "reverts": "no file changes were made",
+        },
+        apply=noop,
+        revert=noop,
+        reversible=True,
+        touches_life_core=False,
+    )
+    return [plan_proposal] + candidates
+
+
 def _make_probe(workspace: DefectWorkspace) -> Callable[[], tuple[bool, Mapping[str, Any]]]:
     """Probe: run the real test suite in the workspace and report evidence."""
 

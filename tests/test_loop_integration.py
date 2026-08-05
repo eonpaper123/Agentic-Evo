@@ -289,5 +289,62 @@ class LoopIntegrationTests(unittest.TestCase):
             )
 
 
+class CapabilitySeededCandidatesTests(unittest.TestCase):
+    """MC-4: the autonomous loop can be steered by compiled capability cards."""
+
+    def setUp(self) -> None:
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.root = Path(self.tempdir.name)
+        self.ws = DefectWorkspace.create(self.root)
+        from agentic_evo.memory_capability_compiler import (
+            CapabilityRegistry,
+            make_capability_card,
+        )
+
+        self.registry = CapabilityRegistry(self.root / "capabilities" / "capabilities.jsonl")
+        card = make_capability_card(
+            domain="executable_skill",
+            trigger={"problem_class": "off_by_one_window"},
+            procedure=["reproduce", "fix the range", "verify"],
+            expected_outcome={"description": "ok"},
+            evidence_refs=["a" * 64],
+        )
+        self.card_id = self.registry.register(card)
+
+    def tearDown(self) -> None:
+        self.tempdir.cleanup()
+
+    def test_baseline_without_registry(self) -> None:
+        from agentic_evo.loop_integration import build_candidates_with_capabilities
+
+        candidates = build_candidates_with_capabilities(self.ws)
+        self.assertEqual(len(candidates), 2)
+
+    def test_matching_card_prepends_plan_proposal(self) -> None:
+        from agentic_evo.loop_integration import build_candidates_with_capabilities
+
+        candidates = build_candidates_with_capabilities(
+            self.ws,
+            registry=self.registry,
+            task_context={"problem_class": "off_by_one_window"},
+        )
+        self.assertEqual(len(candidates), 3)
+        first = candidates[0]
+        self.assertTrue(first.candidate_id.startswith("capability-"))
+        self.assertEqual(first.plan["kind"], "capability_card")
+        self.assertEqual(first.plan["card_id"], self.card_id)
+        self.assertIn("reproduce", first.plan["procedure"])
+
+    def test_nonmatching_context_returns_baseline(self) -> None:
+        from agentic_evo.loop_integration import build_candidates_with_capabilities
+
+        candidates = build_candidates_with_capabilities(
+            self.ws,
+            registry=self.registry,
+            task_context={"other": 1},
+        )
+        self.assertEqual(len(candidates), 2)
+
+
 if __name__ == "__main__":
     unittest.main()
