@@ -8,6 +8,7 @@ import sys
 from typing import Any, Mapping
 
 from .adapters.codex import handle_codex_hook
+from .adapters.opencode import handle_opencode_hook
 from .autonomous_loop import smoke_main as autonomous_loop_smoke_main
 from ._util import canonical_json_bytes
 from .errors import (
@@ -122,11 +123,14 @@ def _off_rehearsal(home: Path) -> int:
     return 0
 
 
-def _codex_hook(home: Path) -> int:
+def _surface_hook(home: Path, surface: str) -> int:
     payload = _read_hook_input()
     if payload is None:
         return 0
-    result = handle_codex_hook(home, payload)
+    if surface == "opencode":
+        result = handle_opencode_hook(home, payload)
+    else:
+        result = handle_codex_hook(home, payload)
     if result is not None:
         _write_json(result)
     return 0
@@ -869,7 +873,7 @@ def _parser() -> argparse.ArgumentParser:
         ("serve", "Run the fixed-home foreground Witness rehearsal."),
         ("status", "Read status through the public Surface."),
         ("off", "Request Off through the unauthenticated control rehearsal."),
-        ("hook", "Handle one bounded Codex lifecycle hook from stdin."),
+        ("hook", "Handle one bounded Codex or opencode lifecycle hook from stdin."),
     ):
         command = commands.add_parser(name, help=help_text)
         command.add_argument(
@@ -878,6 +882,13 @@ def _parser() -> argparse.ArgumentParser:
             required=True,
             help="Existing disposable runtime home; never performs Genesis.",
         )
+        if name == "hook":
+            command.add_argument(
+                "--surface",
+                choices=("codex", "opencode"),
+                default="codex",
+                help="Coding-agent hook adapter to dispatch to (default: codex).",
+            )
     genesis = commands.add_parser(
         "genesis",
         help=(
@@ -1073,7 +1084,7 @@ def main(argv: list[str] | None = None) -> int:
     if arguments.command == "off":
         return _off_rehearsal(arguments.dev_home)
     if arguments.command == "hook":
-        return _codex_hook(arguments.dev_home)
+        return _surface_hook(arguments.dev_home, arguments.surface)
     if arguments.command == "surface-stdio":
         return _surface_stdio(arguments.dev_home, arguments.execution_surface)
     if arguments.command == "plan-install":

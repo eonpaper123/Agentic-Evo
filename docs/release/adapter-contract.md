@@ -105,3 +105,75 @@
 - **不得声称**：第二个真实 coding agent 已接入（GOAL.md 要求 2 未达成）；Codex hook 已安装并在真实会话中产生证据；
 - **可声称**：adapter 基础设施（hook 映射、公共 Surface、帧校验、复合会话身份）已实现并通过单元测试；
   该基础设施是 provider-neutral 的 adapter 基础，不构成“已完成第二 agent 接入”。
+
+## 7. `adapters/opencode.py` — 第二个 coding agent（opencode 1.18.13）hook 映射
+
+入口：`handle_opencode_hook(home, payload)`（`src/agentic_evo/adapters/opencode.py`），`execution_surface="opencode"`。
+映射纪律与 `codex.py` 完全一致：**不复制原始 prompt/工具内容**，只存 `sha256` + 有界字段；
+任何 adapter/surface 异常（`AgenticEvoError/KeyError/OSError/TimeoutError/...`）一律吞掉返回 `None`（fail-open）。
+
+### 已确认的 opencode 1.18.13 hook schema（2026-08-05 核对）
+
+- **不存在** `hook` JSON 配置键；真正的 hook 表面是 **plugin event 系统**：
+  `.opencode/plugins/*.js|ts` 或 `~/.config/opencode/plugins/` 的本地插件（或 `plugin` 数组里的 npm 插件），
+  导出按事件名命名的 hook 函数，payload 为进程内 JSON 对象（camelCase 字段：`sessionID`、`messageID`、`info`、`tool`、`args`…）。
+- 已确认事件（opencode.ai/docs/plugins + v1.18.13 源码 `packages/schema/src/v1/session.ts`、`session-status-event.ts`）：
+  `session.created / updated / deleted / idle / error / status / diff / compacted`、
+  `message.updated / removed / part.updated / part.removed / part.delta`、
+  `tool.execute.before / after`、`permission.asked / replied`、`command.executed`、`file.edited` 等。
+- 设计稿猜测的 `session.start / session.end / notification` 在 1.18.13 中**不存在**；
+  本 adapter 保留 `session.start`（=wake 别名，等价 `session.created`）与 `session.end`（=sleep 别名，等价 `session.idle`/`session.deleted`）
+  作为旧 hook 契约的兼容别名，`notification` 落入通用兜底映射。
+
+### 事件映射表（`_map_event`）
+
+| opencode 事件（1.18.13） | 别名 | Surface 操作 | 记录内容 |
+| --- | --- | --- | --- |
+| `session.created` | `session.start` | `surface.wake(execution_surface="opencode", session_id, project_environment, model)` | 返回 `hookSpecificOutput.additionalContext`（Root/Head/Generation/Body files/activation 摘要） |
+| `session.idle`、`session.deleted`、`session.status`(type=idle) | `session.end` | `surface.sleep(...)` | 无 |
+| `message.updated`（`info` 对象） | `message`（旧契约，`message` 文本字段） | `surface.observe(...)` | `message_role`、`message_id`、`message_sha256`（或旧契约 `message_chars`+`message_sha256`） |
+| `message.part.updated` / `part.delta` / `removed` | — | `surface.observe(...)` | `part_type`、`part_chars`、`part_sha256`（delta：`field`、`delta_chars`、`delta_sha256`） |
+| `tool.execute.before` / `after` | `tool` | `surface.observe(...)` | `tool_use_started` / `tool_use_finished`；`tool_name`、`tool_input_sha256`、`tool_response_sha256` |
+| `permission.asked` / `replied` | — | `surface.observe(...)` | `permission_requested` / `permission_replied`；`tool_name`、`tool_input_sha256`、`permission_mode` |
+| `command.executed` | — | `surface.observe(...)` | `command_executed`；`command_name`、`arguments_chars`、`arguments_sha256` |
+| `file.edited` | — | `surface.observe(...)` | `file_edited`；`file_path`(≤192 字符)、`file_path_sha256` |
+| `session.error` | — | `surface.observe(...)` | `session_error`；`error_name`、`error_message_sha256` |
+| `session.updated` / `session.diff` / `session.status`(busy/retry) / `session.compacted` | — | `surface.observe(...)` | `session_updated` / `session_diff` / `session_status` / `context_compaction_finished` |
+| 其它 | — | `surface.observe(...)` | `execution_surface_event`；`unmapped_event_name`（有界文本） |
+
+边界行为：所有自由文本经 `_bounded_text(limit=256)`；`project_environment` 一律 `sha256:` 摘要（`directory`/`cwd`/`info.directory`）；
+字段容错同时接受 camelCase（`sessionID`/`callID`/`modelID`）与 snake_case（`session_id`/`tool_call_id`/`model_id`）。
+
+### 真实用法（opencode.json + 本地插件桥接）
+
+`opencode.json`：
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["./plugins/agentic-evo"]
+}
+```
+
+`.opencode/plugins/agentic-evo.js`（把事件 JSON 经 stdin 转发给 `agentic-evo hook --surface opencode`）：
+
+```js
+export const AgenticEvo = async ({ $ }) => {
+  const home = process.env.AGENTIC_EVO_HOME
+  const forward = (payload) => {
+    if (!home) return
+    const { stdout, stderr, exitCode } = await $`printf %s ${JSON.stringify(payload)} | agentic-evo hook --surface opencode --dev-home ${home}`
+  }
+  return {
+    "session.created": async (input) => forward({ type: "session.created", ...input }),
+    "session.idle": async (input) => forward({ type: "session.idle", ...input }),
+    "session.error": async (input) => forward({ type: "session.error", ...input }),
+    "message.part.updated": async (input) => forward({ type: "message.part.updated", ...input }),
+    "tool.execute.before": async (input, output) => forward({ type: "tool.execute.before", ...input, args: output.args }),
+    "tool.execute.after": async (input, output) => forward({ type: "tool.execute.after", ...input, result: output }),
+  }
+}
+```
+
+状态：`code_present` + `verified`（`tests/test_opencode_adapter.py`，含 genesis fixture home 的单元测试）；
+真实任务运行 + 可重跑 evidence：`not_proven_runtime` / `blocked_authorization`（父步骤后续执行）。
