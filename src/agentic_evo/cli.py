@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -36,6 +37,7 @@ from .ipc import (
     validate_public_request_frame,
 )
 from .memory_store import MemoryStore
+from .observer import observe, report_json, report_markdown
 from .service import main as service_main
 from .runtime import DevelopmentalRuntime
 from .runtime_adopt import RuntimeAdoptError, adopt_genesis_home
@@ -71,6 +73,35 @@ def _write_json(value: Mapping[str, Any], *, stream: Any = None) -> None:
         file=target,
         flush=True,
     )
+
+
+def _observer_paths_alias(first: Path, second: Path) -> bool:
+    first_absolute = os.path.normcase(os.path.abspath(os.fspath(first)))
+    second_absolute = os.path.normcase(os.path.abspath(os.fspath(second)))
+    if first_absolute == second_absolute:
+        return True
+
+    first_resolved = os.path.normcase(os.fspath(Path(first_absolute).resolve(strict=False)))
+    second_resolved = os.path.normcase(os.fspath(Path(second_absolute).resolve(strict=False)))
+    if first_resolved == second_resolved:
+        return True
+
+    if os.path.exists(first_absolute) and os.path.exists(second_absolute):
+        return os.path.samefile(first_absolute, second_absolute)
+    return False
+
+
+def _preflight_observer_outputs(
+    source: Path,
+    json_output: Path | None,
+    markdown_output: Path | None,
+) -> None:
+    outputs = [path for path in (json_output, markdown_output) if path is not None]
+    pairs = [(source, output) for output in outputs]
+    if len(outputs) == 2:
+        pairs.append((outputs[0], outputs[1]))
+    if any(_observer_paths_alias(first, second) for first, second in pairs):
+        raise ValueError("observer input and output paths must be distinct")
 
 
 def _read_hook_input() -> dict[str, Any] | None:
@@ -962,6 +993,17 @@ def _parser() -> argparse.ArgumentParser:
         "plan-install",
         help="Print a deterministic plan that performs no installation writes.",
     )
+    observer = commands.add_parser(
+        "observe",
+        help="Read Coding Agent receipts and emit a deterministic safe report.",
+    )
+    observer.add_argument("source", type=Path)
+    observer.add_argument(
+        "--agent-kind", choices=("auto", "codex", "lingtai"), default="auto"
+    )
+    observer.add_argument("--format", choices=("json", "markdown"), default="json")
+    observer.add_argument("--json-output", type=Path)
+    observer.add_argument("--markdown-output", type=Path)
     loop_smoke = commands.add_parser(
         "autonomous-loop-smoke",
         help="Run an in-memory autonomous-loop smoke fixture and write JSONL records.",
@@ -1138,6 +1180,34 @@ def main(argv: list[str] | None = None) -> int:
     if arguments.command == "plan-install":
         _write_json(build_install_plan())
         return 0
+    if arguments.command == "observe":
+        try:
+            _preflight_observer_outputs(
+                arguments.source,
+                arguments.json_output,
+                arguments.markdown_output,
+            )
+            report = observe(arguments.source, agent_kind=arguments.agent_kind)
+            json_text = report_json(report)
+            markdown_text = report_markdown(report)
+            if arguments.json_output is not None:
+                arguments.json_output.write_text(json_text, encoding="utf-8")
+            if arguments.markdown_output is not None:
+                arguments.markdown_output.write_text(markdown_text, encoding="utf-8")
+            sys.stdout.write(json_text if arguments.format == "json" else markdown_text)
+            return 0
+        except (OSError, UnicodeError, ValueError):
+            _write_json(
+                {
+                    "ok": False,
+                    "error": {
+                        "code": "observer_input_error",
+                        "message": "Observer source or output could not be processed",
+                    },
+                },
+                stream=sys.stderr,
+            )
+            return 6
     if arguments.command == "export-experiment-prereg":
         return _export_experiment_prereg(arguments)
     if arguments.command == "export-experiment-pack":

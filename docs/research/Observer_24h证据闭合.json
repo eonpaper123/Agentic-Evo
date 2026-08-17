@@ -1,0 +1,90 @@
+{
+  "schema": "agentic-evo.observer-classification-closure.v1",
+  "source_artifacts": [
+    "observer_24h_final_report.md",
+    "observer_24h_final_metrics.json"
+  ],
+  "evidence_boundary": {
+    "allowed": [
+      "frozen final report and metrics",
+      "sanitized derived event anchors and bounded metadata"
+    ],
+    "excluded": [
+      "raw prompts or transcripts",
+      "tool arguments or tool bodies",
+      "secrets or token ledgers",
+      "SQLite logs or private conversation bodies"
+    ]
+  },
+  "baseline": {
+    "collector_status": "ended_healthy_exit0",
+    "cycles": 1335,
+    "sanitized_derived_records": 28436,
+    "unique_observations": 14,
+    "confirmed_true_positives": 9,
+    "known_false_positives": 0,
+    "unclassified_observations": 5,
+    "aggregate_coverage_gaps": 6
+  },
+  "closure": {
+    "confirmed_true_positives": 9,
+    "known_false_positives": 0,
+    "unresolved": 5,
+    "unclassified": 0,
+    "status": "closed_without_forced_classification",
+    "reason": "The allowed evidence independently confirms only that each structured result reported failure; it cannot establish the external event or root cause."
+  },
+  "items": [
+    {
+      "id": "UO01",
+      "cycle": 235,
+      "occurred_at_utc": "2026-08-13T08:31:25.140967Z",
+      "duration_ms": 7,
+      "status": "failed",
+      "sanitized_anchor": "cycle-000235#line:52",
+      "evaluation_status": "unresolved",
+      "reason": "Structured failure only; no independent external confirmation is available within the allowed evidence boundary."
+    },
+    {
+      "id": "UO02",
+      "cycle": 843,
+      "occurred_at_utc": "2026-08-13T18:45:48.639754Z",
+      "duration_ms": 1564,
+      "status": "failed",
+      "sanitized_anchor": "cycle-000843#line:25",
+      "evaluation_status": "unresolved",
+      "reason": "Structured failure only; no independent external confirmation is available within the allowed evidence boundary."
+    },
+    {
+      "id": "UO03",
+      "cycle": 844,
+      "occurred_at_utc": "2026-08-13T18:47:11.251296Z",
+      "duration_ms": 15022,
+      "status": "failed",
+      "sanitized_anchor": "cycle-000844#line:23",
+      "evaluation_status": "unresolved",
+      "reason": "Structured failure only; no independent external confirmation is available within the allowed evidence boundary."
+    },
+    {
+      "id": "UO04",
+      "cycle": 847,
+      "occurred_at_utc": "2026-08-13T18:49:46.534514Z",
+      "duration_ms": 15024,
+      "status": "failed",
+      "sanitized_anchor": "cycle-000847#line:10",
+      "evaluation_status": "unresolved",
+      "reason": "Structured failure only; no independent external confirmation is available within the allowed evidence boundary."
+    },
+    {
+      "id": "UO05",
+      "cycle": 847,
+      "occurred_at_utc": "2026-08-13T18:49:53.437678Z",
+      "duration_ms": 0,
+      "status": "failed",
+      "sanitized_anchor": "cycle-000847#line:70",
+      "evaluation_status": "unresolved",
+      "reason": "Structured failure only; no independent external confirmation is available within the allowed evidence boundary."
+    }
+  ],
+  "claim_ceiling": "Observer proves evidence-anchored discovery of structured failures. This closure does not prove external root cause, repair correctness, capability gain, self-evolution, complete coverage, precision, recall, or a zero false-positive rate."
+}
