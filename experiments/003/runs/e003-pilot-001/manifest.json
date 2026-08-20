@@ -1,0 +1,107 @@
+{
+  "schema": "agentic-evo.e003-run-manifest.v1",
+  "run_id": "e003-pilot-001",
+  "prepared_at_utc": "2026-08-20T18:47:47.870Z",
+  "registered_at_utc": null,
+  "registration_status": "draft_blocked",
+  "execution_status": "not_run",
+  "protocol_ref": "experiments/003/prereg.json",
+  "frozen_parent_ref": {
+    "agent_root": "agentic-evo-root-v1",
+    "body_head": "1628ca500af68509084609a47a692efdad903c47fa612e1fdd070f8e796a5884",
+    "generation": 1,
+    "source_git_commit": "5b66966950066e78d09701d40b07e85c6c20c857"
+  },
+  "target_episode_refs": [
+    {
+      "task_class": "off_by_one_window",
+      "capability_card_id": "de2900c268a7a8d63094200a9a2dad5b646e5a3cb5467b1775c580a5c879cce8",
+      "camu_ids": [
+        "224d0d12e7d7dfcceb28d5fccf40328f2698ffb7834ff8f4dc248a8ba9a65f71",
+        "304107e354f912699100db96991416a2262559324e8fe529dce42c562045ed31",
+        "b8702967ba67383a3dd29f884dbb21e8b0dfafa357d82252ed7d4fc3eff30805",
+        "d2ed434cb61ca1403b937c6002bc4e762df9106201bedbc4796cee303045651e"
+      ]
+    },
+    {
+      "task_class": "title_case_mixed",
+      "capability_card_id": "f417fcc5a3f316d544c98f3e9d0313b0e214a49198bb47e0b864c94251a598e6",
+      "camu_ids": [
+        "e0e65ca2e9ff0956006ec6738d4d788d32fd6aa358862b9753f3ef6a6f153fb9"
+      ]
+    }
+  ],
+  "treatment_state_ref": {
+    "sources": [
+      {
+        "path": "D:/rawle/Coding/Agentic-Evo/.agentic-evo/runtime-home/capabilities/capabilities.jsonl",
+        "sha256": "c359949da898e4a50df648776e16fe963dae22ef231168c86b5c89bbe2931f69"
+      },
+      {
+        "path": "D:/rawle/Coding/Agentic-Evo/.agentic-evo/runtime-home/memory/camus.jsonl",
+        "sha256": "d0177674f3c39c5cc80245e7178db1b3db97a6debebf9f521643241ed461f264"
+      }
+    ],
+    "cards": [
+      {
+        "id": "de2900c268a7a8d63094200a9a2dad5b646e5a3cb5467b1775c580a5c879cce8",
+        "task_class": "off_by_one_window",
+        "procedure": [
+          "Fix the bug in task.py so test_task.py passes"
+        ],
+        "status": "candidate"
+      },
+      {
+        "id": "f417fcc5a3f316d544c98f3e9d0313b0e214a49198bb47e0b864c94251a598e6",
+        "task_class": "title_case_mixed",
+        "procedure": [
+          "Fix the bug in strings.py so test_strings.py passes"
+        ],
+        "status": "candidate"
+      }
+    ]
+  },
+  "arm_projection_refs": null,
+  "held_out_task_pack_ref": null,
+  "acceptance_evaluator_ref_and_version": null,
+  "arm_assignment": null,
+  "run_order": null,
+  "replication_count": 2,
+  "model_id_and_version": null,
+  "execution_surface": {
+    "id": "opencode",
+    "version": "1.18.13"
+  },
+  "tool_manifest": {
+    "python": "3.12.13",
+    "git": "2.55.0.windows.3"
+  },
+  "context_policy": "Each successor must start in an independent new context and receive only its assigned projection plus the held-out task after assignment.",
+  "token_time_and_tool_budgets": null,
+  "instrument_version": "5b66966950066e78d09701d40b07e85c6c20c857",
+  "analysis_method": "Complete all three preregistered contrasts within each target pair; primary outcomes come only from frozen external checks.",
+  "primary_effect_threshold": null,
+  "uncertainty_rule": "Any missing contrast, invalid derangement, cross-arm writeback, resource mismatch, or disagreement between the two replicas makes the run inconclusive.",
+  "exclusion_rules": [
+    "Exclude a successor exposed to another arm's history or result.",
+    "Exclude a successor exposed to the held-out task before assignment.",
+    "Do not replace an excluded successor after outcomes are visible."
+  ],
+  "abort_rules": [
+    "Abort before provider invocation while registration_status is not run_registered.",
+    "Abort if the frozen parent or treatment state cannot be reproduced exactly.",
+    "Abort if a valid two-pair memory-to-task derangement cannot be formed."
+  ],
+  "privacy_policy": "Do not publish or project raw prompts, transcripts, tool arguments, secrets, token ledgers, SQLite contents, or private session text.",
+  "human_intervention_ledger_ref": null,
+  "equivalent_instruction_text_and_assignment": null,
+  "shuffled_memory_derangement_rule_and_frozen_mapping": null,
+  "delayed_retest_schedule": null,
+  "blocking_observation": {
+    "observed_capability_cards": 5,
+    "observed_camu_use_log_entries": 0,
+    "finding": "The two candidate treatments retain task labels and a restatement of the task, but no transferable repair procedure. Their source CAMUs also contain no repair method or observed use evidence.",
+    "causal_consequence": "A meaningful equivalent-instruction control and content-sensitive derangement cannot be frozen without inventing information that the Agent did not retain.",
+    "only_unblock_condition": "Record at least two independently learned, content-bearing histories whose procedures were available to the Agent before future held-out tasks, then freeze their exact projections and controls before exposure."
+  }
+}
