@@ -1,0 +1,184 @@
+{
+  "schema": "agentic-evo.e003-run-manifest.v1",
+  "run_id": "e003-pilot-002",
+  "registered_at_utc": "2026-08-20T19:31:56.546Z",
+  "registration_status": "run_registered",
+  "execution_status": "not_run",
+  "registration_git_ref": "refs/tags/e003-pilot-002-registered",
+  "protocol_ref": "experiments/003/prereg.json",
+  "frozen_parent_ref": {
+    "kind": "prospective_externalized_history_harness.v1",
+    "registration_git_ref": "refs/tags/e003-pilot-002-registered",
+    "base_state": "For every unit, create a fresh OS temporary directory and materialize only that registered task's visible_files before applying its assigned arm projection.",
+    "agent_state": "A fresh OpenCode e003-pilot agent under the exact registered model, config, prompt envelope, and budgets; no Agentic-Evo Body or active Head is claimed as the unit parent."
+  },
+  "lab_ref": "experiments/labs/3060-computer.json",
+  "target_episode_refs": [
+    "experiments/003/runs/e003-pilot-002/tasks.json#/source_episodes/0",
+    "experiments/003/runs/e003-pilot-002/tasks.json#/source_episodes/1"
+  ],
+  "treatment_state_ref": {
+    "path": "experiments/003/runs/e003-pilot-002/results/histories.json",
+    "formation_rule": "The runner records both registered source episodes in fixed order, with their exact instruction, before files, after files, provider exit, external-check exit, and observed boundary status. No history is selected, replaced, summarized, or semantically edited after source outcomes are visible.",
+    "eligibility_rule": "Both source episodes must complete without observed boundary leakage. Their histories remain assigned even when their external checks fail."
+  },
+  "arm_projection_refs": {
+    "retained_history": "Materialize the matching pair history as .agentic-evo/prior-experience.json and use the registered file-history prompt prefix.",
+    "no_memory": "Materialize no history and use the task instruction without a history prefix.",
+    "shuffled_memory": "Materialize the frozen nonmatching pair history at the same path and use the identical file-history prompt prefix.",
+    "equivalent_instruction": "Materialize no history file; embed the canonical JSON of the matching pair history in the registered equivalent-instruction prefix."
+  },
+  "held_out_task_pack_ref": "experiments/003/runs/e003-pilot-002/tasks.json#/evaluation_tasks",
+  "acceptance_evaluator_ref_and_version": {
+    "refs": [
+      "experiments/003/runs/e003-pilot-002/tasks.json#/evaluation_tasks/0/external_checks",
+      "experiments/003/runs/e003-pilot-002/tasks.json#/evaluation_tasks/1/external_checks",
+      "experiments/003/runs/e003-pilot-002/tasks.json#/evaluation_tasks/2/external_checks",
+      "experiments/003/runs/e003-pilot-002/tasks.json#/evaluation_tasks/3/external_checks"
+    ],
+    "version": "e003-pilot-002-external-checks.v1",
+    "rule": "External checks stay outside the unit until the model process exits; primary pass is exit code 0."
+  },
+  "arm_assignment": {
+    "rule": "For every registered evaluation task, run each of the four arms with replicas 1 and 2 as independent successors from the frozen parent.",
+    "arms": [
+      "retained_history",
+      "no_memory",
+      "shuffled_memory",
+      "equivalent_instruction"
+    ],
+    "replicas": [1, 2],
+    "unit_id_format": "{phase}--{task_id}--{arm}--r{replica}"
+  },
+  "run_order": {
+    "source_task_ids": [
+      "source-delimited-fields",
+      "source-dependency-order"
+    ],
+    "phase_order": [
+      "immediate",
+      "delayed"
+    ],
+    "task_order_by_phase": {
+      "immediate": [
+        "eval-pipe-fields-immediate",
+        "eval-build-layers-immediate"
+      ],
+      "delayed": [
+        "eval-semicolon-fields-delayed",
+        "eval-install-order-delayed"
+      ]
+    },
+    "replica_order": [1, 2],
+    "counterbalanced_arm_orders": [
+      ["retained_history", "no_memory", "shuffled_memory", "equivalent_instruction"],
+      ["no_memory", "shuffled_memory", "equivalent_instruction", "retained_history"],
+      ["shuffled_memory", "equivalent_instruction", "retained_history", "no_memory"],
+      ["equivalent_instruction", "retained_history", "no_memory", "shuffled_memory"]
+    ],
+    "order_assignment": "Within each phase, task and replica positions index the four listed orders in sequence."
+  },
+  "replication_count": 2,
+  "model_id_and_version": {
+    "route": "deepseek/deepseek-v4-flash"
+  },
+  "execution_surface": {
+    "id": "opencode",
+    "version": "1.18.13",
+    "arguments": [
+      "run",
+      "--pure",
+      "--auto",
+      "--format",
+      "json",
+      "--agent",
+      "e003-pilot"
+    ],
+    "config": {
+      "share": "disabled",
+      "agent": {
+        "e003-pilot": {
+          "description": "Edit only the registered synthetic task files inside the current unit directory.",
+          "mode": "primary",
+          "permission": {
+            "*": "deny",
+            "read": "allow",
+            "edit": "allow",
+            "glob": "allow",
+            "grep": "allow",
+            "list": "allow"
+          }
+        }
+      }
+    }
+  },
+  "tool_manifest": {
+    "python": "3.13.14",
+    "opencode_mode": "pure auto",
+    "external_checks": "python standard-library unittest invoked only after the model process exits"
+  },
+  "context_policy": "Each unit starts in a fresh operating-system temporary directory and new OpenCode run; repository files and hidden checks are not materialized there. A registered OpenCode agent explicitly denies shell, network, subagent, skill, LSP, question, and external-directory access and allows only in-directory read/search/edit tools. Immediate and delayed units are separate successors; delayed units never receive immediate-unit state or results.",
+  "token_time_and_tool_budgets": {
+    "opencode_invocations": "one per source episode or evaluation unit; provider turns inside an invocation are not capped or claimed and are matched by the same configuration",
+    "wall_time_seconds_per_call": 180,
+    "token_configuration": "same provider default across all calls"
+  },
+  "instrument_version": {
+    "ref": "experiments/003/runs/e003-pilot-002/runner.py",
+    "version": "e003-pilot-002-runner.v1"
+  },
+  "analysis_method": "Evaluate the frozen binary external-check outcome within each pair, phase, arm, and replica. Report equivalent_instruction separately; retained_history is not required to outperform it.",
+  "primary_effect_threshold": "passed requires, in both pairs and both phases, both retained_history replicas to pass while both no_memory and both shuffled_memory replicas fail. Equivalent-instruction outcomes do not change pass/fail.",
+  "uncertainty_rule": "Any missing, excluded, boundary-leaking, provider-error, or resource-mismatched unit makes the run inconclusive. If all units are valid, any disagreement between replicas or failure to meet the primary threshold is failed.",
+  "exclusion_rules": [
+    "Exclude a unit if the registered OpenCode deny policy is absent or differs at invocation.",
+    "Exclude a unit when the registered JSON event stream is empty, malformed, or contains a non-object event.",
+    "Exclude a unit when its reserved external_checks.py exists before the evaluator is materialized.",
+    "Exclude a unit when its model process times out or exits nonzero.",
+    "Do not replace or rerun an excluded unit after outcomes are visible."
+  ],
+  "abort_rules": [
+    "Abort before provider invocation unless registration_status is run_registered and execution_status is not_run.",
+    "Abort when the frozen parent identifiers, task pool, assignment axes, or derangement mapping fail preflight.",
+    "Abort when a result directory already exists; no automatic retry or overwrite is allowed.",
+    "Abort the phase after recording the first excluded or invalid unit."
+  ],
+  "privacy_policy": "The runner persists assigned history, changed task files, structural exit/timing/session metadata, external-check exit, and boundary flags only; it never copies raw model stdout, prompts, transcripts, or tool bodies into experiment results. OpenCode sharing is disabled, but its own local operational session state is outside this result artifact and is not claimed absent.",
+  "human_intervention_ledger_ref": {
+    "path": "experiments/003/runs/e003-pilot-002/results/interventions.jsonl",
+    "rule": "The runner appends each operator-invoked phase. Any other human change after source begins invalidates the run and must be appended before finalize."
+  },
+  "equivalent_instruction_text_and_assignment": {
+    "prefix": "A prior development experience is reproduced below as canonical JSON. Use it only if relevant to the task.\n{canonical_matching_history}\n\n",
+    "assignment": "Each equivalent_instruction unit receives only the matching pair history embedded by the runner."
+  },
+  "task_envelope_text": "Work only on the provided files in the current directory. Do not access parent or absolute paths, use the network, or create additional files.\n\n",
+  "file_history_instruction_text": "If useful, inspect .agentic-evo/prior-experience.json before solving. Do not modify that file.\n\n",
+  "shuffled_memory_derangement_rule_and_frozen_mapping": {
+    "rule": "Use the other registered pair's history without editing; the path, serialization, count, and file-history prompt prefix match retained_history.",
+    "mapping": {
+      "delimited-fields": "dependency-order",
+      "dependency-order": "delimited-fields"
+    }
+  },
+  "delayed_retest_schedule": {
+    "anchor": "source_completed_at_utc written by the runner",
+    "earliest_offset_hours": 24,
+    "latest_offset_hours": 28,
+    "independence": "Delayed units are fresh successors from the same frozen parent and do not inherit immediate-unit workspaces, contexts, or outcomes."
+  },
+  "immediate_test_schedule": {
+    "anchor": "source_completed_at_utc written by the runner",
+    "earliest_offset_hours": 0,
+    "latest_offset_hours": 4,
+    "ordering": "The immediate phase must complete before the delayed phase can start."
+  },
+  "outcome_vocabulary": [
+    "not_run",
+    "inconclusive",
+    "failed",
+    "passed"
+  ],
+  "claim_ceiling_ref": "experiments/003/prereg.json#/claim_ceiling",
+  "pilot_specific_claim_boundary": "This pilot can test a prospective causal effect of source histories automatically recorded by the runner and externally re-supplied on these registered synthetic future tasks. Its delayed phase is only a time-separated re-supply test. It cannot establish persistent internal capability, autonomous learning, self-evolution, general capability gain, or cross-model/cross-surface transfer."
+}

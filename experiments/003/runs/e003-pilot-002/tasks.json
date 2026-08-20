@@ -1,0 +1,225 @@
+{
+  "schema": "agentic-evo.e003-prospective-task-pool.v1",
+  "selection_rule": "Use both source episodes and every evaluation task exactly once per assigned unit. Do not select or replace tasks after observing a source outcome.",
+  "source_episodes": [
+    {
+      "task_id": "source-delimited-fields",
+      "pair_id": "delimited-fields",
+      "instruction": "Fix delimited.py so the documented parse_csv_line behavior is correct. Do not change the public function signature.",
+      "visible_files": {
+        "delimited.py": [
+          "def parse_csv_line(line):",
+          "    \"\"\"Parse one CSV line, including quoted commas and doubled quotes.\"\"\"",
+          "    return line.split(',')"
+        ]
+      },
+      "external_checks": {
+        "external_checks.py": [
+          "import unittest",
+          "from delimited import parse_csv_line",
+          "",
+          "class CsvChecks(unittest.TestCase):",
+          "    def test_plain(self):",
+          "        self.assertEqual(parse_csv_line('a,b,c'), ['a', 'b', 'c'])",
+          "",
+          "    def test_quoted_comma(self):",
+          "        self.assertEqual(parse_csv_line('a,\"b,c\",d'), ['a', 'b,c', 'd'])",
+          "",
+          "    def test_doubled_quote(self):",
+          "        self.assertEqual(parse_csv_line('a,\"b\"\"c\",d'), ['a', 'b\"c', 'd'])",
+          "",
+          "    def test_empty_fields(self):",
+          "        self.assertEqual(parse_csv_line(',a,'), ['', 'a', ''])",
+          "",
+          "    def test_unterminated_quote(self):",
+          "        with self.assertRaises(ValueError):",
+          "            parse_csv_line('a,\"b,c')",
+          "",
+          "if __name__ == '__main__':",
+          "    unittest.main()"
+        ]
+      }
+    },
+    {
+      "task_id": "source-dependency-order",
+      "pair_id": "dependency-order",
+      "instruction": "Fix dependency.py so the documented topological_order behavior is correct. Do not change the public function signature.",
+      "visible_files": {
+        "dependency.py": [
+          "def topological_order(dependencies):",
+          "    \"\"\"Return a stable order with every prerequisite before its node; raise ValueError on cycles.\"\"\"",
+          "    return sorted(dependencies)"
+        ]
+      },
+      "external_checks": {
+        "external_checks.py": [
+          "import unittest",
+          "from dependency import topological_order",
+          "",
+          "class DependencyChecks(unittest.TestCase):",
+          "    def test_chain(self):",
+          "        self.assertEqual(topological_order({'build': ['test'], 'test': ['code'], 'code': []}), ['code', 'test', 'build'])",
+          "",
+          "    def test_prerequisite_only_node(self):",
+          "        result = topological_order({'ship': ['build']})",
+          "        self.assertEqual(result, ['build', 'ship'])",
+          "",
+          "    def test_stable_tie_break(self):",
+          "        self.assertEqual(topological_order({'b': [], 'a': [], 'c': ['a', 'b']}), ['a', 'b', 'c'])",
+          "",
+          "    def test_cycle(self):",
+          "        with self.assertRaises(ValueError):",
+          "            topological_order({'a': ['b'], 'b': ['a']})",
+          "",
+          "if __name__ == '__main__':",
+          "    unittest.main()"
+        ]
+      }
+    }
+  ],
+  "evaluation_tasks": [
+    {
+      "task_id": "eval-pipe-fields-immediate",
+      "pair_id": "delimited-fields",
+      "phase": "immediate",
+      "instruction": "Fix pipe_fields.py so the documented parse_pipe_line behavior is correct. Do not change the public function signature.",
+      "visible_files": {
+        "pipe_fields.py": [
+          "def parse_pipe_line(line):",
+          "    \"\"\"Parse pipe-delimited fields; quoted fields may contain pipes and use doubled quotes.\"\"\"",
+          "    return line.split('|')"
+        ]
+      },
+      "external_checks": {
+        "external_checks.py": [
+          "import unittest",
+          "from pipe_fields import parse_pipe_line",
+          "",
+          "class PipeChecks(unittest.TestCase):",
+          "    def test_plain(self):",
+          "        self.assertEqual(parse_pipe_line('a|b|c'), ['a', 'b', 'c'])",
+          "",
+          "    def test_quoted_separator(self):",
+          "        self.assertEqual(parse_pipe_line('a|\"b|c\"|d'), ['a', 'b|c', 'd'])",
+          "",
+          "    def test_doubled_quote(self):",
+          "        self.assertEqual(parse_pipe_line('a|\"b\"\"c\"|d'), ['a', 'b\"c', 'd'])",
+          "",
+          "    def test_unterminated_quote(self):",
+          "        with self.assertRaises(ValueError):",
+          "            parse_pipe_line('a|\"b|c')",
+          "",
+          "if __name__ == '__main__':",
+          "    unittest.main()"
+        ]
+      }
+    },
+    {
+      "task_id": "eval-build-layers-immediate",
+      "pair_id": "dependency-order",
+      "phase": "immediate",
+      "instruction": "Fix build_layers.py so the documented dependency_layers behavior is correct. Do not change the public function signature.",
+      "visible_files": {
+        "build_layers.py": [
+          "def dependency_layers(dependencies):",
+          "    \"\"\"Return stable parallel layers; prerequisites appear in earlier layers; raise ValueError on cycles.\"\"\"",
+          "    return [sorted(dependencies)]"
+        ]
+      },
+      "external_checks": {
+        "external_checks.py": [
+          "import unittest",
+          "from build_layers import dependency_layers",
+          "",
+          "class LayerChecks(unittest.TestCase):",
+          "    def test_chain(self):",
+          "        self.assertEqual(dependency_layers({'build': ['test'], 'test': ['code'], 'code': []}), [['code'], ['test'], ['build']])",
+          "",
+          "    def test_parallel_nodes(self):",
+          "        self.assertEqual(dependency_layers({'package': ['linux', 'windows'], 'linux': [], 'windows': []}), [['linux', 'windows'], ['package']])",
+          "",
+          "    def test_prerequisite_only_node(self):",
+          "        self.assertEqual(dependency_layers({'ship': ['build']}), [['build'], ['ship']])",
+          "",
+          "    def test_cycle(self):",
+          "        with self.assertRaises(ValueError):",
+          "            dependency_layers({'a': ['b'], 'b': ['a']})",
+          "",
+          "if __name__ == '__main__':",
+          "    unittest.main()"
+        ]
+      }
+    },
+    {
+      "task_id": "eval-semicolon-fields-delayed",
+      "pair_id": "delimited-fields",
+      "phase": "delayed",
+      "instruction": "Fix semicolon_fields.py so the documented parse_semicolon_line behavior is correct. Do not change the public function signature.",
+      "visible_files": {
+        "semicolon_fields.py": [
+          "def parse_semicolon_line(line):",
+          "    \"\"\"Parse semicolon-delimited fields; quoted fields may contain semicolons and use doubled quotes.\"\"\"",
+          "    return line.split(';')"
+        ]
+      },
+      "external_checks": {
+        "external_checks.py": [
+          "import unittest",
+          "from semicolon_fields import parse_semicolon_line",
+          "",
+          "class SemicolonChecks(unittest.TestCase):",
+          "    def test_plain(self):",
+          "        self.assertEqual(parse_semicolon_line('a;b;c'), ['a', 'b', 'c'])",
+          "",
+          "    def test_quoted_separator(self):",
+          "        self.assertEqual(parse_semicolon_line('a;\"b;c\";d'), ['a', 'b;c', 'd'])",
+          "",
+          "    def test_doubled_quote(self):",
+          "        self.assertEqual(parse_semicolon_line('a;\"b\"\"c\";d'), ['a', 'b\"c', 'd'])",
+          "",
+          "    def test_empty_fields(self):",
+          "        self.assertEqual(parse_semicolon_line(';a;'), ['', 'a', ''])",
+          "",
+          "if __name__ == '__main__':",
+          "    unittest.main()"
+        ]
+      }
+    },
+    {
+      "task_id": "eval-install-order-delayed",
+      "pair_id": "dependency-order",
+      "phase": "delayed",
+      "instruction": "Fix install_order.py so the documented installation_order behavior is correct. Do not change the public function signature.",
+      "visible_files": {
+        "install_order.py": [
+          "def installation_order(requirements):",
+          "    \"\"\"Given (package, prerequisite) pairs, return a stable valid order; raise ValueError on cycles.\"\"\"",
+          "    return sorted({item for pair in requirements for item in pair})"
+        ]
+      },
+      "external_checks": {
+        "external_checks.py": [
+          "import unittest",
+          "from install_order import installation_order",
+          "",
+          "class InstallOrderChecks(unittest.TestCase):",
+          "    def test_chain(self):",
+          "        self.assertEqual(installation_order([('app', 'lib'), ('lib', 'core')]), ['core', 'lib', 'app'])",
+          "",
+          "    def test_stable_independent_nodes(self):",
+          "        self.assertEqual(installation_order([('z', 'a'), ('y', 'b')]), ['a', 'b', 'y', 'z'])",
+          "",
+          "    def test_duplicate_edges(self):",
+          "        self.assertEqual(installation_order([('b', 'a'), ('b', 'a')]), ['a', 'b'])",
+          "",
+          "    def test_cycle(self):",
+          "        with self.assertRaises(ValueError):",
+          "            installation_order([('a', 'b'), ('b', 'a')])",
+          "",
+          "if __name__ == '__main__':",
+          "    unittest.main()"
+        ]
+      }
+    }
+  ]
+}
