@@ -543,6 +543,8 @@ def _install_layout(arguments: argparse.Namespace) -> InstallLayout:
         ),
         version=VERSION,
         lingtai_enabled=arguments.lingtai_python is not None,
+        codex_home=Path(arguments.codex_home).resolve(strict=False),
+        codex_executable=Path(arguments.codex_executable).resolve(strict=False),
     )
 
 
@@ -556,6 +558,16 @@ def _installed_layout(arguments: argparse.Namespace) -> InstallLayout:
         release_artifact=Path(artifact).resolve(strict=False),
         python_executable=Path(arguments.python_executable or sys.executable).resolve(
             strict=False
+        ),
+        codex_home=(
+            Path(arguments.codex_home).resolve(strict=False)
+            if getattr(arguments, "codex_home", None) is not None
+            else None
+        ),
+        codex_executable=(
+            Path(arguments.codex_executable).resolve(strict=False)
+            if getattr(arguments, "codex_executable", None) is not None
+            else None
         ),
     )
 
@@ -2332,6 +2344,7 @@ def _parser() -> argparse.ArgumentParser:
     install_command.add_argument("--data-dir", type=Path)
     install_command.add_argument("--python-executable", type=Path)
     install_command.add_argument("--host-binding")
+    install_command.add_argument("--codex-home", type=Path, required=True)
     install_command.add_argument("--codex-executable", type=Path, required=True)
     install_command.add_argument(
         "--lingtai-python",
@@ -2359,6 +2372,8 @@ def _parser() -> argparse.ArgumentParser:
     upgrade_command.add_argument("--artifact", type=Path, required=True)
     upgrade_command.add_argument("--program-dir", type=Path, required=True)
     upgrade_command.add_argument("--python-executable", type=Path)
+    upgrade_command.add_argument("--codex-home", type=Path)
+    upgrade_command.add_argument("--codex-executable", type=Path)
     uninstall_command = commands.add_parser(
         "uninstall",
         help="Remove Agentic-Evo program integration and preserve identity data by default.",

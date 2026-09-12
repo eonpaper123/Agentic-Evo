@@ -7,10 +7,11 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from agentic_evo.activation import (
     CodexHookTrustError,
+    _CodexHookTrustProtocol,
     select_exact_codex_hooks,
     trust_installed_codex_hooks,
     trusted_hash_edits,
@@ -85,6 +86,25 @@ def _required_hooks(*, trust_status: str) -> list[dict[str, object]]:
 
 
 class CodexActivationTests(unittest.TestCase):
+    def test_trust_protocol_starts_codex_with_the_explicit_codex_home(self) -> None:
+        process = MagicMock()
+        process.stdin = io.StringIO()
+        process.stdout = io.StringIO()
+        process.poll.return_value = 0
+        codex_home = Path(r"D:\rawle\.codex")
+        with (
+            patch("agentic_evo.activation.subprocess.Popen", return_value=process) as popen,
+            patch.object(_CodexHookTrustProtocol, "_call", return_value={}),
+        ):
+            with _CodexHookTrustProtocol(
+                codex_executable=Path(r"D:\rawle\Apps\CodexCLI\codex.exe"),
+                codex_home=codex_home,
+                working_directory=Path(r"D:\rawle\Coding\Agentic-Evo"),
+            ):
+                pass
+
+        self.assertEqual(popen.call_args.kwargs["env"]["CODEX_HOME"], str(codex_home))
+
     def test_status_reports_only_absent_endpoint_as_not_running(self) -> None:
         output = io.StringIO()
         with (
@@ -265,6 +285,7 @@ class CodexActivationTests(unittest.TestCase):
 
             count = trust_installed_codex_hooks(
                 codex_executable=Path(r"D:\rawle\Apps\CodexCLI\codex.exe"),
+                codex_home=Path(r"D:\rawle\.codex"),
                 working_directory=Path(r"D:\rawle\Coding\Agentic-Evo"),
                 config_path=config_path,
                 source_path=source_path,
@@ -286,6 +307,7 @@ class CodexActivationTests(unittest.TestCase):
             with self.assertRaises(CodexHookTrustError):
                 trust_installed_codex_hooks(
                     codex_executable=Path(r"D:\rawle\Apps\CodexCLI\codex.exe"),
+                    codex_home=Path(r"D:\rawle\.codex"),
                     working_directory=Path(r"D:\rawle\Coding\Agentic-Evo"),
                     config_path=Path(r"D:\rawle\.codex\config.toml"),
                     source_path=Path(_SOURCE),

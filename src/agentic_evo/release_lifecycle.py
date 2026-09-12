@@ -8,7 +8,7 @@ the public Agentic-Evo CLI protocol.
 from __future__ import annotations
 
 import ast
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import json
 import os
@@ -59,6 +59,9 @@ class InstallLayout:
     python_executable: Path
     version: str
     lingtai_enabled: bool = False
+    codex_home: Path | None = None
+    codex_executable: Path | None = None
+    codex_binding: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -102,6 +105,25 @@ def install(layout: InstallLayout) -> dict[str, Any]:
         _record_error(layout, "install", "filesystem_or_startup_registration_error")
         return _failure_receipt(layout, "install", "installation_failed")
 
+    try:
+        binding = _bind_codex_installation(
+            program_dir=layout.program_dir,
+            runtime_home=layout.runtime_home,
+            python_executable=layout.python_executable,
+            codex_home=layout.codex_home,
+            codex_executable=layout.codex_executable,
+            prior_binding=None,
+        )
+        _write_manifest(replace(layout, codex_binding=binding), layout.program_dir)
+    except _CodexBindingFailure as error:
+        _record_error(layout, "install", error.code)
+        return _failure_receipt(
+            layout,
+            "install",
+            error.code,
+            installed=True,
+        )
+
     result = _call_runtime_cli(layout, "recover", "--restart")
     if result.returncode != 0:
         _record_error(layout, "install", result.error_code or "runtime_recovery_failed")
@@ -126,6 +148,9 @@ def upgrade(layout: InstallLayout) -> dict[str, Any]:
     layout = _validate_layout(layout)
     manifest = _load_manifest(layout.program_dir)
     _require_same_identity(layout, manifest)
+    _require_same_codex_installation(layout, manifest)
+    _require_available_codex_installation(layout)
+    prior_binding = _manifest_codex_binding(manifest)
 
     # Run the installed release's shutdown before replacing its pyz.  The CLI
     # does not return success until its existing Witness has stopped, so a
@@ -155,11 +180,14 @@ def upgrade(layout: InstallLayout) -> dict[str, Any]:
         )
         _write_release_payload(layout, stage)
         for name in _payload_names(layout):
+            if name == _MANIFEST_NAME:
+                continue
             _replace_file(stage / name, layout.program_dir / name)
         if not layout.lingtai_enabled:
             stale_lingtai = layout.program_dir / _lingtai_launcher_name()
             if stale_lingtai.exists():
                 stale_lingtai.unlink()
+        _write_manifest(replace(layout, codex_binding=prior_binding), layout.program_dir)
         _register_autostart(layout)
     except OSError:
         _record_error(layout, "upgrade", "filesystem_or_startup_registration_error")
@@ -167,6 +195,25 @@ def upgrade(layout: InstallLayout) -> dict[str, Any]:
     finally:
         if stage is not None:
             shutil.rmtree(stage, ignore_errors=True)
+
+    try:
+        binding = _bind_codex_installation(
+            program_dir=layout.program_dir,
+            runtime_home=layout.runtime_home,
+            python_executable=layout.python_executable,
+            codex_home=layout.codex_home,
+            codex_executable=layout.codex_executable,
+            prior_binding=prior_binding,
+        )
+        _write_manifest(replace(layout, codex_binding=binding), layout.program_dir)
+    except _CodexBindingFailure as error:
+        _record_error(layout, "upgrade", error.code)
+        return _failure_receipt(
+            layout,
+            "upgrade",
+            error.code,
+            installed=True,
+        )
 
     result = _call_runtime_cli(layout, "recover", "--restart")
     if result.returncode != 0:
@@ -206,6 +253,7 @@ def uninstall(
         )
     manifest = _load_manifest(layout.program_dir)
     _require_same_identity(layout, manifest)
+    _require_same_codex_installation(layout, manifest)
     if not preserve_data:
         _require_owned_data_dir_for_purge(layout)
 
@@ -273,6 +321,22 @@ def uninstall(
     if status_result is not None:
         runtime["status"] = _runtime_receipt(status_result)
 
+    binding_receipt: dict[str, Any] | None = None
+    binding = _manifest_codex_binding(manifest)
+    if binding is not None:
+        try:
+            binding_receipt = _unbind_codex_installation(binding)
+        except _CodexBindingFailure as error:
+            _record_error(layout, "uninstall", error.code)
+            return _failure_receipt(
+                layout,
+                "uninstall",
+                error.code,
+                installed=True,
+                data_preserved=preserve_data,
+                runtime=runtime,
+            )
+
     try:
         _remove_autostart(layout)
         _remove_program_dir(layout)
@@ -297,6 +361,7 @@ def uninstall(
         installed=False,
         data_preserved=preserve_data,
         runtime=runtime,
+        **({"codex_binding": binding_receipt} if binding_receipt is not None else {}),
     )
 
 
@@ -345,6 +410,8 @@ def load_installed_layout(
     *,
     release_artifact: Path,
     python_executable: Path,
+    codex_home: Path | None = None,
+    codex_executable: Path | None = None,
 ) -> InstallLayout:
     """Load the installed identity layout and apply this operation's release inputs.
 
@@ -367,6 +434,11 @@ def load_installed_layout(
     lingtai_enabled = manifest.get("lingtai_enabled")
     if not isinstance(lingtai_enabled, bool):
         raise ReleaseLifecycleError("installed release manifest is invalid")
+    stored_codex_home, stored_codex_executable = _manifest_codex_installation(
+        manifest,
+        codex_home=codex_home,
+        codex_executable=codex_executable,
+    )
     artifact = _absolute_path(Path(release_artifact), "release_artifact")
     return _validate_layout(
         InstallLayout(
@@ -377,6 +449,9 @@ def load_installed_layout(
             python_executable=Path(python_executable),
             version=_release_artifact_version(artifact),
             lingtai_enabled=lingtai_enabled,
+            codex_home=stored_codex_home,
+            codex_executable=stored_codex_executable,
+            codex_binding=_manifest_codex_binding(manifest),
         )
     )
 
@@ -422,6 +497,8 @@ def validate_install_layout(layout: InstallLayout) -> InstallLayout:
     """
 
     normalized = _normalize_layout(layout, require_runtime_home=False)
+    _require_codex_installation(normalized)
+    _require_available_codex_installation(normalized)
     if normalized.program_dir.exists():
         raise ReleaseLifecycleError(
             "program directory already exists; use upgrade for an installed release"
@@ -442,6 +519,22 @@ def _normalize_layout(
     version = layout.version.strip()
     if not version or any(character not in "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ._+-" for character in version):
         raise ReleaseLifecycleError("version must contain only release-safe characters")
+    if (layout.codex_home is None) != (layout.codex_executable is None):
+        raise ReleaseLifecycleError(
+            "codex_home and codex_executable must be supplied together"
+        )
+    codex_home = (
+        _absolute_path(layout.codex_home, "codex_home")
+        if layout.codex_home is not None
+        else None
+    )
+    codex_executable = (
+        _absolute_path(layout.codex_executable, "codex_executable")
+        if layout.codex_executable is not None
+        else None
+    )
+    if layout.codex_binding is not None and not isinstance(layout.codex_binding, dict):
+        raise ReleaseLifecycleError("codex_binding must be a mapping")
     normalized = InstallLayout(
         program_dir=_absolute_path(layout.program_dir, "program_dir"),
         data_dir=_absolute_path(layout.data_dir, "data_dir"),
@@ -450,6 +543,9 @@ def _normalize_layout(
         python_executable=_absolute_path(layout.python_executable, "python_executable"),
         version=version,
         lingtai_enabled=layout.lingtai_enabled,
+        codex_home=codex_home,
+        codex_executable=codex_executable,
+        codex_binding=layout.codex_binding,
     )
     if not isinstance(normalized.lingtai_enabled, bool):
         raise ReleaseLifecycleError("lingtai_enabled must be a boolean")
@@ -608,13 +704,11 @@ def _write_release_payload(layout: InstallLayout, destination: Path) -> None:
             destination / _WINDOWS_RECOVERY_LAUNCHER,
             _windows_recovery_launcher_text(layout),
         )
-    _write_text(
-        destination / _MANIFEST_NAME,
-        json.dumps(_manifest(layout), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-    )
+    _write_manifest(layout, destination)
 
 
 def _manifest(layout: InstallLayout) -> dict[str, Any]:
+    _require_codex_installation(layout)
     manifest: dict[str, Any] = {
         "schema": INSTALL_SCHEMA,
         "version": layout.version,
@@ -622,6 +716,8 @@ def _manifest(layout: InstallLayout) -> dict[str, Any]:
         "data_dir": str(layout.data_dir),
         "runtime_home": str(layout.runtime_home),
         "python_executable": str(layout.python_executable),
+        "codex_home": str(layout.codex_home),
+        "codex_executable": str(layout.codex_executable),
         "artifact": _PYZ_NAME,
         "launcher": _launcher_name(),
         "console_launcher": _console_launcher_name(),
@@ -630,7 +726,16 @@ def _manifest(layout: InstallLayout) -> dict[str, Any]:
     }
     if layout.lingtai_enabled:
         manifest["lingtai_launcher"] = _lingtai_launcher_name()
+    if layout.codex_binding is not None:
+        manifest["codex_binding"] = layout.codex_binding
     return manifest
+
+
+def _write_manifest(layout: InstallLayout, destination: Path) -> None:
+    _write_text(
+        destination / _MANIFEST_NAME,
+        json.dumps(_manifest(layout), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+    )
 
 
 def _runtime_launcher_text(layout: InstallLayout) -> str:
@@ -860,6 +965,134 @@ def _require_same_identity(layout: InstallLayout, manifest: dict[str, Any]) -> N
             raise ReleaseLifecycleError(
                 "upgrade/uninstall must retain the installed runtime identity and data"
             )
+
+
+def _require_codex_installation(layout: InstallLayout) -> None:
+    if layout.codex_home is None or layout.codex_executable is None:
+        raise ReleaseLifecycleError(
+            "codex_home and codex_executable are required for release lifecycle"
+        )
+
+
+def _require_available_codex_installation(layout: InstallLayout) -> None:
+    _require_codex_installation(layout)
+    if not layout.codex_home.is_dir():
+        raise ReleaseLifecycleError("codex_home must be an existing directory")
+    if not layout.codex_executable.is_file():
+        raise ReleaseLifecycleError("codex_executable must be an existing file")
+
+
+def _manifest_codex_installation(
+    manifest: dict[str, Any],
+    *,
+    codex_home: Path | None,
+    codex_executable: Path | None,
+) -> tuple[Path, Path]:
+    stored_home = manifest.get("codex_home")
+    stored_executable = manifest.get("codex_executable")
+    if stored_home is not None or stored_executable is not None:
+        if not isinstance(stored_home, str) or not isinstance(stored_executable, str):
+            raise ReleaseLifecycleError("installed release manifest is invalid")
+        resolved_home = _absolute_path(Path(stored_home), "codex_home")
+        resolved_executable = _absolute_path(
+            Path(stored_executable), "codex_executable"
+        )
+        if (codex_home is None) != (codex_executable is None):
+            raise ReleaseLifecycleError(
+                "codex_home and codex_executable must be supplied together"
+            )
+        if codex_home is not None and codex_executable is not None:
+            requested_home = _absolute_path(codex_home, "codex_home")
+            requested_executable = _absolute_path(
+                codex_executable, "codex_executable"
+            )
+            if (
+                requested_home != resolved_home
+                or requested_executable != resolved_executable
+            ):
+                raise ReleaseLifecycleError(
+                    "upgrade/uninstall must retain the installed Codex binding"
+                )
+        return resolved_home, resolved_executable
+
+    if codex_home is None or codex_executable is None:
+        raise ReleaseLifecycleError(
+            "installed release predates Codex binding; supply codex_home and codex_executable"
+        )
+    return (
+        _absolute_path(codex_home, "codex_home"),
+        _absolute_path(codex_executable, "codex_executable"),
+    )
+
+
+def _manifest_codex_binding(manifest: dict[str, Any]) -> dict[str, Any] | None:
+    binding = manifest.get("codex_binding")
+    if binding is None:
+        return None
+    if not isinstance(binding, dict):
+        raise ReleaseLifecycleError("installed Codex binding is invalid")
+    return binding
+
+
+def _require_same_codex_installation(
+    layout: InstallLayout, manifest: dict[str, Any]
+) -> None:
+    _require_codex_installation(layout)
+    stored_home, stored_executable = _manifest_codex_installation(
+        manifest,
+        codex_home=layout.codex_home,
+        codex_executable=layout.codex_executable,
+    )
+    if (
+        stored_home != layout.codex_home
+        or stored_executable != layout.codex_executable
+    ):
+        raise ReleaseLifecycleError(
+            "upgrade/uninstall must retain the installed Codex binding"
+        )
+
+
+class _CodexBindingFailure(RuntimeError):
+    def __init__(self, code: str) -> None:
+        self.code = code
+        super().__init__(code)
+
+
+def _bind_codex_installation(
+    *,
+    program_dir: Path,
+    runtime_home: Path,
+    python_executable: Path,
+    codex_home: Path | None,
+    codex_executable: Path | None,
+    prior_binding: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if codex_home is None or codex_executable is None:
+        raise ReleaseLifecycleError(
+            "codex_home and codex_executable are required for release lifecycle"
+        )
+    from agentic_evo.codex_binding import CodexBindingError, bind_codex_installation
+
+    try:
+        return bind_codex_installation(
+            program_dir=program_dir,
+            runtime_home=runtime_home,
+            python_executable=python_executable,
+            codex_home=codex_home,
+            codex_executable=codex_executable,
+            prior_binding=prior_binding,
+        )
+    except CodexBindingError as error:
+        raise _CodexBindingFailure(error.code) from error
+
+
+def _unbind_codex_installation(binding: dict[str, Any]) -> dict[str, Any]:
+    from agentic_evo.codex_binding import CodexBindingError, unbind_codex_installation
+
+    try:
+        return unbind_codex_installation(binding)
+    except CodexBindingError as error:
+        raise _CodexBindingFailure(error.code) from error
 
 
 def _proves_runtime_not_running(result: _ProtocolResult) -> bool:

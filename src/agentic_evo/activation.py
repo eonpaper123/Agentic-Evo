@@ -145,6 +145,7 @@ def verify_exact_codex_hook_trust(
 def trust_installed_codex_hooks(
     *,
     codex_executable: Path,
+    codex_home: Path,
     working_directory: Path,
     config_path: Path,
     source_path: Path,
@@ -154,6 +155,7 @@ def trust_installed_codex_hooks(
 
     with _CodexHookTrustProtocol(
         codex_executable=codex_executable,
+        codex_home=codex_home,
         working_directory=working_directory,
     ) as protocol:
         expected = select_exact_codex_hooks(
@@ -186,8 +188,15 @@ def trust_installed_codex_hooks(
 class _CodexHookTrustProtocol:
     """The three app-server calls required by activate-codex."""
 
-    def __init__(self, *, codex_executable: Path, working_directory: Path) -> None:
+    def __init__(
+        self,
+        *,
+        codex_executable: Path,
+        codex_home: Path,
+        working_directory: Path,
+    ) -> None:
         self._codex_executable = Path(codex_executable)
+        self._codex_home = Path(codex_home)
         self._working_directory = Path(working_directory)
         self._process: subprocess.Popen[str] | None = None
         self._lines: Queue[str | None] = Queue()
@@ -209,6 +218,7 @@ class _CodexHookTrustProtocol:
                 text=True,
                 encoding="utf-8",
                 errors="replace",
+                env={**os.environ, "CODEX_HOME": str(self._codex_home)},
             )
         except OSError as error:
             raise CodexHookTrustError("could not start Codex app-server") from error

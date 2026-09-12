@@ -16,6 +16,7 @@ from agentic_evo import cli
 from agentic_evo.release_lifecycle import (
     InstallLayout,
     ReleaseLifecycleError,
+    _CodexBindingFailure,
     _ProtocolResult,
     install,
     installed_status,
@@ -28,6 +29,41 @@ from agentic_evo.release_lifecycle import (
 
 
 class ReleaseLifecycleTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._bind_patch = patch(
+            "agentic_evo.release_lifecycle._bind_codex_installation",
+            side_effect=self._default_binding,
+        )
+        self._unbind_patch = patch(
+            "agentic_evo.release_lifecycle._unbind_codex_installation",
+            return_value={
+                "schema": "agentic-evo.codex-binding.v1",
+                "status": "unbound",
+                "removed_shim_paths": [],
+                "restored_launcher_paths": [],
+                "preserved_modified_paths": [],
+            },
+        )
+        self._bind_patch.start()
+        self._unbind_patch.start()
+        self.addCleanup(self._unbind_patch.stop)
+        self.addCleanup(self._bind_patch.stop)
+
+    @staticmethod
+    def _default_binding(**arguments: object) -> dict[str, object]:
+        return {
+            "schema": "agentic-evo.codex-binding.v1",
+            "status": "bound",
+            "program_dir": str(arguments["program_dir"]),
+            "runtime_home": str(arguments["runtime_home"]),
+            "python_executable": str(arguments["python_executable"]),
+            "codex_home": str(arguments["codex_home"]),
+            "codex_executable": str(arguments["codex_executable"]),
+            "pyz_path": str(Path(arguments["program_dir"]) / "agentic-evo.pyz"),
+            "shim_paths": [],
+            "migrated_launcher_paths": [],
+        }
+
     def _layout(
         self, root: Path, *, version: str = "1.2.3", lingtai_enabled: bool = False
     ) -> InstallLayout:
@@ -35,6 +71,10 @@ class ReleaseLifecycleTests(unittest.TestCase):
         artifact.write_bytes(f"release-{version}".encode("utf-8"))
         runtime_home = root / "existing-runtime-home"
         runtime_home.mkdir()
+        codex_home = root / "codex-home"
+        codex_home.mkdir()
+        codex_executable = codex_home / "codex.exe"
+        codex_executable.write_bytes(b"codex")
         return InstallLayout(
             program_dir=root / "program",
             data_dir=root / "data",
@@ -43,7 +83,29 @@ class ReleaseLifecycleTests(unittest.TestCase):
             python_executable=Path(sys.executable),
             version=version,
             lingtai_enabled=lingtai_enabled,
+            codex_home=codex_home,
+            codex_executable=codex_executable,
         )
+
+    def _bound_layout(
+        self, root: Path, *, version: str = "1.2.3"
+    ) -> InstallLayout:
+        return self._layout(root, version=version)
+
+    @staticmethod
+    def _binding(layout: InstallLayout, *, marker: str) -> dict[str, object]:
+        return {
+            "schema": "agentic-evo.codex-binding.v1",
+            "status": "bound",
+            "program_dir": str(layout.program_dir.resolve()),
+            "runtime_home": str(layout.runtime_home.resolve()),
+            "python_executable": str(layout.python_executable.resolve()),
+            "codex_home": str(layout.codex_home.resolve()),
+            "codex_executable": str(layout.codex_executable.resolve()),
+            "marker": marker,
+            "shim_paths": [],
+            "migrated_launcher_paths": [],
+        }
 
     @staticmethod
     def _completed(
@@ -366,9 +428,10 @@ class ReleaseLifecycleTests(unittest.TestCase):
                 self.assertIn(", 0, False", recovery)
                 self.assertIn("recover", recovery)
                 self.assertNotIn("--restart", recovery)
-            console = (layout.program_dir / ("Evo Codex.cmd" if sys.platform == "win32" else "evo-codex")).read_text(
-                encoding="utf-8"
-            )
+            console = (
+                layout.program_dir
+                / ("Evo Codex.cmd" if sys.platform == "win32" else "evo-codex")
+            ).read_text(encoding="utf-8")
             self.assertIn("console --home", console)
             self.assertIn("--surface codex", console)
             if sys.platform == "win32":
@@ -388,6 +451,321 @@ class ReleaseLifecycleTests(unittest.TestCase):
                     / ("Evo LingTai.cmd" if sys.platform == "win32" else "evo-lingtai")
                 ).exists()
             )
+
+    def test_install_binds_codex_after_payload_and_persists_owned_binding(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            layout = self._bound_layout(Path(raw))
+            binding = self._binding(layout, marker="initial")
+
+            def bind_after_payload(**arguments: object) -> dict[str, object]:
+                self.assertEqual(
+                    (layout.program_dir / "agentic-evo.pyz").read_bytes(),
+                    b"release-1.2.3",
+                )
+                self.assertIsNone(arguments["prior_binding"])
+                return binding
+
+            with (
+                patch("agentic_evo.release_lifecycle._register_autostart"),
+                patch(
+                    "agentic_evo.release_lifecycle._call_runtime_cli",
+                    return_value=_ProtocolResult(0, {"ok": True}, None),
+                ),
+                patch(
+                    "agentic_evo.release_lifecycle._bind_codex_installation",
+                    create=True,
+                    side_effect=bind_after_payload,
+                ) as bind,
+            ):
+                receipt = install(layout)
+
+            self.assertTrue(receipt["ok"])
+            self.assertEqual(bind.call_count, 1)
+            self.assertEqual(bind.call_args.kwargs["program_dir"], layout.program_dir.resolve())
+            self.assertEqual(bind.call_args.kwargs["runtime_home"], layout.runtime_home.resolve())
+            self.assertEqual(
+                bind.call_args.kwargs["python_executable"], layout.python_executable.resolve()
+            )
+            self.assertEqual(bind.call_args.kwargs["codex_home"], layout.codex_home.resolve())
+            self.assertEqual(
+                bind.call_args.kwargs["codex_executable"],
+                layout.codex_executable.resolve(),
+            )
+            manifest = json.loads(
+                (layout.program_dir / "install-manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(manifest["codex_home"], str(layout.codex_home.resolve()))
+            self.assertEqual(
+                manifest["codex_executable"], str(layout.codex_executable.resolve())
+            )
+            self.assertEqual(manifest["codex_binding"], binding)
+
+    def test_upgrade_rebinds_using_the_owned_prior_binding(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            first = self._bound_layout(root, version="1.2.3")
+            initial_binding = self._binding(first, marker="initial")
+            candidate = root / "agentic-evo-1.2.4.pyz"
+            candidate.write_bytes(b"release-1.2.4")
+            second = InstallLayout(
+                program_dir=first.program_dir,
+                data_dir=first.data_dir,
+                runtime_home=first.runtime_home,
+                release_artifact=candidate,
+                python_executable=first.python_executable,
+                version="1.2.4",
+                codex_home=first.codex_home,
+                codex_executable=first.codex_executable,
+            )
+            upgraded_binding = self._binding(second, marker="upgraded")
+            with (
+                patch("agentic_evo.release_lifecycle._register_autostart"),
+                patch(
+                    "agentic_evo.release_lifecycle._call_runtime_cli",
+                    return_value=_ProtocolResult(0, {"ok": True}, None),
+                ),
+                patch(
+                    "agentic_evo.release_lifecycle._bind_codex_installation",
+                    create=True,
+                    side_effect=(initial_binding, upgraded_binding),
+                ) as bind,
+            ):
+                self.assertTrue(install(first)["ok"])
+                receipt = upgrade(second)
+
+            self.assertTrue(receipt["ok"])
+            self.assertEqual(bind.call_count, 2)
+            self.assertIsNone(bind.call_args_list[0].kwargs["prior_binding"])
+            self.assertEqual(bind.call_args_list[1].kwargs["prior_binding"], initial_binding)
+            manifest = json.loads(
+                (first.program_dir / "install-manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(manifest["codex_binding"], upgraded_binding)
+
+    def test_uninstall_unbinds_the_exact_owned_mapping_before_removing_payload(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            layout = self._bound_layout(Path(raw))
+            binding = self._binding(layout, marker="initial")
+            unbound = {
+                "schema": "agentic-evo.codex-binding.v1",
+                "status": "unbound",
+                "removed_shim_paths": [],
+                "restored_launcher_paths": [],
+                "preserved_modified_paths": ["user-modified-hook"],
+            }
+
+            def unbind_before_payload_removal(
+                received: dict[str, object],
+            ) -> dict[str, object]:
+                self.assertEqual(received, binding)
+                self.assertTrue((layout.program_dir / "agentic-evo.pyz").is_file())
+                return unbound
+
+            with (
+                patch("agentic_evo.release_lifecycle._register_autostart"),
+                patch("agentic_evo.release_lifecycle._remove_autostart"),
+                patch(
+                    "agentic_evo.release_lifecycle._call_runtime_cli",
+                    return_value=_ProtocolResult(0, {"ok": True}, None),
+                ),
+                patch(
+                    "agentic_evo.release_lifecycle._bind_codex_installation",
+                    create=True,
+                    return_value=binding,
+                ),
+                patch(
+                    "agentic_evo.release_lifecycle._unbind_codex_installation",
+                    create=True,
+                    side_effect=unbind_before_payload_removal,
+                ) as unbind,
+            ):
+                self.assertTrue(install(layout)["ok"])
+                receipt = uninstall(layout)
+
+            self.assertTrue(receipt["ok"])
+            self.assertFalse(layout.program_dir.exists())
+            unbind.assert_called_once_with(binding)
+            self.assertEqual(receipt["codex_binding"], unbound)
+
+    def test_install_binding_failure_reports_incomplete_integration(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            layout = self._bound_layout(Path(raw))
+            with (
+                patch("agentic_evo.release_lifecycle._register_autostart"),
+                patch(
+                    "agentic_evo.release_lifecycle._call_runtime_cli"
+                ) as runtime,
+                patch(
+                    "agentic_evo.release_lifecycle._bind_codex_installation",
+                    side_effect=_CodexBindingFailure("binding_failed"),
+                ),
+            ):
+                receipt = install(layout)
+
+            self.assertFalse(receipt["ok"])
+            self.assertTrue(receipt["installed"])
+            self.assertEqual(receipt["error"], {"code": "binding_failed"})
+            self.assertTrue((layout.program_dir / "agentic-evo.pyz").is_file())
+            runtime.assert_not_called()
+
+    def test_upgrade_binding_failure_keeps_candidate_manifest_and_reports_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            first = self._bound_layout(root, version="1.2.3")
+            initial_binding = self._binding(first, marker="initial")
+            candidate = root / "agentic-evo-1.2.4.pyz"
+            candidate.write_bytes(b"release-1.2.4")
+            second = InstallLayout(
+                program_dir=first.program_dir,
+                data_dir=first.data_dir,
+                runtime_home=first.runtime_home,
+                release_artifact=candidate,
+                python_executable=first.python_executable,
+                version="1.2.4",
+                codex_home=first.codex_home,
+                codex_executable=first.codex_executable,
+            )
+            with (
+                patch("agentic_evo.release_lifecycle._register_autostart"),
+                patch(
+                    "agentic_evo.release_lifecycle._call_runtime_cli",
+                    return_value=_ProtocolResult(0, {"ok": True}, None),
+                ) as runtime,
+                patch(
+                    "agentic_evo.release_lifecycle._bind_codex_installation",
+                    side_effect=(initial_binding, _CodexBindingFailure("binding_failed")),
+                ),
+            ):
+                self.assertTrue(install(first)["ok"])
+                receipt = upgrade(second)
+
+            self.assertFalse(receipt["ok"])
+            self.assertTrue(receipt["installed"])
+            self.assertEqual(receipt["error"], {"code": "binding_failed"})
+            self.assertEqual(
+                (first.program_dir / "agentic-evo.pyz").read_bytes(), b"release-1.2.4"
+            )
+            manifest = json.loads(
+                (first.program_dir / "install-manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(manifest["version"], "1.2.4")
+            self.assertEqual(manifest["codex_binding"], initial_binding)
+            self.assertEqual(
+                [call.args[1] for call in runtime.call_args_list],
+                ["recover", "shutdown"],
+            )
+
+    def test_uninstall_binding_failure_preserves_the_release_payload(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            layout = self._bound_layout(Path(raw))
+            binding = self._binding(layout, marker="initial")
+            with (
+                patch("agentic_evo.release_lifecycle._register_autostart"),
+                patch(
+                    "agentic_evo.release_lifecycle._remove_autostart"
+                ) as remove_startup,
+                patch(
+                    "agentic_evo.release_lifecycle._call_runtime_cli",
+                    return_value=_ProtocolResult(0, {"ok": True}, None),
+                ),
+                patch(
+                    "agentic_evo.release_lifecycle._bind_codex_installation",
+                    return_value=binding,
+                ),
+                patch(
+                    "agentic_evo.release_lifecycle._unbind_codex_installation",
+                    side_effect=_CodexBindingFailure("unbinding_failed"),
+                ),
+            ):
+                self.assertTrue(install(layout)["ok"])
+                receipt = uninstall(layout)
+
+            self.assertFalse(receipt["ok"])
+            self.assertTrue(receipt["installed"])
+            self.assertEqual(receipt["error"], {"code": "unbinding_failed"})
+            self.assertTrue((layout.program_dir / "agentic-evo.pyz").is_file())
+            remove_startup.assert_not_called()
+
+    def test_uninstall_does_not_require_a_live_codex_executable(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            layout = self._bound_layout(Path(raw))
+            binding = self._binding(layout, marker="initial")
+            unbound = {
+                "schema": "agentic-evo.codex-binding.v1",
+                "status": "unbound",
+                "removed_shim_paths": [],
+                "restored_launcher_paths": [],
+                "preserved_modified_paths": [],
+            }
+            with (
+                patch("agentic_evo.release_lifecycle._register_autostart"),
+                patch("agentic_evo.release_lifecycle._remove_autostart"),
+                patch(
+                    "agentic_evo.release_lifecycle._call_runtime_cli",
+                    return_value=_ProtocolResult(0, {"ok": True}, None),
+                ),
+                patch(
+                    "agentic_evo.release_lifecycle._bind_codex_installation",
+                    return_value=binding,
+                ),
+                patch(
+                    "agentic_evo.release_lifecycle._unbind_codex_installation",
+                    return_value=unbound,
+                ) as unbind,
+            ):
+                self.assertTrue(install(layout)["ok"])
+                layout.codex_executable.unlink()
+                receipt = uninstall(layout)
+
+            self.assertTrue(receipt["ok"])
+            unbind.assert_called_once_with(binding)
+            self.assertFalse(layout.program_dir.exists())
+
+    def test_old_manifest_requires_explicit_codex_binding_migration_inputs(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            layout = self._bound_layout(Path(raw))
+            binding = self._binding(layout, marker="initial")
+            with (
+                patch("agentic_evo.release_lifecycle._register_autostart"),
+                patch(
+                    "agentic_evo.release_lifecycle._call_runtime_cli",
+                    return_value=_ProtocolResult(0, {"ok": True}, None),
+                ),
+                patch(
+                    "agentic_evo.release_lifecycle._bind_codex_installation",
+                    return_value=binding,
+                ),
+            ):
+                self.assertTrue(install(layout)["ok"])
+
+            manifest_path = layout.program_dir / "install-manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            for key in ("codex_home", "codex_executable", "codex_binding"):
+                manifest.pop(key)
+            manifest_path.write_text(
+                json.dumps(manifest), encoding="utf-8", newline="\n"
+            )
+            candidate = layout.program_dir.parent / "migration-candidate.pyz"
+            self._versioned_artifact(candidate, "1.2.4")
+
+            with self.assertRaisesRegex(ReleaseLifecycleError, "predates Codex binding"):
+                load_installed_layout(
+                    layout.program_dir,
+                    release_artifact=candidate,
+                    python_executable=layout.python_executable,
+                )
+            migrated = load_installed_layout(
+                layout.program_dir,
+                release_artifact=candidate,
+                python_executable=layout.python_executable,
+                codex_home=layout.codex_home,
+                codex_executable=layout.codex_executable,
+            )
+            self.assertEqual(migrated.codex_home, layout.codex_home.resolve())
+            self.assertEqual(
+                migrated.codex_executable, layout.codex_executable.resolve()
+            )
+            self.assertIsNone(migrated.codex_binding)
 
     def test_install_with_lingtai_enabled_writes_the_optional_harness_launcher(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -451,6 +829,8 @@ class ReleaseLifecycleTests(unittest.TestCase):
                     python_executable=Path(sys.executable),
                     version="1.2.4",
                     lingtai_enabled=False,
+                    codex_home=first.codex_home,
+                    codex_executable=first.codex_executable,
                 )
                 receipt = upgrade(second)
 
@@ -502,6 +882,8 @@ class ReleaseLifecycleTests(unittest.TestCase):
                 release_artifact=replacement,
                 python_executable=first.python_executable,
                 version="1.2.4",
+                codex_home=first.codex_home,
+                codex_executable=first.codex_executable,
             )
 
             def runtime_call(
@@ -559,6 +941,8 @@ class ReleaseLifecycleTests(unittest.TestCase):
                 release_artifact=replacement,
                 python_executable=first.python_executable,
                 version="1.2.4",
+                codex_home=first.codex_home,
+                codex_executable=first.codex_executable,
             )
             original_manifest = (first.program_dir / "install-manifest.json").read_bytes()
             shutdown_failure = _ProtocolResult(6, None, "shutdown_failed")
@@ -607,6 +991,8 @@ class ReleaseLifecycleTests(unittest.TestCase):
                 release_artifact=replacement,
                 python_executable=first.python_executable,
                 version="1.2.4",
+                codex_home=first.codex_home,
+                codex_executable=first.codex_executable,
             )
             already_stopped = _ProtocolResult(4, None, "service_not_running")
             with (
