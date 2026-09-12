@@ -11,7 +11,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from agentic_evo.errors import IntegrityError, RuntimeOffError
+from agentic_evo.errors import HeadConflictError, IntegrityError, RuntimeOffError
 from agentic_evo.runtime import DevelopmentalRuntime
 from agentic_evo.trusted import TrustedState
 
@@ -99,13 +99,53 @@ class TrustedTransactionTests(unittest.TestCase):
                 """
             ).fetchone()
 
-        self.assertEqual(tables, {"state", "events", "sessions", "checkpoints"})
+        self.assertEqual(
+            tables,
+            {"state", "events", "event_projection", "sessions", "checkpoints"},
+        )
         self.assertEqual(state[:3], (
             self.runtime.status().root,
             self.runtime.status().head,
             "on",
         ))
         self.assertGreaterEqual(state[3], 1)
+
+    def test_runtime_hot_path_does_not_repeat_full_history_verification(self) -> None:
+        status = self.runtime.status()
+        with patch.object(
+            TrustedState,
+            "_verify_connection",
+            side_effect=AssertionError("full history verifier used on hot path"),
+        ):
+            self.assertEqual(self.runtime.status().head, status.head)
+            self.runtime.trusted.start_session(
+                expected_head=status.head,
+                session_id="bounded-hot-path",
+                value={
+                    "execution_surface": "codex",
+                    "project_environment": "project-a",
+                    "loaded_body_head": status.head,
+                },
+                execution_surface="codex",
+                project_environment="project-a",
+                model="test-model",
+                body_generation=status.generation,
+                activation_kind="surface-context-utf8-v1",
+                activation_artifact="entrypoint.md",
+                activation_digest="body-digest",
+            )
+            self.runtime.trusted.append_observation(
+                event_kind="tool_use_finished",
+                source_kind="execution_surface",
+                author_kind="surface_unverified",
+                execution_surface="codex",
+                session_id="bounded-hot-path",
+                payload={"result": "done"},
+            )
+            self.runtime.trusted.end_session(
+                execution_surface="codex",
+                session_id="bounded-hot-path",
+            )
 
     def test_failed_wake_leaves_neither_session_nor_evidence(self) -> None:
         before_status = self.runtime.status()
@@ -211,6 +251,79 @@ with patch.object(TrustedState, "_insert_checkpoint", side_effect=lambda *a, **k
             reloaded.body_store.read_manifest(candidate).parent_head,
             before.head,
         )
+
+    def test_current_body_lineage_records_report_only_recorded_facts(self) -> None:
+        parent = self.runtime.status().head
+        candidate = self._prepare_successor(
+            expected_parent=parent,
+            files={"entrypoint.md": "Body one"},
+            author_kind="in_process_rehearsal",
+        )
+        self._advance_head(expected_head=parent, candidate_head=candidate)
+        advanced = self.runtime.evidence.records()[-1]
+        self.runtime.record_body_development(
+            event_kind="body_development_action",
+            opportunity_id="opportunity-no-change",
+            project_environment=str(self.home),
+            payload={
+                "action": "no_change",
+                "opportunity_id": "opportunity-no-change",
+                "current_body_ref": candidate,
+            },
+        )
+
+        head_record, resolution = self.runtime.trusted.current_body_lineage_records(
+            expected_head=candidate,
+        )
+
+        self.assertEqual(head_record.event_id, advanced.event_id)
+        self.assertIsNone(resolution)
+
+        retained = self.runtime.record_body_development(
+            event_kind="body_development_action",
+            opportunity_id="opportunity-retain",
+            project_environment=str(self.home),
+            payload={
+                "action": "retain",
+                "opportunity_id": "opportunity-retain",
+                "current_body_ref": candidate,
+                "candidate_head": candidate,
+                "evidence_refs": [advanced.event_id],
+            },
+        )
+        _, resolution = self.runtime.trusted.current_body_lineage_records(
+            expected_head=candidate,
+        )
+        self.assertEqual(resolution.event_id, retained.event_id)
+
+    def test_current_body_lineage_records_require_current_head(self) -> None:
+        with self.assertRaises(HeadConflictError):
+            self.runtime.trusted.current_body_lineage_records(
+                expected_head="not-the-current-head",
+            )
+
+    def test_recall_includes_unbound_head_advance_fact(self) -> None:
+        parent = self.runtime.status().head
+        candidate = self._prepare_successor(
+            expected_parent=parent,
+            files={"entrypoint.md": "Body one"},
+            author_kind="in_process_rehearsal",
+        )
+        self._advance_head(expected_head=parent, candidate_head=candidate)
+        advanced = self.runtime.evidence.records()[-1]
+        self.runtime.wake(
+            execution_surface="agentic-evo-body",
+            session_id="recall-current-lineage",
+            project_environment=str(self.home),
+        )
+
+        experiences, _ = self.runtime.recall_experiences(
+            execution_surface="agentic-evo-body",
+            session_id="recall-current-lineage",
+            limit=12,
+        )
+
+        self.assertIn(advanced.event_id, {item["event_id"] for item in experiences})
 
     def test_failed_off_preserves_authority_session_and_history(self) -> None:
         self.runtime.wake(

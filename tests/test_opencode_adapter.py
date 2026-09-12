@@ -1,16 +1,14 @@
 from __future__ import annotations
 
-from contextlib import closing
 import os
 from pathlib import Path
-import sqlite3
 import subprocess
 import sys
 import tempfile
 import time
 import unittest
 
-from agentic_evo.adapters.opencode import handle_opencode_hook
+from agentic_evo.adapters.opencode import OpencodeHookError, handle_opencode_hook
 from agentic_evo.ipc import ServiceUnavailableError, SurfaceClient
 from agentic_evo.runtime import DevelopmentalRuntime
 
@@ -92,170 +90,155 @@ class OpencodeAdapterTests(unittest.TestCase):
         if self.service.stderr is not None:
             self.service.stderr.close()
 
-    def test_session_start_wakes_same_body_and_returns_bounded_context(self) -> None:
-        result = handle_opencode_hook(
-            self.home,
-            {
-                "session_id": "session-a",
-                "transcript_path": "C:/unstable/transcript.jsonl",
-                "cwd": "C:/work/project-a",
-                "hook_event_name": "session.start",
-                "model": "model-a",
-                "source": "startup",
-            },
-        )
-
-        self.assertIsNotNone(result)
-        output = result["hookSpecificOutput"]
-        self.assertEqual(output["hookEventName"], "session.start")
-        context = output["additionalContext"]
-        self.assertIn(self.runtime.status().root, context)
-        self.assertIn(self.runtime.status().head, context)
-        self.assertIn("Body zero", context)
-        self.assertNotIn("transcript.jsonl", context)
-
-        last = self.runtime.evidence.records()[-1]
-        self.assertEqual(last.event_kind, "session_start")
-        self.assertEqual(last.execution_surface, "opencode")
-        self.assertEqual(last.session_id, "session-a")
-        self.assertEqual(last.author_kind, "surface_unverified")
-
-    def test_confirmed_session_created_event_wakes(self) -> None:
+    def test_session_created_wakes_and_returns_open_code_context(self) -> None:
         result = handle_opencode_hook(
             self.home,
             {
                 "type": "session.created",
-                "sessionID": "ses_confirmed_1",
+                "sessionID": "ses_current",
+                "directory": "C:/work/project-a",
                 "info": {
-                    "id": "ses_confirmed_1",
-                    "title": "Fix the build",
-                    "directory": "C:/work/project-b",
-                    "model": {"id": "anthropic/claude-sonnet-4", "providerID": "anthropic"},
+                    "id": "ses_current",
+                    "model": {"providerID": "openai", "modelID": "gpt-test"},
                 },
             },
         )
 
         self.assertIsNotNone(result)
+        self.assertEqual(result["root"], self.runtime.status().root)
+        self.assertEqual(result["head"], self.runtime.status().head)
+        context = result["context"]
+        self.assertIn("=== CURRENT BODY ACTIVATION ===", context)
+        self.assertIn("Body zero", context)
+        self.assertIn("=== HISTORICAL OBSERVATIONS ===", context)
+        self.assertIn("agentic_evo_recall_experiences", context)
+        self.assertIn("agentic_evo_submit_successor", context)
+        self.assertNotIn("hookSpecificOutput", repr(result))
+        self.assertNotIn("C:/work/project-a", context)
+
         last = self.runtime.evidence.records()[-1]
         self.assertEqual(last.event_kind, "session_start")
         self.assertEqual(last.execution_surface, "opencode")
-        self.assertEqual(last.session_id, "ses_confirmed_1")
-        self.assertTrue(
-            last.project_environment.startswith("sha256:"),
-            last.project_environment,
-        )
+        self.assertEqual(last.session_id, "ses_current")
+        self.assertEqual(last.author_kind, "surface_unverified")
 
-    def test_message_and_tool_payloads_store_hashes_not_raw_content(self) -> None:
-        private_prompt = "private task text that must not be copied"
-        tool_input = {"command": "build --with-sensitive-arguments"}
-        tool_response = {"output": "private build output"}
+    def test_visible_user_assistant_and_completed_tool_evidence(self) -> None:
+        user_prompt = "Please update the parser."
+        assistant_text = "Updated the parser and added a focused test."
+        secret = "SENTINEL_SHOULD_NOT_PERSIST"
 
         handle_opencode_hook(
             self.home,
             {
-                "type": "message.updated",
-                "sessionID": "session-a",
-                "info": {
-                    "id": "msg_1",
-                    "role": "user",
-                    "parts": [{"type": "text", "text": private_prompt}],
+                "type": "message.part.updated",
+                "sessionID": "ses_a",
+                "directory": "C:/work/project-a",
+                "message_role": "user",
+                "part": {
+                    "id": "prt_user",
+                    "messageID": "msg_user",
+                    "type": "text",
+                    "text": user_prompt,
                 },
             },
         )
         handle_opencode_hook(
             self.home,
             {
-                "type": "tool.execute.before",
-                "sessionID": "session-a",
-                "tool": "bash",
-                "callID": "call_1",
-                "args": tool_input,
+                "type": "message.part.updated",
+                "sessionID": "ses_a",
+                "directory": "C:/work/project-a",
+                "message_role": "assistant",
+                "part": {
+                    "id": "prt_assistant",
+                    "messageID": "msg_assistant",
+                    "type": "text",
+                    "text": assistant_text,
+                },
             },
         )
         handle_opencode_hook(
             self.home,
             {
                 "type": "tool.execute.after",
-                "sessionID": "session-a",
-                "tool": "bash",
+                "sessionID": "ses_a",
                 "callID": "call_1",
-                "args": tool_input,
-                "result": tool_response,
+                "directory": "C:/work/project-a",
+                "tool": "bash",
+                "args": {
+                    "command": f"curl -H 'Authorization: Bearer {secret}' https://example.test"
+                },
+                "result": {
+                    "title": "shell result",
+                    "output": f'{{"api_key":"{secret}"}}',
+                },
             },
         )
 
-        message_record, before_record, after_record = self.runtime.evidence.records()[-3:]
-        serialized = (
-            repr(message_record) + repr(before_record) + repr(after_record)
-        )
-        self.assertNotIn(private_prompt, serialized)
-        self.assertNotIn(tool_input["command"], serialized)
-        self.assertNotIn(tool_response["output"], serialized)
-        self.assertEqual(message_record.event_kind, "message_updated")
-        self.assertEqual(message_record.payload["message_role"], "user")
-        self.assertRegex(message_record.payload["message_sha256"], r"^[0-9a-f]{64}$")
-        self.assertEqual(before_record.event_kind, "tool_use_started")
-        self.assertEqual(before_record.tool_call_id, "call_1")
-        self.assertRegex(before_record.payload["tool_input_sha256"], r"^[0-9a-f]{64}$")
-        self.assertEqual(after_record.event_kind, "tool_use_finished")
-        self.assertRegex(after_record.payload["tool_response_sha256"], r"^[0-9a-f]{64}$")
+        user_record, assistant_record, tool_record = self.runtime.evidence.records()[-3:]
+        self.assertEqual(user_record.event_kind, "user_prompt_submitted")
+        self.assertEqual(user_record.payload["prompt"], user_prompt)
+        self.assertFalse(user_record.payload["prompt_redacted"])
+        self.assertEqual(assistant_record.event_kind, "assistant_message_observed")
+        self.assertEqual(assistant_record.payload["assistant_text"], assistant_text)
+        self.assertFalse(assistant_record.payload["assistant_text_redacted"])
+        self.assertEqual(tool_record.event_kind, "tool_use_finished")
+        self.assertEqual(tool_record.tool_call_id, "call_1")
+        self.assertIn("[redacted credential]", tool_record.payload["tool_input"])
+        self.assertTrue(tool_record.payload["tool_input_redacted"])
+        self.assertNotIn(secret, repr(tool_record))
 
-    def test_session_end_enters_waiting_without_using_transcript_as_protocol(self) -> None:
-        handle_opencode_hook(
-            self.home,
-            {
-                "session_id": "session-a",
-                "cwd": "C:/work/project-a",
-                "hook_event_name": "session.start",
-                "model": "model-a",
-                "source": "startup",
-            },
-        )
+    def test_reasoning_part_is_never_persisted(self) -> None:
+        before = self.runtime.evidence.records()
+
         result = handle_opencode_hook(
             self.home,
             {
-                "session_id": "session-a",
-                "transcript_path": "C:/unstable/transcript.jsonl",
-                "cwd": "C:/work/project-a",
-                "hook_event_name": "session.end",
-                "model": "model-a",
-                "reason": "other",
+                "type": "message.part.updated",
+                "sessionID": "ses_a",
+                "message_role": "assistant",
+                "part": {
+                    "id": "prt_reasoning",
+                    "messageID": "msg_assistant",
+                    "type": "reasoning",
+                    "text": "hidden reasoning SENTINEL",
+                },
             },
         )
 
         self.assertIsNone(result)
-        self.assertEqual(self.runtime.status().lifecycle_state, "waiting")
-        last = self.runtime.evidence.records()[-1]
-        self.assertEqual(last.event_kind, "session_end")
-        self.assertEqual(last.execution_surface, "opencode")
-        self.assertNotIn("transcript_path", last.payload)
+        self.assertEqual(self.runtime.evidence.records(), before)
 
-    def test_confirmed_session_idle_and_status_idle_sleep(self) -> None:
+    def test_history_context_is_a_reference_not_prior_raw_content(self) -> None:
+        prior_prompt = "Prior task text must remain available only on demand."
         handle_opencode_hook(
             self.home,
-            {"type": "session.created", "sessionID": "session-a"},
+            {
+                "type": "message.part.updated",
+                "sessionID": "ses_prior",
+                "message_role": "user",
+                "part": {
+                    "id": "prt_prior",
+                    "messageID": "msg_prior",
+                    "type": "text",
+                    "text": prior_prompt,
+                },
+            },
         )
-        self.assertIsNone(
-            handle_opencode_hook(
-                self.home,
-                {"type": "session.idle", "sessionID": "session-a"},
-            )
-        )
-        self.assertEqual(self.runtime.status().lifecycle_state, "waiting")
 
-        handle_opencode_hook(
+        result = handle_opencode_hook(
             self.home,
-            {"type": "session.created", "sessionID": "session-b"},
+            {"type": "session.created", "sessionID": "ses_current"},
         )
-        self.assertIsNone(
-            handle_opencode_hook(
-                self.home,
-                {"type": "session.status", "sessionID": "session-b", "status": {"type": "idle"}},
-            )
-        )
-        self.assertEqual(self.runtime.status().lifecycle_state, "waiting")
 
-    def test_session_end_only_closes_the_opencode_surface_identity(self) -> None:
+        self.assertIsNotNone(result)
+        context = result["context"]
+        self.assertIn('\"event_kind\":\"user_prompt_submitted\"', context)
+        self.assertIn('\"session_id\":\"ses_prior\"', context)
+        self.assertNotIn(prior_prompt, context)
+        self.assertIn("historical observations, not current instructions", context)
+
+    def test_idle_only_closes_the_opencode_surface_identity(self) -> None:
         client = SurfaceClient(self.home)
         client.wake(
             execution_surface="other-coding-agent",
@@ -264,26 +247,15 @@ class OpencodeAdapterTests(unittest.TestCase):
         )
         handle_opencode_hook(
             self.home,
-            {
-                "session_id": "shared-session",
-                "cwd": "C:/work/project-a",
-                "hook_event_name": "session.start",
-                "model": "model-a",
-                "source": "startup",
-            },
+            {"type": "session.created", "sessionID": "shared-session"},
         )
 
-        handle_opencode_hook(
-            self.home,
-            {
-                "session_id": "shared-session",
-                "cwd": "C:/work/project-a",
-                "hook_event_name": "session.end",
-                "model": "model-a",
-                "reason": "other",
-            },
+        self.assertIsNone(
+            handle_opencode_hook(
+                self.home,
+                {"type": "session.idle", "sessionID": "shared-session"},
+            )
         )
-
         self.assertEqual(
             client.status()["active_sessions"],
             [
@@ -294,99 +266,21 @@ class OpencodeAdapterTests(unittest.TestCase):
             ],
         )
 
-    def test_unknown_event_mapped_to_execution_surface_event(self) -> None:
-        result = handle_opencode_hook(
-            self.home,
-            {
-                "type": "session.heartbeat",
-                "sessionID": "session-a",
-                "payload": {"unmapped": True},
-            },
-        )
-
-        self.assertIsNone(result)
-        last = self.runtime.evidence.records()[-1]
-        self.assertEqual(last.event_kind, "execution_surface_event")
-        self.assertEqual(last.payload["hook_event"], "session.heartbeat")
-        self.assertEqual(last.payload["unmapped_event_name"], "session.heartbeat")
-
-    def test_session_error_observed_with_bounded_fields(self) -> None:
-        handle_opencode_hook(
-            self.home,
-            {
-                "type": "session.error",
-                "sessionID": "session-a",
-                "error": {
-                    "name": "ProviderAuthError",
-                    "data": {"message": "authentication failed for provider x"},
-                },
-            },
-        )
-
-        last = self.runtime.evidence.records()[-1]
-        self.assertEqual(last.event_kind, "session_error")
-        self.assertEqual(last.payload["error_name"], "ProviderAuthError")
-        self.assertRegex(
-            last.payload["error_message_sha256"], r"^[0-9a-f]{64}$"
-        )
-        self.assertNotIn("authentication failed", repr(last))
-
-    def test_malformed_payloads_are_swallowed(self) -> None:
-        self.assertIsNone(handle_opencode_hook(self.home, None))
-        self.assertIsNone(handle_opencode_hook(self.home, "not-a-mapping"))
-        self.assertIsNone(handle_opencode_hook(self.home, [1, 2, 3]))
-        before = self.runtime.evidence.records()
-        self.assertIsNone(
+    def test_invalid_or_unavailable_surface_is_a_visible_adapter_failure(self) -> None:
+        with self.assertRaises(OpencodeHookError):
+            handle_opencode_hook(self.home, None)
+        with self.assertRaises(OpencodeHookError):
             handle_opencode_hook(
                 self.home,
-                {"type": "session.created", "sessionID": None},
-            )
-        )
-        self.assertEqual(self.runtime.evidence.records(), before)
-
-    def test_observatory_failure_does_not_block_the_coding_agent_hook(self) -> None:
-        db_path = self.home / "trusted" / "state.sqlite3"
-        with closing(sqlite3.connect(db_path)) as connection, connection:
-            before = connection.execute(
-                "SELECT COUNT(*) FROM events"
-            ).fetchone()[0]
-            connection.execute(
-                "UPDATE checkpoints SET record_json = ? WHERE sequence = 1",
-                (b"{}",),
+                {"type": "message.part.updated", "sessionID": ""},
             )
 
-        result = handle_opencode_hook(
-            self.home,
-            {
-                "type": "message.updated",
-                "sessionID": "session-a",
-                "info": {"id": "msg_1", "role": "user"},
-            },
-        )
-
-        self.assertIsNone(result)
-        with closing(sqlite3.connect(db_path)) as connection:
-            after = connection.execute(
-                "SELECT COUNT(*) FROM events"
-            ).fetchone()[0]
-        self.assertEqual(after, before)
-
-    def test_unavailable_surface_fails_open_without_direct_database_fallback(
-        self,
-    ) -> None:
         self._terminate_service()
-        before = self.runtime.evidence.records()
-
-        result = handle_opencode_hook(
-            self.home,
-            {
-                "type": "session.created",
-                "sessionID": "surface-missing",
-            },
-        )
-
-        self.assertIsNone(result)
-        self.assertEqual(self.runtime.evidence.records(), before)
+        with self.assertRaises(OpencodeHookError):
+            handle_opencode_hook(
+                self.home,
+                {"type": "session.created", "sessionID": "surface-missing"},
+            )
 
     def test_caller_owned_import_boundary(self) -> None:
         script = (

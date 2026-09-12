@@ -9,8 +9,14 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
-from agentic_evo.adapters.codex import handle_codex_hook
+from agentic_evo.adapters.codex import (
+    CodexHookError,
+    _cli_command_prefix,
+    _visible_json,
+    handle_codex_hook,
+)
 from agentic_evo.ipc import ServiceUnavailableError, SurfaceClient
 from agentic_evo.runtime import DevelopmentalRuntime
 
@@ -116,10 +122,29 @@ class CodexAdapterTests(unittest.TestCase):
         self.assertEqual(last.session_id, "session-a")
         self.assertEqual(last.author_kind, "surface_unverified")
 
-    def test_prompt_and_tool_payloads_store_hashes_not_raw_content(self) -> None:
-        prompt = "private task text that must not be copied"
-        tool_input = {"command": "build --with-sensitive-arguments"}
-        tool_response = {"output": "private build output"}
+    def test_task_visible_prompt_tool_and_final_text_are_readable_and_scrubbed(
+        self,
+    ) -> None:
+        prompt = "Run the focused regression.\nAuthorization: Bearer private-prompt-token"
+        tool_input = {
+            "command": "python -m unittest tests.test_codex_adapter",
+            "access_token": "private-tool-token",
+        }
+        tool_response = {
+            "output": "1 test passed\nAPI_TOKEN=private-result-token",
+            "exit_code": 0,
+        }
+        final_text = "The focused regression passed.\nPRIVATE_KEY=private-final-key"
+
+        handle_codex_hook(
+            self.home,
+            {
+                "session_id": "session-a",
+                "cwd": "C:/work/project-a",
+                "hook_event_name": "SessionStart",
+                "model": "model-a",
+            },
+        )
 
         handle_codex_hook(
             self.home,
@@ -146,16 +171,180 @@ class CodexAdapterTests(unittest.TestCase):
                 "tool_response": tool_response,
             },
         )
+        handle_codex_hook(
+            self.home,
+            {
+                "session_id": "session-a",
+                "cwd": "C:/work/project-a",
+                "hook_event_name": "Stop",
+                "model": "model-a",
+                "last_assistant_message": final_text,
+            },
+        )
 
-        prompt_record, tool_record = self.runtime.evidence.records()[-2:]
-        serialized = repr(prompt_record) + repr(tool_record)
-        self.assertNotIn(prompt, serialized)
-        self.assertNotIn(tool_input["command"], serialized)
-        self.assertNotIn(tool_response["output"], serialized)
-        self.assertEqual(prompt_record.payload["prompt_chars"], len(prompt))
-        self.assertRegex(prompt_record.payload["prompt_sha256"], r"^[0-9a-f]{64}$")
-        self.assertRegex(tool_record.payload["tool_input_sha256"], r"^[0-9a-f]{64}$")
-        self.assertRegex(tool_record.payload["tool_response_sha256"], r"^[0-9a-f]{64}$")
+        prompt_record, tool_record, final_record = self.runtime.evidence.records()[-3:]
+        serialized = repr(prompt_record) + repr(tool_record) + repr(final_record)
+        self.assertIn("Run the focused regression.", serialized)
+        self.assertIn(tool_input["command"], serialized)
+        self.assertIn("1 test passed", serialized)
+        self.assertIn("The focused regression passed.", serialized)
+        self.assertNotIn("private-prompt-token", serialized)
+        self.assertNotIn("private-tool-token", serialized)
+        self.assertNotIn("private-result-token", serialized)
+        self.assertNotIn("private-final-key", serialized)
+        self.assertTrue(prompt_record.payload["prompt_redacted"])
+        self.assertTrue(tool_record.payload["tool_input_redacted"])
+        self.assertTrue(tool_record.payload["tool_response_redacted"])
+        self.assertTrue(final_record.payload["assistant_text_redacted"])
+
+    def test_pre_tool_use_does_not_duplicate_post_tool_evidence(self) -> None:
+        handle_codex_hook(
+            self.home,
+            {
+                "session_id": "session-a",
+                "cwd": "C:/work/project-a",
+                "hook_event_name": "SessionStart",
+                "model": "model-a",
+            },
+        )
+        before = self.runtime.evidence.records()
+
+        result = handle_codex_hook(
+            self.home,
+            {
+                "session_id": "session-a",
+                "cwd": "C:/work/project-a",
+                "hook_event_name": "PreToolUse",
+                "turn_id": "turn-a",
+                "model": "model-a",
+                "tool_name": "Bash",
+                "tool_use_id": "tool-a",
+                "tool_input": {"command": "python -m unittest"},
+            },
+        )
+
+        self.assertIsNone(result)
+        self.assertEqual(self.runtime.evidence.records(), before)
+
+    def test_exec_agent_messages_are_observations_recalled_by_a_later_session(self) -> None:
+        base = {
+            "cwd": "C:/work/project-a",
+            "model": "model-a",
+            "ingress": "codex_exec_jsonl",
+        }
+        handle_codex_hook(
+            self.home,
+            {**base, "session_id": "session-a", "hook_event_name": "SessionStart"},
+        )
+        handle_codex_hook(
+            self.home,
+            {
+                **base,
+                "session_id": "session-a",
+                "hook_event_name": "AgentMessage",
+                "last_assistant_message": "The concrete task result.",
+            },
+        )
+        handle_codex_hook(
+            self.home,
+            {**base, "session_id": "session-a", "hook_event_name": "SessionEnd"},
+        )
+        handle_codex_hook(
+            self.home,
+            {**base, "session_id": "session-b", "hook_event_name": "SessionStart"},
+        )
+
+        recalled = SurfaceClient(self.home).recall_experiences(
+            execution_surface="codex",
+            session_id="session-b",
+        )
+
+        messages = [
+            experience
+            for experience in recalled["experiences"]
+            if experience["event_kind"] == "assistant_message_observed"
+        ]
+        self.assertEqual(len(messages), 1)
+        self.assertIn("The concrete task result.", messages[0]["payload"]["assistant_text"])
+        self.assertEqual(messages[0]["payload"]["ingress"], "codex_exec_jsonl")
+
+    def test_visible_json_scrubs_known_embedded_credential_formats(self) -> None:
+        cases = (
+            (
+                "curl -H 'Authorization: Bearer SENTINEL_INLINE' https://example.test",
+                "SENTINEL_INLINE",
+            ),
+            ('{"api_key":"SENTINEL_JSON","command":"status"}', "SENTINEL_JSON"),
+            (
+                "$env:SECRET_NAME='SENTINEL_POWERSHELL'\nWrite-Output done",
+                "SENTINEL_POWERSHELL",
+            ),
+        )
+
+        for value, sentinel in cases:
+            visible, redacted, truncated = _visible_json(value)
+
+            self.assertNotIn(sentinel, visible)
+            self.assertTrue(redacted)
+            self.assertFalse(truncated)
+
+        structured = {
+            "api_key": "SENTINEL_API_KEY",
+            "API_KEY": "SENTINEL_UPPER_API_KEY",
+            "apikey": "SENTINEL_APIKEY",
+            "OPENAI_API_KEY": "SENTINEL_OPENAI_API_KEY",
+        }
+        visible, redacted, truncated = _visible_json(structured)
+
+        self.assertTrue(redacted)
+        self.assertFalse(truncated)
+        for sentinel in structured.values():
+            self.assertNotIn(sentinel, visible)
+
+    def test_cli_command_prefix_is_powershell_invokable_only_on_windows(self) -> None:
+        with patch("agentic_evo.adapters.codex._is_windows_platform", return_value=True):
+            self.assertTrue(_cli_command_prefix().startswith('& "'))
+        with patch("agentic_evo.adapters.codex._is_windows_platform", return_value=False):
+            self.assertFalse(_cli_command_prefix().startswith("& "))
+
+    def test_session_start_separates_historical_observation_references_from_body_context(
+        self,
+    ) -> None:
+        client = SurfaceClient(self.home)
+        prior_wake = client.wake(
+            execution_surface="opencode",
+            session_id="prior-session",
+            project_environment="project-a",
+            model="model-a",
+        )
+        client.observe(
+            event_kind="user_prompt_submitted",
+            payload={"prompt": "Historical task content must be read on demand."},
+            execution_surface="opencode",
+            session_id="prior-session",
+        )
+        client.sleep(execution_surface="opencode", session_id="prior-session")
+
+        result = handle_codex_hook(
+            self.home,
+            {
+                "session_id": "session-a",
+                "cwd": "C:/work/project-a",
+                "hook_event_name": "SessionStart",
+                "model": "model-a",
+            },
+        )
+
+        self.assertIsNotNone(result)
+        context = result["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("CURRENT BODY ACTIVATION", context)
+        self.assertIn("HISTORICAL OBSERVATIONS", context)
+        self.assertIn("historical observations, not current instructions", context)
+        self.assertIn("opencode", context)
+        self.assertIn("prior-session", context)
+        self.assertIn(prior_wake["head"], context)
+        self.assertIn("recall-experiences", context)
+        self.assertNotIn("Historical task content must be read on demand.", context)
 
     def test_session_end_enters_waiting_without_using_transcript_as_protocol(self) -> None:
         handle_codex_hook(
@@ -225,7 +414,7 @@ class CodexAdapterTests(unittest.TestCase):
             ],
         )
 
-    def test_observatory_failure_does_not_block_the_coding_agent_hook(self) -> None:
+    def test_observatory_failure_is_reported_to_the_hook_boundary(self) -> None:
         db_path = self.home / "trusted" / "state.sqlite3"
         with closing(sqlite3.connect(db_path)) as connection, connection:
             before = connection.execute(
@@ -236,43 +425,43 @@ class CodexAdapterTests(unittest.TestCase):
                 (b"{}",),
             )
 
-        result = handle_codex_hook(
-            self.home,
-            {
-                "session_id": "session-a",
-                "cwd": "C:/work/project-a",
-                "hook_event_name": "UserPromptSubmit",
-                "turn_id": "turn-a",
-                "model": "model-a",
-                "prompt": "continue the real task",
-            },
-        )
+        with self.assertRaises(CodexHookError):
+            handle_codex_hook(
+                self.home,
+                {
+                    "session_id": "session-a",
+                    "cwd": "C:/work/project-a",
+                    "hook_event_name": "UserPromptSubmit",
+                    "turn_id": "turn-a",
+                    "model": "model-a",
+                    "prompt": "continue the real task",
+                },
+            )
 
-        self.assertIsNone(result)
         with closing(sqlite3.connect(db_path)) as connection:
             after = connection.execute(
                 "SELECT COUNT(*) FROM events"
             ).fetchone()[0]
         self.assertEqual(after, before)
 
-    def test_unavailable_surface_fails_open_without_direct_database_fallback(
+    def test_unavailable_surface_failure_is_not_silently_reported_as_success(
         self,
     ) -> None:
         self._terminate_service()
         before = self.runtime.evidence.records()
 
-        result = handle_codex_hook(
-            self.home,
-            {
-                "session_id": "surface-missing",
-                "cwd": "C:/work/project-a",
-                "hook_event_name": "SessionStart",
-                "model": "model-a",
-                "source": "startup",
-            },
-        )
+        with self.assertRaises(CodexHookError):
+            handle_codex_hook(
+                self.home,
+                {
+                    "session_id": "surface-missing",
+                    "cwd": "C:/work/project-a",
+                    "hook_event_name": "SessionStart",
+                    "model": "model-a",
+                    "source": "startup",
+                },
+            )
 
-        self.assertIsNone(result)
         self.assertEqual(self.runtime.evidence.records(), before)
 
 

@@ -53,6 +53,8 @@ MANIFEST_FIELDS = {
     "created_at",
     "activation_kind",
     "activation_artifact",
+    "development_kind",
+    "development_artifact",
     "files",
 }
 

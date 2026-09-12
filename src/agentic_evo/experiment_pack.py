@@ -54,7 +54,8 @@ _RECORD_FIELDS = frozenset({
 })
 _MANIFEST_FIELDS = frozenset({
     "schema_version", "root", "parent_head", "generation", "author_kind",
-    "created_at", "activation_kind", "activation_artifact", "files",
+    "created_at", "activation_kind", "activation_artifact",
+    "development_kind", "development_artifact", "files",
 })
 _HASH = re.compile(r"^[0-9a-f]{64}$")
 
