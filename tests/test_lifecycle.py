@@ -64,6 +64,72 @@ class MachineLifecycleTests(unittest.TestCase):
             expected_authority_epoch=self.runtime.trusted.authority_epoch(),
         )
 
+    def test_body_store_requires_and_inherits_paired_development_descriptor(
+        self,
+    ) -> None:
+        store = BodyStore(self.home / "descriptor-store")
+        parent = store.commit(
+            root="descriptor-root",
+            parent_head=None,
+            files={
+                "entrypoint.md": "legacy activation",
+                "develop.py": "def develop(context):\n    return {'action': 'no_change'}\n",
+            },
+            author_kind="test",
+            development_kind="python-development-v1",
+            development_artifact="develop.py",
+        )
+        child = store.commit(
+            root="descriptor-root",
+            parent_head=parent,
+            files={
+                "entrypoint.md": "child activation",
+                "develop.py": "def develop(context):\n    return {'action': 'request_later'}\n",
+            },
+            author_kind="test",
+        )
+        legacy = store.commit(
+            root="legacy-root",
+            parent_head=None,
+            files={
+                "entrypoint.md": "legacy activation",
+                "develop.py": "this suffix alone must not execute",
+            },
+            author_kind="test",
+        )
+        cleared = store.commit(
+            root="descriptor-root",
+            parent_head=parent,
+            files={"entrypoint.md": "text-only successor"},
+            author_kind="test",
+            development_kind=None,
+            development_artifact=None,
+        )
+
+        parent_manifest = store.read_manifest(parent)
+        child_manifest = store.read_manifest(child)
+        legacy_manifest = store.read_manifest(legacy)
+        cleared_manifest = store.read_manifest(cleared)
+
+        self.assertEqual(parent_manifest.development_kind, "python-development-v1")
+        self.assertEqual(parent_manifest.development_artifact, "develop.py")
+        self.assertEqual(child_manifest.development_kind, "python-development-v1")
+        self.assertEqual(child_manifest.development_artifact, "develop.py")
+        self.assertIsNone(legacy_manifest.development_kind)
+        self.assertIsNone(legacy_manifest.development_artifact)
+        self.assertIsNone(cleared_manifest.development_kind)
+        self.assertIsNone(cleared_manifest.development_artifact)
+        self.assertNotIn("develop.py", cleared_manifest.file_names)
+
+        with self.assertRaises(InvalidBodyError):
+            store.commit(
+                root="descriptor-root",
+                parent_head=None,
+                files={"entrypoint.md": "incomplete descriptor"},
+                author_kind="test",
+                development_kind="python-development-v1",
+            )
+
     def test_genesis_persists_one_root_and_head_across_projects_and_sessions(self) -> None:
         initial = self.runtime.status()
 

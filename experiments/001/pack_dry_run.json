@@ -1,0 +1,120 @@
+{
+  "schema": "agentic-evo.experiment-pack.v1",
+  "prereg": {
+    "schema": "agentic-evo.experiment-prereg.v1",
+    "protocol_ref": "experiments/001_机器级连续生命循环.md",
+    "instrument_version": "agentic-evo-cli-genesis-v1",
+    "protocol_version": "agentic-evo-trusted-v2",
+    "root_commitment": "c78860b7a6dc65c6af61f69a6e54f4b5c86f9b8b5d612019a7159c95daabe497",
+    "head_start": "1628ca500af68509084609a47a692efdad903c47fa612e1fdd070f8e796a5884",
+    "execution_surface": "opencode",
+    "project_environment": "D:\\rawle\\Coding\\Agentic-Evo",
+    "hypothesis_refs": [
+      "H001-A",
+      "H001-B",
+      "H001-C",
+      "H001-D",
+      "H001-E",
+      "H001-F"
+    ],
+    "control_refs": [
+      "C1",
+      "C2",
+      "C3",
+      "C4",
+      "C5",
+      "C6",
+      "C7",
+      "C8"
+    ],
+    "start_anchor": {
+      "sequence": 1,
+      "integrity_hash": "9c74390ca2f25bf65fd0538a7fb55230e4c1eb219b8fd01bce203346ef9403b9"
+    },
+    "claim_ceiling": {
+      "artifact_integrity": "established",
+      "committed_head_lineage": "established",
+      "declared_metadata_truth": "not_established",
+      "causal_attribution": "not_established",
+      "future_capability_gain": "not_established",
+      "memory_formation": "not_established",
+      "autonomous_learning": "not_established",
+      "self_evolution": "not_established",
+      "second_real_coding_agent_natural_usage": "not_established",
+      "zero_human_learning_intervention": "not_established"
+    }
+  },
+  "end_anchor": {
+    "sequence": 2,
+    "integrity_hash": "2cb02c959a6826a00f6da5626f17dff5f53c8056f56bd9398aa1be21c1ae0b14"
+  },
+  "head_end": "1628ca500af68509084609a47a692efdad903c47fa612e1fdd070f8e796a5884",
+  "authority_end": "on",
+  "evidence_window": [
+    {
+      "schema_version": "agentic-evo-evidence-v1",
+      "event_id": "d714cf5c3fea411699a9aa9a05f84237",
+      "sequence": 2,
+      "instrument_version": "agentic-evo-cli-genesis-v1",
+      "protocol_version": "agentic-evo-trusted-v2",
+      "event_kind": "head_advanced",
+      "occurred_at": "2026-08-05T03:55:28.652032+00:00",
+      "observed_at": "2026-08-05T03:55:28.652032+00:00",
+      "root_commitment": "agentic-evo-root-v1",
+      "head_before": "ee79ae49b8941344e1f314e1f9183deacf8c089d",
+      "head_after": "1628ca500af68509084609a47a692efdad903c47fa612e1fdd070f8e796a5884",
+      "source_kind": "body",
+      "author_kind": "research_instrument",
+      "execution_surface": null,
+      "session_id": null,
+      "turn_id": null,
+      "tool_call_id": null,
+      "project_environment": null,
+      "correlation_ref": null,
+      "causation_ref": null,
+      "parent_ref": null,
+      "human_intervention_kind": null,
+      "coverage_gap": null,
+      "payload": {
+        "affected_domain": "body_lineage",
+        "body_generation": 1,
+        "ingress_path": "runtime_adopt",
+        "operation": "advance_head",
+        "parent_head": "ee79ae49b8941344e1f314e1f9183deacf8c089d"
+      },
+      "previous_integrity_hash": "9c74390ca2f25bf65fd0538a7fb55230e4c1eb219b8fd01bce203346ef9403b9",
+      "integrity_hash": "2cb02c959a6826a00f6da5626f17dff5f53c8056f56bd9398aa1be21c1ae0b14"
+    }
+  ],
+  "body_manifests": [
+    {
+      "head": "1628ca500af68509084609a47a692efdad903c47fa612e1fdd070f8e796a5884",
+      "manifest": {
+        "activation_artifact": "entrypoint.md",
+        "activation_kind": "surface-context-utf8-v1",
+        "author_kind": "research_instrument",
+        "created_at": "2026-08-05T03:55:28.635839+00:00",
+        "files": {
+          "entrypoint.md": "48ad90e2d32e4677f236f400263b1df4c4f9526e487d738f31387158b8e42f8b",
+          "identity.md": "d0af94833b23f14d4e8bbda3c4e012f66e9612bfd9717c9e6cde7de25710bfac"
+        },
+        "generation": 1,
+        "parent_head": "ee79ae49b8941344e1f314e1f9183deacf8c089d",
+        "root": "agentic-evo-root-v1",
+        "schema_version": "agentic-evo-body-v2"
+      }
+    }
+  ],
+  "claim_ceiling": {
+    "artifact_integrity": "established",
+    "committed_head_lineage": "established",
+    "declared_metadata_truth": "not_established",
+    "causal_attribution": "not_established",
+    "future_capability_gain": "not_established",
+    "memory_formation": "not_established",
+    "autonomous_learning": "not_established",
+    "self_evolution": "not_established",
+    "second_real_coding_agent_natural_usage": "not_established",
+    "zero_human_learning_intervention": "not_established"
+  }
+}

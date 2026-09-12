@@ -73,6 +73,26 @@
 - [实验 001：机器级连续生命循环](../experiments/001_机器级连续生命循环.md)
   从 Genesis 开始验证同一用户绑定 Agent 的机器级唯一身份、跨对话和跨项目连续、跨 coding-agent 接入、独立证据、合法 Head 推进、睡眠/等待恢复与真实 Off；当前纵切面已形成 Pre-Genesis 代码与四项 Windows foreground 局部原生证据，正式实验尚未启动。
 
+## 发布包（Release）
+
+- [发布清单（Release Manifest）](release/release-manifest.md)
+  将 v1.0 六项要求映射到当前证据/状态（存在 / 缺失 / 阻塞项 / 聚焦提交历史），并标注私有远端推送为 pending authorization。
+- [安装 / 升级 / 卸载入口](release/install-upgrade-uninstall.md)
+  Windows 原生 install/upgrade/uninstall 条目（`install_plan.py` / `windows_native.py` / `service.py` / Gate B 脚本）；macOS/Linux 同协议 backend 已规划、未验证。
+- [Adapter Contract](release/adapter-contract.md)
+  Codex hook 事件映射、`ipc.py` 公共 Surface 帧校验、`(execution_surface, session_id)` 复合会话身份；第二个真实 agent 接入为 contract-only。
+- [复现实验说明（Reproduction）](release/reproduction.md)
+  测试套件、autonomous-loop smoke、CAMU memory smoke（分支）、loop-demo（分支）、Gate B retained-preflight dry-run 的精确命令与预期输出。
+- [威胁模型（Threat Model）](release/threat-model.md)
+  Witness TCB、微生命核、本地 HMAC checkpoint、loop 策略门、Body 子进程、UAC/服务/重启边界、证据来源证明；每条含资产/威胁/控制/残余风险/状态。
+- [数据与隐私边界（Data / Privacy）](release/data-privacy.md)
+  本地 SQLite 状态、`memory/camus.jsonl`、loop 存储、evidence 记录；哈希 vs 明文；密钥处理；卸载零残留为 not_proven_runtime。
+- [版本化 Schema 清单（Schema Versioning）](release/schema-versioning.md)
+  全部 `*_SCHEMA_VERSION` 常量（文件:行）、协议/工件 schema、append-only 迁移纪律与测试映射。
+
+状态：`docs/release/` 为发布包脚手架（docs-only），所有主张使用统一图例：`design_ready / code_present / verified / not_proven_runtime / blocked_authorization`；
+Gate B、正式 Genesis、第二真实 agent、私有远端推送均未完成，不得据此判定 v1.0 完成。
+
 ## 文档原则
 
 - 纲领文件保持最终产品与科研目标的一致定义。

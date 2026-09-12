@@ -185,6 +185,7 @@ class TrustedState:
             instrument_version=str(row[0]),
             protocol_version=str(row[1]),
         )
+        trusted._ensure_schema()
         trusted.verify()
         return trusted
 
@@ -216,11 +217,16 @@ class TrustedState:
 
     def current(self) -> tuple[KernelSnapshot, dict[SessionKey, dict[str, Any]]]:
         with self._read_transaction() as connection:
-            state, _, sessions = self._verify_connection(connection)
+            state, sessions = self._verify_current_connection(connection)
         return self._snapshot_from_state(state), sessions
 
     def snapshot(self) -> KernelSnapshot:
         return self.current()[0]
+
+    def last_event_sequence(self) -> int:
+        with self._read_transaction() as connection:
+            state = self._read_state(connection)
+        return int(state["last_event_sequence"])
 
     def gate(self) -> KernelSnapshot:
         snapshot = self.snapshot()
@@ -233,15 +239,157 @@ class TrustedState:
             _, records, _ = self._verify_connection(connection)
         return tuple(records)
 
-    def authority_epoch(self) -> int:
-        return max(
-            (
-                record.sequence
-                for record in self.records()
-                if record.event_kind in _AUTHORITY_OFF_EVENT_KINDS
-            ),
-            default=0,
+    def recent_records(
+        self,
+        *,
+        execution_surface: str,
+        excluded_session_id: str,
+        event_kinds: frozenset[str],
+        limit: int,
+        before_sequence: int | None = None,
+    ) -> tuple[tuple[EvidenceRecord, ...], bool]:
+        """Read a bounded recent projection from the already verified ledger."""
+
+        placeholders = ", ".join("?" for _ in event_kinds)
+        before_clause = "" if before_sequence is None else "AND e.sequence < ?"
+        query = f"""
+            SELECT e.sequence, e.event_id, e.event_kind, e.record_json
+            FROM events AS e
+            LEFT JOIN event_projection AS p ON p.sequence = e.sequence
+            WHERE (
+                    p.sequence IS NULL
+                    OR NOT (p.execution_surface = ? AND p.session_id = ?)
+                  )
+              AND e.event_kind IN ({placeholders})
+              {before_clause}
+            ORDER BY e.sequence DESC
+            LIMIT ?
+        """
+        parameters: tuple[Any, ...] = (
+            execution_surface,
+            excluded_session_id,
+            *sorted(event_kinds),
         )
+        if before_sequence is not None:
+            parameters += (before_sequence,)
+        parameters += (limit + 1,)
+        with self._read_transaction() as connection:
+            state = self._read_state(connection)
+            self._require_on(state)
+            active = connection.execute(
+                """
+                SELECT 1 FROM sessions
+                WHERE execution_surface = ? AND session_id = ?
+                """,
+                (execution_surface, excluded_session_id),
+            ).fetchone()
+            if active is None:
+                raise AuthorityError("experience recall requires an active surface session")
+            rows = connection.execute(query, parameters).fetchall()
+
+        records: list[EvidenceRecord] = []
+        for row in rows[:limit]:
+            record = self._record_from_event_row(row, state)
+            if (
+                (
+                    record.execution_surface,
+                    record.session_id,
+                ) == (execution_surface, excluded_session_id)
+            ):
+                raise IntegrityError("recent evidence row is inconsistent")
+            records.append(record)
+        records.reverse()
+        return tuple(records), len(rows) > limit
+
+    def current_body_lineage_records(
+        self,
+        *,
+        expected_head: str,
+    ) -> tuple[EvidenceRecord | None, EvidenceRecord | None]:
+        """Read recorded lineage facts for exactly the Current Head."""
+
+        with self._read_transaction() as connection:
+            state = self._read_state(connection)
+            self._require_on(state)
+            if state["head"] != expected_head:
+                raise HeadConflictError("Head changed before lineage facts were read")
+            advanced_row = connection.execute(
+                """
+                SELECT sequence, event_id, event_kind, record_json
+                FROM events
+                WHERE event_kind = 'head_advanced'
+                ORDER BY sequence DESC
+                LIMIT 1
+                """
+            ).fetchone()
+            resolution_row = connection.execute(
+                """
+                SELECT sequence, event_id, event_kind, record_json
+                FROM events
+                WHERE event_kind = 'body_development_action'
+                  AND json_extract(record_json, '$.payload.action')
+                      IN ('retain', 'withdraw')
+                  AND json_extract(record_json, '$.payload.candidate_head') = ?
+                ORDER BY sequence DESC
+                LIMIT 1
+                """,
+                (expected_head,),
+            ).fetchone()
+
+        advanced = (
+            None
+            if advanced_row is None
+            else self._record_from_event_row(advanced_row, state)
+        )
+        if advanced is not None and advanced.head_after != expected_head:
+            raise IntegrityError("latest Head advance does not describe Current Head")
+        resolution = (
+            None
+            if resolution_row is None
+            else self._record_from_event_row(resolution_row, state)
+        )
+        if resolution is not None and (
+            resolution.payload.get("action") not in {"retain", "withdraw"}
+            or resolution.payload.get("candidate_head") != expected_head
+        ):
+            raise IntegrityError("recorded Body resolution is inconsistent")
+        return advanced, resolution
+
+    def session_value(
+        self,
+        *,
+        execution_surface: str,
+        session_id: str,
+    ) -> dict[str, Any] | None:
+        self._require_session_identity(execution_surface, session_id)
+        with self._read_transaction() as connection:
+            row = connection.execute(
+                """
+                SELECT value_json FROM sessions
+                WHERE execution_surface = ? AND session_id = ?
+                """,
+                (execution_surface, session_id),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._decode_mapping(row["value_json"], "session")
+
+    def authority_epoch(self) -> int:
+        placeholders = ", ".join("?" for _ in _AUTHORITY_OFF_EVENT_KINDS)
+        with self._read_transaction() as connection:
+            state, _ = self._verify_current_connection(connection)
+            row = connection.execute(
+                f"""
+                SELECT MAX(sequence)
+                FROM events
+                WHERE event_kind IN ({placeholders})
+                """,
+                tuple(sorted(_AUTHORITY_OFF_EVENT_KINDS)),
+            ).fetchone()
+        sequence = 0 if row is None or row[0] is None else int(row[0])
+        if sequence < 0 or sequence > state["last_event_sequence"]:
+            raise IntegrityError("invalid authority epoch")
+        return sequence
 
     def verify(self) -> bool:
         with self._read_transaction() as connection:
@@ -296,6 +444,50 @@ class TrustedState:
                 causation_ref=causation_ref,
                 parent_ref=parent_ref,
                 human_intervention_kind=human_intervention_kind,
+                coverage_gap=coverage_gap,
+            )
+
+    def append_observation(
+        self,
+        *,
+        event_kind: str,
+        source_kind: str,
+        author_kind: str,
+        payload: Mapping[str, Any],
+        occurred_at: str | None = None,
+        execution_surface: str | None = None,
+        session_id: str | None = None,
+        turn_id: str | None = None,
+        tool_call_id: str | None = None,
+        project_environment: str | None = None,
+        correlation_ref: str | None = None,
+        causation_ref: str | None = None,
+        parent_ref: str | None = None,
+        coverage_gap: str | None = None,
+    ) -> EvidenceRecord:
+        """Append one observation while deriving Root and Head atomically."""
+
+        with self._write_transaction() as connection:
+            state = self._read_state(connection)
+            self._require_on(state)
+            return self._finish_transition(
+                connection,
+                state,
+                event_kind=event_kind,
+                head_before=state["head"],
+                head_after=state["head"],
+                source_kind=source_kind,
+                author_kind=author_kind,
+                payload=payload,
+                occurred_at=occurred_at,
+                execution_surface=execution_surface,
+                session_id=session_id,
+                turn_id=turn_id,
+                tool_call_id=tool_call_id,
+                project_environment=project_environment,
+                correlation_ref=correlation_ref,
+                causation_ref=causation_ref,
+                parent_ref=parent_ref,
                 coverage_gap=coverage_gap,
             )
 
@@ -402,6 +594,37 @@ class TrustedState:
                 payload={"session_was_active": session is not None},
             )
 
+    def detach_persisted_sessions(self) -> EvidenceRecord | None:
+        """Detach sessions left by a prior Witness process in one transition."""
+
+        with self._write_transaction() as connection:
+            state = self._read_state(connection)
+            sessions = self._read_sessions(connection)
+            if not sessions:
+                return None
+            sessions_by_execution_surface: dict[str, int] = {}
+            for execution_surface, _ in sessions:
+                sessions_by_execution_surface[execution_surface] = (
+                    sessions_by_execution_surface.get(execution_surface, 0) + 1
+                )
+            connection.execute("DELETE FROM sessions")
+            state["sessions_hash"] = self._sessions_hash(connection)
+            return self._finish_transition(
+                connection,
+                state,
+                event_kind="surface_sessions_detached",
+                head_before=state["head"],
+                head_after=state["head"],
+                source_kind="witness_service",
+                author_kind="research_instrument",
+                payload={
+                    "session_count": len(sessions),
+                    "sessions_by_execution_surface": (
+                        sessions_by_execution_surface
+                    ),
+                },
+            )
+
     def advance_head(
         self,
         *,
@@ -410,10 +633,27 @@ class TrustedState:
         author_kind: str,
         ingress_path: str,
         human_intervention_kind: str | None,
+        execution_surface: str | None = None,
+        session_id: str | None = None,
     ) -> EvidenceRecord:
+        if (execution_surface is None) != (session_id is None):
+            raise IntegrityError("Head advance session binding is incomplete")
         with self._write_transaction() as connection:
             state = self._read_state(connection)
             self._require_on(state)
+            if execution_surface is not None and session_id is not None:
+                self._require_session_identity(execution_surface, session_id)
+                active = connection.execute(
+                    """
+                    SELECT 1 FROM sessions
+                    WHERE execution_surface = ? AND session_id = ?
+                    """,
+                    (execution_surface, session_id),
+                ).fetchone()
+                if active is None:
+                    raise AuthorityError(
+                        "surface session ended before Head advance"
+                    )
             if state["head"] != expected_head:
                 raise HeadConflictError("Head changed before this transition")
             if candidate.root != state["root"]:
@@ -430,6 +670,8 @@ class TrustedState:
                 source_kind="body",
                 author_kind=author_kind,
                 human_intervention_kind=human_intervention_kind,
+                execution_surface=execution_surface,
+                session_id=session_id,
                 payload={
                     "body_generation": candidate.generation,
                     "parent_head": candidate.parent_head,
@@ -582,6 +824,15 @@ class TrustedState:
                 canonical_json_bytes(raw_record),
             ),
         )
+        if execution_surface is not None and session_id is not None:
+            connection.execute(
+                """
+                INSERT INTO event_projection (
+                    sequence, execution_surface, session_id
+                ) VALUES (?, ?, ?)
+                """,
+                (sequence, execution_surface, session_id),
+            )
         record = EvidenceLedger._from_dict(raw_record)
 
         state["revision"] = int(state["revision"]) + 1
@@ -742,6 +993,107 @@ class TrustedState:
             raise IntegrityError("trusted state does not match checkpoint tail")
         return state, records, sessions
 
+    def _verify_current_connection(
+        self,
+        connection: sqlite3.Connection,
+    ) -> tuple[dict[str, Any], dict[SessionKey, dict[str, Any]]]:
+        """Verify the live state and committed tail without rescanning history."""
+
+        state = self._read_state(connection)
+        sessions = self._read_sessions(connection)
+        if state["sessions_hash"] != _session_commitment_hash(sessions):
+            raise IntegrityError("trusted session commitment mismatch")
+        if state["authority"] == "off" and sessions:
+            raise IntegrityError("off trusted state cannot retain active sessions")
+
+        event_row = connection.execute(
+            """
+            SELECT sequence, event_id, event_kind, record_json
+            FROM events
+            ORDER BY sequence DESC
+            LIMIT 1
+            """
+        ).fetchone()
+        checkpoint_row = connection.execute(
+            """
+            SELECT sequence, record_json, checkpoint_mac
+            FROM checkpoints
+            ORDER BY sequence DESC
+            LIMIT 1
+            """
+        ).fetchone()
+        if event_row is None or checkpoint_row is None:
+            raise IntegrityError("trusted state has no Genesis history")
+
+        record = self._record_from_event_row(event_row, state)
+        if (
+            record.schema_version != EVIDENCE_SCHEMA_VERSION
+            or record.sequence != state["revision"]
+            or record.sequence != state["last_event_sequence"]
+            or record.integrity_hash != state["last_event_hash"]
+            or record.head_after != state["head"]
+        ):
+            raise IntegrityError("trusted state does not match evidence tail")
+        record_value = EvidenceLedger._to_dict(record)
+        claimed_record_hash = record_value.pop("integrity_hash")
+        if claimed_record_hash != sha256_hex(canonical_json_bytes(record_value)):
+            raise IntegrityError("trusted evidence tail hash does not match")
+
+        checkpoint = self._decode_mapping(
+            checkpoint_row["record_json"],
+            "checkpoint",
+        )
+        row_mac = checkpoint_row["checkpoint_mac"]
+        if not isinstance(row_mac, str):
+            raise IntegrityError("invalid checkpoint row")
+        checkpoint_sequence = checkpoint_row["sequence"]
+        if (
+            checkpoint_sequence != state["checkpoint_sequence"]
+            or checkpoint.get("schema_version") != CHECKPOINT_SCHEMA_VERSION
+            or checkpoint.get("checkpoint_seq") != checkpoint_sequence
+        ):
+            raise IntegrityError("trusted state does not match checkpoint tail")
+        claimed_checkpoint_hash = checkpoint.get("checkpoint_hash")
+        unsigned_checkpoint = dict(checkpoint)
+        unsigned_checkpoint.pop("checkpoint_hash", None)
+        actual_checkpoint_hash = sha256_hex(
+            canonical_json_bytes(unsigned_checkpoint)
+        )
+        expected_mac = hmac.new(
+            self._key,
+            canonical_json_bytes(checkpoint),
+            hashlib.sha256,
+        ).hexdigest()
+        if (
+            not isinstance(claimed_checkpoint_hash, str)
+            or not hmac.compare_digest(
+                claimed_checkpoint_hash,
+                actual_checkpoint_hash,
+            )
+            or not hmac.compare_digest(row_mac, expected_mac)
+        ):
+            raise IntegrityError("checkpoint tail integrity mismatch")
+        expected_checkpoint = {
+            "transition_id": record.event_id,
+            "who": state["who"],
+            "why": state["why"],
+            "root": state["root"],
+            "head": state["head"],
+            "authority": state["authority"],
+            "revision": state["revision"],
+            "sessions_hash": state["sessions_hash"],
+            "evidence_seq": record.sequence,
+            "evidence_hash": record.integrity_hash,
+            "checkpoint_seq": state["checkpoint_sequence"],
+            "checkpoint_hash": state["checkpoint_hash"],
+        }
+        if any(
+            checkpoint.get(key) != value
+            for key, value in expected_checkpoint.items()
+        ):
+            raise IntegrityError("trusted state does not match checkpoint tail")
+        return state, sessions
+
     def _read_records(self, connection: sqlite3.Connection) -> list[EvidenceRecord]:
         records: list[EvidenceRecord] = []
         try:
@@ -765,6 +1117,25 @@ class TrustedState:
         except (KeyError, TypeError, ValueError) as exc:
             raise IntegrityError("invalid evidence record") from exc
         return records
+
+    def _record_from_event_row(
+        self,
+        row: sqlite3.Row,
+        state: Mapping[str, Any],
+    ) -> EvidenceRecord:
+        raw = self._decode_mapping(row["record_json"], "evidence record")
+        record = EvidenceLedger._from_dict(raw)
+        if (
+            row["sequence"] != record.sequence
+            or row["event_id"] != record.event_id
+            or row["event_kind"] != record.event_kind
+            or record.root_commitment != state["root"]
+            or record.instrument_version != state["instrument_version"]
+            or record.protocol_version != state["protocol_version"]
+            or record.sequence > state["last_event_sequence"]
+        ):
+            raise IntegrityError("evidence row is inconsistent")
+        return record
 
     def _read_checkpoints(
         self,
@@ -955,6 +1326,16 @@ class TrustedState:
                 )
                 connection.execute(
                     """
+                    CREATE TABLE IF NOT EXISTS event_projection (
+                        sequence INTEGER PRIMARY KEY,
+                        execution_surface TEXT NOT NULL,
+                        session_id TEXT NOT NULL,
+                        FOREIGN KEY (sequence) REFERENCES events(sequence)
+                    )
+                    """
+                )
+                connection.execute(
+                    """
                     CREATE TABLE IF NOT EXISTS sessions (
                         execution_surface TEXT NOT NULL,
                         session_id TEXT NOT NULL,
@@ -1020,7 +1401,7 @@ class TrustedState:
         try:
             connection.execute("BEGIN IMMEDIATE")
             if verify:
-                self._verify_connection(connection)
+                self._verify_current_connection(connection)
             yield connection
             connection.execute("COMMIT")
         except BaseException:

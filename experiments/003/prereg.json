@@ -1,0 +1,139 @@
+{
+  "schema": "agentic-evo.e003-counterfactual-capability-prereg.v1",
+  "experiment_id": "E003",
+  "registration_status": "protocol_frozen_run_not_registered",
+  "execution_status": "not_run",
+  "protocol_ref": "experiments/003_Observer反事实能力增益.md",
+  "source_refs": [
+    "docs/research/Observer_24h证据闭合与覆盖修复.md",
+    "docs/research/Observer_24h证据闭合.json",
+    "docs/research/跨模块科研假设矩阵.md",
+    "docs/research/自主实验学习_研究问题与证伪纲要.md"
+  ],
+  "research_question": "在匹配器官与资源条件下，保留的发展历史是否会对未来 held-out task 产生内容敏感的改善？",
+  "hypotheses": {
+    "causal": "若保留的发展历史具有因果作用，则它与 no_memory 和 memory-to-task derangement 的预先声明对照会在未来 held-out task 上产生可复现差异；equivalent_instruction 用于区分自主保持与评测时显式提示。",
+    "content_sensitive": "内容敏感差异的主要判读来自 retained_history vs shuffled_memory：每个单元均不能得到自身匹配的 target history，且接口、数量与预算匹配。",
+    "persistence": "若候选改善是可保持的发展性能力，则在预先声明的延迟复测中仍可观察到，而非只出现于即时表达。"
+  },
+  "experimental_unit": "从同一冻结共同祖先分出的、在单一预注册 run manifest 中唯一标识的独立后继；每个后继仅接受其被分配的处理条件，并在匹配器官、资源与 held-out task 条件下比较。",
+  "arms": [
+    {
+      "id": "retained_history",
+      "role": "treatment",
+      "description": "保留共同祖先之后、预注册窗口内允许的原有发展历史。"
+    },
+    {
+      "id": "no_memory",
+      "role": "control",
+      "description": "移除该发展历史的可用性；不以新提示、摘要或替代材料补回。"
+    },
+    {
+      "id": "shuffled_memory",
+      "role": "control",
+      "description": "使用 run 前冻结的 memory-to-task derangement：任何单元均不得得到自身匹配的 target history；接口、数量与预算匹配；不得增添、编造或改写事实。"
+    },
+    {
+      "id": "equivalent_instruction",
+      "role": "control",
+      "description": "正向提示控制：提供事前声明的等价指令干预；它计为干预，用于区分自主保持与评测时显式提示，不是 retained_history 必须战胜的对照。"
+    }
+  ],
+  "excluded_arms": {
+    "wrong_memory": "不另设 wrong_memory 一臂；它容易以人为制造的新假事实混入内容效应，不能替代本协议的 shuffled_memory 对照。"
+  },
+  "primary_outcome": {
+    "definition": "仅接受由 run 前预注册的外部 checks 对 held-out task 产生的可复现结果。",
+    "not_outcomes": [
+      "Agent self-report",
+      "Observer receipt",
+      "内部自我批评文本",
+      "历史是否被读取的声明"
+    ]
+  },
+  "required_contrasts": [
+    "retained_history vs no_memory",
+    "retained_history vs shuffled_memory",
+    "retained_history vs equivalent_instruction"
+  ],
+  "interpretation_rules": [
+    "只有三个 required contrasts 都按 run manifest 完成且外部 checks 产生可复现结果时，才可讨论候选差异。",
+    "内容敏感的主要判读来自 retained_history vs shuffled_memory；若 retained_history 仅优于 no_memory 而不能与有效 derangement 区分，不得归因为发展历史内容。",
+    "retained_history 不需要战胜 equivalent_instruction；retained_history 与 equivalent_instruction 相近且二者均优于 no_memory/shuffled_memory，仍可支持有效内容被历史自主带入，但不证明它优于显式提示。",
+    "equivalent_instruction 的单独作用是区分自主保持与评测时提示；它不得被解释为中性背景或不计入干预。",
+    "若即时结果未在预先声明的延迟复测中保持，不得称为 persistent capability。",
+    "资源、器官、模型、工具、任务泄漏、人工介入或 evaluator 变化未被记录、匹配或按 manifest 处理时，结论为 inconclusive。"
+  ],
+  "future_run_registration_required_fields": [
+    "run_id",
+    "registered_at_utc",
+    "frozen_parent_ref",
+    "target_episode_refs",
+    "treatment_state_ref",
+    "arm_projection_refs",
+    "held_out_task_pack_ref",
+    "acceptance_evaluator_ref_and_version",
+    "arm_assignment",
+    "run_order",
+    "replication_count",
+    "model_id_and_version",
+    "execution_surface",
+    "tool_manifest",
+    "context_policy",
+    "token_time_and_tool_budgets",
+    "instrument_version",
+    "analysis_method",
+    "primary_effect_threshold",
+    "uncertainty_rule",
+    "exclusion_rules",
+    "abort_rules",
+    "privacy_policy",
+    "human_intervention_ledger_ref",
+    "equivalent_instruction_text_and_assignment",
+    "shuffled_memory_derangement_rule_and_frozen_mapping",
+    "delayed_retest_schedule"
+  ],
+  "run_gate": {
+    "common_ancestor": "所有比较臂必须从同一冻结共同祖先分出。",
+    "isolation": "各臂必须隔离，不能在运行中交换发展历史或结果；任何臂的结果不得回写其他臂或 active Head。",
+    "resource_match": "器官、模型、工具、上下文与资源条件必须按 manifest 匹配或明确记录为偏离。",
+    "held_out": "任务必须在处理分配之后才向各臂开放，且不被发展历史或等价指令泄漏。",
+    "external_evaluator": "primary outcome 必须由 run 前注册的外部 evaluator/checks 产生。",
+    "equivalent_instruction_is_intervention": "等价指令是明确干预，而非无影响的包装。",
+    "shuffle_frozen_derangement": "memory-to-task derangement 必须在 run 前冻结；任何单元不得获得自身匹配的 target history，接口、数量与预算必须匹配，且不得制造新假事实；无法形成有效错排则 not_run。",
+    "failure_state": "任一门槛不满足时，该 run 为 not_run 或 inconclusive，不得升级为能力证据。"
+  },
+  "outcome_vocabulary": [
+    "not_run",
+    "inconclusive",
+    "failed",
+    "passed"
+  ],
+  "evidence_boundary": "本预注册只冻结未来因果检验的入口。它不读取或发布 raw prompt、transcript、tool arguments/body、secrets、token ledger、SQLite 或私密会话正文；未来 run 仍须在其独立 manifest 中声明允许证据与脱敏边界。",
+  "claim_ceiling": {
+    "observer_evidence_anchored_discovery": "established_only_for_frozen_24h_observer_window",
+    "future_capability_gain": "not_established",
+    "causal_attribution": "not_established",
+    "memory_causal_effect": "not_established",
+    "content_sensitive_improvement": "not_established",
+    "persistent_capability": "not_established",
+    "autonomous_learning": "not_established",
+    "self_evolution": "not_established",
+    "external_root_cause": "not_established",
+    "repair_correctness": "not_established",
+    "cross_model_transfer": "not_established",
+    "cross_surface_transfer": "not_established",
+    "zero_human_learning_intervention": "not_established",
+    "general_capability_improvement": "not_established",
+    "complete_coverage": "not_established",
+    "precision_recall_or_zero_false_positive_rate": "not_established"
+  },
+  "prohibited_actions": [
+    "Do not execute E003 from this preregistration artifact.",
+    "Do not register a concrete run without the required future run manifest fields.",
+    "Do not treat self-report or Observer receipts as primary outcomes.",
+    "Do not create, inject, or relabel false history for a wrong_memory arm.",
+    "Do not infer causal capability gain from the frozen Observer evidence alone.",
+    "Do not prescribe an internal memory representation or learning algorithm."
+  ]
+}

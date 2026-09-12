@@ -6,10 +6,12 @@ from .runtime import (
     SessionIdentity,
     WakeState,
 )
+from .version import VERSION as __version__
 
 __all__ = [
     "DevelopmentalRuntime",
     "RuntimeStatus",
     "SessionIdentity",
     "WakeState",
+    "__version__",
 ]

@@ -13,6 +13,8 @@ import unittest
 from unittest.mock import patch
 
 from agentic_evo._util import canonical_json_bytes
+from agentic_evo.development_executor import BodyActionResult
+from agentic_evo.errors import IntegrityError
 from agentic_evo.ipc import (
     CONTROL_PROTOCOL,
     InvalidPublicFrame,
@@ -186,6 +188,114 @@ class WitnessServiceTests(unittest.TestCase):
         self.assertEqual(self.runtime.status(), before_status)
         self.assertEqual(self.runtime.evidence.records(), before_records)
 
+    def test_development_lineage_facts_match_exact_current_body(self) -> None:
+        parent = self.runtime.status().head
+        candidate = self.runtime._prepare_successor(
+            expected_parent=parent,
+            files={"entrypoint.md": "Body one"},
+            author_kind="in_process_rehearsal",
+            ingress_path="test_instrument",
+            expected_authority_epoch=self.runtime.trusted.authority_epoch(),
+        )
+        manifest = self.runtime.body_store.read_manifest(candidate)
+        self.runtime._advance_head(
+            expected_head=parent,
+            candidate_head=candidate,
+            author_kind=manifest.author_kind,
+            ingress_path="test_instrument",
+            expected_authority_epoch=self.runtime.trusted.authority_epoch(),
+        )
+        advanced = self.runtime.evidence.records()[-1]
+        self.runtime.record_body_development(
+            event_kind="body_development_action",
+            opportunity_id="opportunity-no-change",
+            project_environment=str(self.home),
+            payload={
+                "action": "no_change",
+                "opportunity_id": "opportunity-no-change",
+                "current_body_ref": candidate,
+            },
+        )
+        service = WitnessService(self.home)
+
+        facts = service._current_body_lineage_facts(expected_head=candidate)
+
+        self.assertEqual(facts.manifest_head, candidate)
+        self.assertEqual(facts.manifest_generation, manifest.generation)
+        self.assertEqual(facts.manifest_parent_head, parent)
+        self.assertEqual(facts.head_advanced_event_ref, advanced.event_id)
+        self.assertEqual(
+            facts.latest_recorded_resolution_action,
+            "no_recorded_resolution",
+        )
+        self.assertIsNone(facts.latest_recorded_resolution_record_ref)
+
+    def test_lineage_fact_read_failure_is_recorded_for_the_opportunity(self) -> None:
+        service = WitnessService(self.home)
+        service._development_organ_argv = (sys.executable,)
+
+        with patch.object(
+            service,
+            "_current_body_lineage_facts",
+            side_effect=IntegrityError("lineage facts unreadable"),
+        ):
+            service._run_development_opportunity(
+                reason="task_end",
+                after_sequence=self.runtime.trusted.last_event_sequence(),
+            )
+        service._close_body()
+
+        record = self.runtime.evidence.records()[-1]
+        self.assertEqual(record.event_kind, "body_development_failed")
+        self.assertEqual(record.payload["failure"], "IntegrityError")
+
+    def test_withdraw_creates_corrective_successor_from_direct_parent(self) -> None:
+        service = WitnessService(self.home)
+        original = self.runtime.status().head
+        first_lease = service.witness.open_current_body_session(
+            expected_head=original,
+        )
+        try:
+            direct_parent = first_lease.prepare_successor(
+                files={"entrypoint.md": "Direct parent content"},
+                causation_ref="first-change",
+            )
+            first_lease.advance_head(candidate_head=direct_parent)
+        finally:
+            first_lease.close()
+        second_lease = service.witness.open_current_body_session(
+            expected_head=direct_parent,
+        )
+        try:
+            candidate = second_lease.prepare_successor(
+                files={"entrypoint.md": "Candidate content"},
+                causation_ref="second-change",
+            )
+            second_lease.advance_head(candidate_head=candidate)
+        finally:
+            second_lease.close()
+        result = BodyActionResult(
+            action="withdraw",
+            opportunity_id="withdraw-opportunity",
+            current_body_ref=candidate,
+            candidate_head=candidate,
+            evidence_refs=("observed-consequence",),
+        )
+
+        correction = service._withdraw_candidate(
+            result,
+            opportunity_id="withdraw-opportunity",
+        )
+
+        self.assertEqual(correction["restored_from_head"], direct_parent)
+        corrective_head = correction["corrective_head"]
+        corrective = self.runtime.body_store.read_manifest(corrective_head)
+        self.assertEqual(corrective.parent_head, candidate)
+        self.assertEqual(
+            self.runtime.body_store.read_file(corrective_head, "entrypoint.md"),
+            b"Direct parent content",
+        )
+
     def test_public_lifecycle_derives_surface_provenance(self) -> None:
         process = self._spawn()
         client = self._wait_until_ready(process)
@@ -236,6 +346,136 @@ class WitnessServiceTests(unittest.TestCase):
             )
         self.assertEqual(caught.exception.code, "invalid_parameters")
         self.assertEqual(self.runtime.evidence.records(), before)
+
+    def test_public_service_stop_preserves_agent_authority(self) -> None:
+        process = self._spawn()
+        client = self._wait_until_ready(process)
+
+        result = client.stop_service()
+
+        self.assertEqual(
+            result,
+            {"stopping": True, "authority_unchanged": True},
+        )
+        process.wait(timeout=5)
+        status = DevelopmentalRuntime.load(self.home).status()
+        self.assertEqual(status.authority, "on")
+
+    def test_public_recall_returns_bounded_prior_readable_experiences(self) -> None:
+        process = self._spawn()
+        client = self._wait_until_ready(process)
+
+        first_wake = client.wake(
+            execution_surface="codex",
+            session_id="first-session",
+            project_environment="project-a",
+            model="test-model",
+        )
+        client.observe(
+            event_kind="user_prompt_submitted",
+            payload={"prompt": "Fix the parser regression."},
+            execution_surface="codex",
+            session_id="first-session",
+        )
+        client.observe(
+            event_kind="tool_use_finished",
+            payload={
+                "tool_name": "exec_command",
+                "tool_input": {"cmd": "python -m unittest"},
+                "tool_response": {"output": "1 test passed"},
+            },
+            execution_surface="codex",
+            session_id="first-session",
+        )
+        client.observe(
+            event_kind="turn_stopped",
+            payload={"last_assistant_message": "Fixed and verified."},
+            execution_surface="codex",
+            session_id="first-session",
+        )
+        client.sleep(execution_surface="codex", session_id="first-session")
+        client.observe(
+            event_kind="turn_stopped",
+            payload={"last_assistant_message": "Cross-surface experience."},
+            execution_surface="opencode",
+            session_id="other-surface-session",
+        )
+
+        client.wake(
+            execution_surface="codex",
+            session_id="current-session",
+            project_environment="project-b",
+            model="test-model",
+        )
+        client.observe(
+            event_kind="user_prompt_submitted",
+            payload={"prompt": "This current prompt must not recall itself."},
+            execution_surface="codex",
+            session_id="current-session",
+        )
+
+        recalled = client.recall_experiences(
+            execution_surface="codex",
+            session_id="current-session",
+            limit=3,
+        )
+
+        self.assertTrue(recalled["has_more"])
+        self.assertEqual(
+            [item["event_kind"] for item in recalled["experiences"]],
+            ["tool_use_finished", "turn_stopped", "turn_stopped"],
+        )
+        for item in recalled["experiences"][:2]:
+            self.assertEqual(item["execution_surface"], "codex")
+            self.assertEqual(item["session_id"], "first-session")
+            self.assertEqual(item["loaded_body_head"], first_wake["head"])
+            self.assertEqual(item["observed_global_head"], first_wake["head"])
+            self.assertIsInstance(item["occurred_at"], str)
+            self.assertNotIn("This current prompt", json.dumps(item))
+        self.assertEqual(
+            recalled["experiences"][2]["execution_surface"],
+            "opencode",
+        )
+        self.assertIsInstance(recalled["next_before_sequence"], int)
+
+        older = client.recall_experiences(
+            execution_surface="codex",
+            session_id="current-session",
+            limit=3,
+            before_sequence=recalled["next_before_sequence"],
+        )
+        self.assertFalse(older["has_more"])
+        self.assertIsNone(older["next_before_sequence"])
+        self.assertEqual(
+            [item["payload"]["prompt"] for item in older["experiences"]],
+            ["Fix the parser regression."],
+        )
+
+        with self.assertRaises(ServiceRejectedError) as caught:
+            client._request(
+                "recall_experiences",
+                {
+                    "execution_surface": "codex",
+                    "session_id": "current-session",
+                    "limit": 13,
+                },
+            )
+        self.assertEqual(caught.exception.code, "invalid_parameters")
+
+    def test_recall_byte_projection_keeps_newest_items_without_cursor_gap(self) -> None:
+        experiences = [
+            {"sequence": 1, "payload": {"text": "a" * 30_000}},
+            {"sequence": 2, "payload": {"text": "b" * 30_000}},
+        ]
+
+        projected = WitnessService._bounded_recent_json_list(
+            experiences,
+            max_items=12,
+            max_bytes=48 * 1024,
+        )
+
+        self.assertEqual([item["sequence"] for item in projected], [2])
+        self.assertEqual(projected[0]["sequence"], 2)
 
     def test_public_surface_optional_text_fields_allow_empty_strings(self) -> None:
         process = self._spawn()
@@ -896,6 +1136,46 @@ class WitnessServiceTests(unittest.TestCase):
         self.assertEqual(self.runtime.status(), before_status)
         self.assertEqual(self.runtime.evidence.records(), before_records)
 
+    def test_service_start_detaches_sessions_from_a_prior_witness_process(
+        self,
+    ) -> None:
+        self.runtime.wake(
+            execution_surface="codex",
+            session_id="stale-codex-session",
+            project_environment="project-a",
+        )
+        self.runtime.wake(
+            execution_surface="opencode",
+            session_id="stale-opencode-session",
+            project_environment="project-b",
+        )
+        before_status = self.runtime.status()
+        before_records = self.runtime.evidence.records()
+
+        process = self._spawn()
+        client = self._wait_until_ready(process)
+
+        status = client.status()
+        self.assertEqual(status["active_session_count"], 0)
+        self.assertEqual(self.runtime.status().active_sessions, ())
+        self.assertEqual(status["root"], before_status.root)
+        self.assertEqual(status["head"], before_status.head)
+        self.assertEqual(status["authority"], before_status.authority)
+        records = self.runtime.evidence.records()
+        self.assertEqual(len(records), len(before_records) + 1)
+        record = records[-1]
+        self.assertEqual(record.event_kind, "surface_sessions_detached")
+        self.assertEqual(
+            record.payload,
+            {
+                "session_count": 2,
+                "sessions_by_execution_surface": {
+                    "codex": 1,
+                    "opencode": 1,
+                },
+            },
+        )
+
     def test_internal_stop_releases_the_service_without_turning_the_runtime_off(
         self,
     ) -> None:
@@ -1477,6 +1757,11 @@ class WitnessServiceTests(unittest.TestCase):
         service.runtime = runtime
         service._body_guard = threading.RLock()
         service._body = None
+        service._development_guard = threading.RLock()
+        service._development_blocked = False
+        service._development_timer = None
+        service._development_executor = None
+        service._pending_development = None
 
         result = service._turn_off_rehearsal()
 

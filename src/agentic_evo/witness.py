@@ -12,11 +12,14 @@ from .errors import (
     HeadConflictError,
     RuntimeOffError,
 )
+from .body import DEVELOPMENT_DESCRIPTOR_UNSET
 from .runtime import DevelopmentalRuntime, RuntimeStatus
 
 
 _REHEARSAL_AUTHOR = "in_process_rehearsal"
 _REHEARSAL_INGRESS = "in_process_rehearsal"
+_SURFACE_AUTHOR = "surface_unverified"
+_SURFACE_INGRESS = "private_body_lineage"
 
 
 class CurrentBodySession:
@@ -38,7 +41,7 @@ class CurrentBodySession:
         self._authority_epoch = authority_epoch
         self._expires_at = expires_at
         self._file_lock = file_lock
-        self._prepared_candidates: set[str] = set()
+        self._prepared_candidates: dict[str, tuple[str | None, str | None]] = {}
 
     def prepare_successor(
         self,
@@ -46,6 +49,8 @@ class CurrentBodySession:
         files: Mapping[str, str | bytes],
         activation_kind: str | None = None,
         activation_artifact: str | None = None,
+        development_kind: str | None | object = DEVELOPMENT_DESCRIPTOR_UNSET,
+        development_artifact: str | None | object = DEVELOPMENT_DESCRIPTOR_UNSET,
         causation_ref: str | None = None,
     ) -> str:
         return self._witness._prepare_successor(
@@ -53,13 +58,51 @@ class CurrentBodySession:
             files=files,
             activation_kind=activation_kind,
             activation_artifact=activation_artifact,
+            development_kind=development_kind,
+            development_artifact=development_artifact,
             causation_ref=causation_ref,
+        )
+
+    def _prepare_surface_successor(
+        self,
+        *,
+        files: Mapping[str, str | bytes],
+        activation_kind: str | None,
+        activation_artifact: str | None,
+        causation_ref: str | None,
+        execution_surface: str,
+        session_id: str,
+        expected_head: str,
+    ) -> str:
+        return self._witness._prepare_successor(
+            self,
+            files=files,
+            activation_kind=activation_kind,
+            activation_artifact=activation_artifact,
+            causation_ref=causation_ref,
+            author_kind=_SURFACE_AUTHOR,
+            ingress_path=_SURFACE_INGRESS,
+            session_binding=(execution_surface, session_id, expected_head),
         )
 
     def advance_head(self, *, candidate_head: str) -> RuntimeStatus:
         return self._witness._advance_head(
             self,
             candidate_head=candidate_head,
+        )
+
+    def _advance_surface_head(
+        self,
+        *,
+        candidate_head: str,
+        execution_surface: str,
+        session_id: str,
+        expected_head: str,
+    ) -> RuntimeStatus:
+        return self._witness._advance_head(
+            self,
+            candidate_head=candidate_head,
+            session_binding=(execution_surface, session_id, expected_head),
         )
 
     def close(self) -> None:
@@ -176,21 +219,35 @@ class WitnessCore:
         files: Mapping[str, str | bytes],
         activation_kind: str | None,
         activation_artifact: str | None,
+        development_kind: str | None | object = DEVELOPMENT_DESCRIPTOR_UNSET,
+        development_artifact: str | None | object = DEVELOPMENT_DESCRIPTOR_UNSET,
         causation_ref: str | None,
+        author_kind: str = _REHEARSAL_AUTHOR,
+        ingress_path: str = _REHEARSAL_INGRESS,
+        session_binding: tuple[str, str, str] | None = None,
     ) -> str:
         with self._guard:
             self._authorize(lease)
+            if session_binding is not None:
+                execution_surface, session_id, expected_head = session_binding
+                if expected_head != lease._head:
+                    raise HeadConflictError("submission does not bind the Current Head")
             candidate = self._runtime._prepare_successor(
                 expected_parent=lease._head,
                 files=files,
-                author_kind=_REHEARSAL_AUTHOR,
-                ingress_path=_REHEARSAL_INGRESS,
+                author_kind=author_kind,
+                ingress_path=ingress_path,
                 expected_authority_epoch=lease._authority_epoch,
                 activation_kind=activation_kind,
                 activation_artifact=activation_artifact,
+                development_kind=development_kind,
+                development_artifact=development_artifact,
                 causation_ref=causation_ref,
             )
-            lease._prepared_candidates.add(candidate)
+            lease._prepared_candidates[candidate] = (
+                None if session_binding is None else session_binding[0],
+                None if session_binding is None else session_binding[1],
+            )
             return candidate
 
     def _advance_head(
@@ -198,19 +255,34 @@ class WitnessCore:
         lease: CurrentBodySession,
         *,
         candidate_head: str,
+        session_binding: tuple[str, str, str] | None = None,
     ) -> RuntimeStatus:
         with self._guard:
             self._authorize(lease)
-            if candidate_head not in lease._prepared_candidates:
+            binding = lease._prepared_candidates.get(candidate_head)
+            if binding is None:
                 raise AuthorityError(
                     "candidate was not prepared through this Body lease"
                 )
+            if session_binding is not None:
+                execution_surface, session_id, expected_head = session_binding
+                if (
+                    expected_head != lease._head
+                    or binding != (execution_surface, session_id)
+                ):
+                    raise AuthorityError("candidate does not match this surface session")
             status = self._runtime._advance_head(
                 expected_head=lease._head,
                 candidate_head=candidate_head,
-                author_kind=_REHEARSAL_AUTHOR,
-                ingress_path=_REHEARSAL_INGRESS,
+                author_kind=(
+                    _SURFACE_AUTHOR if session_binding is not None else _REHEARSAL_AUTHOR
+                ),
+                ingress_path=(
+                    _SURFACE_INGRESS if session_binding is not None else _REHEARSAL_INGRESS
+                ),
                 expected_authority_epoch=lease._authority_epoch,
+                execution_surface=(session_binding[0] if session_binding else None),
+                session_id=(session_binding[1] if session_binding else None),
             )
             self._retire_lease()
             return status

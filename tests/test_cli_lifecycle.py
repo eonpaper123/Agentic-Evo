@@ -77,6 +77,8 @@ class CLILifecycleTests(unittest.TestCase):
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            encoding="utf-8",
+            errors="strict",
             text=True,
         )
         self.processes.append(process)
@@ -103,6 +105,8 @@ class CLILifecycleTests(unittest.TestCase):
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            encoding="utf-8",
+            errors="strict",
             text=True,
         )
         self.processes.append(process)
@@ -232,6 +236,8 @@ class CLILifecycleTests(unittest.TestCase):
             env=self._environment(),
             input=input_text,
             capture_output=True,
+            encoding="utf-8",
+            errors="strict",
             text=True,
             timeout=10,
             check=False,
@@ -252,6 +258,8 @@ class CLILifecycleTests(unittest.TestCase):
             cwd=REPOSITORY_ROOT,
             env=self._environment(),
             capture_output=True,
+            encoding="utf-8",
+            errors="strict",
             text=True,
             timeout=10,
             check=False,
@@ -363,6 +371,8 @@ class CLILifecycleTests(unittest.TestCase):
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait(timeout=5)
+        if process.stdin is not None:
+            process.stdin.close()
         if process.stdout is not None:
             process.stdout.close()
         if process.stderr is not None:
@@ -650,6 +660,7 @@ class CLILifecycleTests(unittest.TestCase):
                 "active_sessions",
                 "active_session_count",
                 "active_sessions_truncated",
+                "service_version",
                 "instrument_version",
                 "instrument_version_char_count",
                 "instrument_version_truncated",
@@ -1162,8 +1173,10 @@ class CLILifecycleTests(unittest.TestCase):
         outcome = tail[4]
         self.assertEqual(cause.event_id, cause_receipt["event_id"])
         self.assertEqual(outcome.event_id, receipt["event_id"])
-        self.assertEqual(cause.payload, {"outcome": "initial-result"})
-        self.assertEqual(outcome.payload, {"outcome": "accepted"})
+        self.assertEqual(cause.payload["outcome"], "initial-result")
+        self.assertEqual(cause.payload["loaded_body_head"], baseline.head)
+        self.assertEqual(outcome.payload["outcome"], "accepted")
+        self.assertEqual(outcome.payload["loaded_body_head"], baseline.head)
         self.assertEqual(outcome.occurred_at, "2026-08-04T12:34:56Z")
         self.assertEqual(outcome.correlation_ref, "experiment-001-run-a")
         self.assertEqual(outcome.causation_ref, cause.event_id)
