@@ -52,10 +52,13 @@ _RECORD_FIELDS = frozenset({
     "parent_ref", "human_intervention_kind", "coverage_gap", "payload",
     "previous_integrity_hash", "integrity_hash",
 })
-_MANIFEST_FIELDS = frozenset({
+_LEGACY_MANIFEST_FIELDS = frozenset({
     "schema_version", "root", "parent_head", "generation", "author_kind",
     "created_at", "activation_kind", "activation_artifact",
-    "development_kind", "development_artifact", "files",
+    "files",
+})
+_MANIFEST_FIELDS = _LEGACY_MANIFEST_FIELDS | frozenset({
+    "development_kind", "development_artifact",
 })
 _HASH = re.compile(r"^[0-9a-f]{64}$")
 
@@ -307,8 +310,26 @@ def _verify_manifests(entries: Any, prereg: Mapping[str, Any], head_end: str) ->
         if not isinstance(entry, dict) or set(entry) != {"head", "manifest"} or not _is_hash(entry.get("head")):
             _fail("body_manifest_chain_inconsistent")
         manifest = entry["manifest"]
-        if not isinstance(manifest, dict) or set(manifest) != _MANIFEST_FIELDS:
+        if not isinstance(manifest, dict) or frozenset(manifest) not in {
+            _LEGACY_MANIFEST_FIELDS,
+            _MANIFEST_FIELDS,
+        }:
             _fail("body_manifest_chain_inconsistent")
+        if frozenset(manifest) == _MANIFEST_FIELDS:
+            development_kind = manifest["development_kind"]
+            development_artifact = manifest["development_artifact"]
+            if (development_kind is None) != (development_artifact is None):
+                _fail("body_manifest_chain_inconsistent")
+            if development_kind is not None and (
+                not isinstance(development_kind, str)
+                or not development_kind
+                or len(development_kind) > 128
+                or any(character.isspace() for character in development_kind)
+                or not isinstance(development_artifact, str)
+                or not isinstance(manifest.get("files"), dict)
+                or development_artifact not in manifest["files"]
+            ):
+                _fail("body_manifest_chain_inconsistent")
         if (
             manifest.get("schema_version") != BODY_SCHEMA_VERSION
             or _canonical_root_commitment(manifest.get("root")) != prereg["root_commitment"]

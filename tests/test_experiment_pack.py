@@ -357,6 +357,126 @@ class ExperimentPackTests(unittest.TestCase):
         self.assertEqual(result["schema"], EXPERIMENT_VERIFY_SCHEMA)
         self.assertIs(result["valid"], True)
 
+    def test_verify_pack_accepts_exact_legacy_manifests_but_not_partial_descriptors(
+        self,
+    ) -> None:
+        from agentic_evo.body import BODY_SCHEMA_VERSION
+        from agentic_evo.evidence import EVIDENCE_SCHEMA_VERSION
+
+        def historical_pack(descriptor_fields: dict[str, object]) -> dict[str, object]:
+            root = "a" * 64
+            manifest = {
+                "schema_version": BODY_SCHEMA_VERSION,
+                "root": root,
+                "parent_head": None,
+                "generation": 0,
+                "author_kind": "research_instrument",
+                "created_at": "2026-01-01T00:00:00+00:00",
+                "activation_kind": "surface-context-utf8-v1",
+                "activation_artifact": "entrypoint.md",
+                **descriptor_fields,
+                "files": {"entrypoint.md": "b" * 64},
+            }
+            head = sha256_hex(canonical_json_bytes(manifest))
+            prereg = {
+                "schema": EXPERIMENT_PREREG_SCHEMA,
+                "protocol_ref": EXPERIMENT_PROTOCOL_REF,
+                "instrument_version": "instrument-test-v1",
+                "protocol_version": "protocol-test-v1",
+                "root_commitment": root,
+                "head_start": head,
+                "execution_surface": None,
+                "project_environment": None,
+                "hypothesis_refs": list(ALLOWED_HYPOTHESIS_REFS),
+                "control_refs": list(ALLOWED_CONTROL_REFS),
+                "start_anchor": {"sequence": 1, "integrity_hash": "c" * 64},
+                "claim_ceiling": dict(EXPERIMENT_CLAIM_CEILING),
+            }
+            record = {
+                "schema_version": EVIDENCE_SCHEMA_VERSION,
+                "event_id": "historical-event-2",
+                "sequence": 2,
+                "instrument_version": prereg["instrument_version"],
+                "protocol_version": prereg["protocol_version"],
+                "event_kind": "historical_measurement",
+                "occurred_at": "2026-01-01T00:00:01+00:00",
+                "observed_at": "2026-01-01T00:00:01+00:00",
+                "root_commitment": root,
+                "head_before": head,
+                "head_after": head,
+                "source_kind": "execution_surface",
+                "author_kind": "surface_unverified",
+                "execution_surface": "historical-surface",
+                "session_id": "historical-session",
+                "turn_id": None,
+                "tool_call_id": None,
+                "project_environment": "historical-project",
+                "correlation_ref": None,
+                "causation_ref": None,
+                "parent_ref": None,
+                "human_intervention_kind": None,
+                "coverage_gap": None,
+                "payload": {},
+                "previous_integrity_hash": prereg["start_anchor"]["integrity_hash"],
+            }
+            record["integrity_hash"] = sha256_hex(canonical_json_bytes(record))
+            return {
+                "schema": EXPERIMENT_PACK_SCHEMA,
+                "prereg": prereg,
+                "end_anchor": {
+                    "sequence": record["sequence"],
+                    "integrity_hash": record["integrity_hash"],
+                },
+                "head_end": head,
+                "authority_end": "on",
+                "evidence_window": [record],
+                "body_manifests": [{"head": head, "manifest": manifest}],
+                "claim_ceiling": dict(EXPERIMENT_CLAIM_CEILING),
+            }
+
+        self.assertIs(
+            verify_experiment_artifact(historical_pack({}))["valid"],
+            True,
+        )
+        self.assertIs(
+            verify_experiment_artifact(
+                historical_pack(
+                    {
+                        "development_kind": None,
+                        "development_artifact": None,
+                    }
+                )
+            )["valid"],
+            True,
+        )
+        self.assertIs(
+            verify_experiment_artifact(
+                historical_pack(
+                    {
+                        "development_kind": "python-development-v1",
+                        "development_artifact": "entrypoint.md",
+                    }
+                )
+            )["valid"],
+            True,
+        )
+        for fields in (
+            {"development_kind": None},
+            {"development_artifact": None},
+            {
+                "development_kind": "python development v1",
+                "development_artifact": "entrypoint.md",
+            },
+            {
+                "development_kind": "python-development-v1",
+                "development_artifact": "missing.py",
+            },
+            {"unexpected_manifest_field": "not-accepted"},
+        ):
+            with self.subTest(fields=fields):
+                with self.assertRaises(IntegrityError):
+                    verify_experiment_artifact(historical_pack(fields))
+
 
 if __name__ == "__main__":
     unittest.main()
