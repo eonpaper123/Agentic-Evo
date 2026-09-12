@@ -1,0 +1,9 @@
+{
+  "evidence_namespace": "artifacts/test-fixtures/windows-gate-b-test-fixture",
+  "hardware_identity_claimed": false,
+  "identity_basis": "synthetic_test_fixture",
+  "lab_id": "windows-gate-b-test-fixture",
+  "machine_is_host": false,
+  "schema": "agentic-evo.lab-declaration.v1",
+  "status": "active_reference_lab"
+}

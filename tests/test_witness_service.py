@@ -1,0 +1,1774 @@
+from __future__ import annotations
+
+from contextlib import contextmanager
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import unittest
+from unittest.mock import patch
+
+from agentic_evo._util import canonical_json_bytes
+from agentic_evo.ipc import (
+    CONTROL_PROTOCOL,
+    InvalidPublicFrame,
+    MAX_PUBLIC_FRAME_BYTES,
+    PUBLIC_PROTOCOL,
+    OffRehearsalClient,
+    ServiceRejectedError,
+    ServiceUnavailableError,
+    SurfaceClient,
+    build_public_request,
+    control_endpoint,
+    open_public_connection,
+    receive_public_message,
+    send_public_message,
+    service_endpoint,
+)
+from agentic_evo.runtime import (
+    DevelopmentalRuntime,
+    RuntimeStatus,
+    SessionIdentity,
+)
+from agentic_evo.service import PublicRequestError, WitnessService
+
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+SOURCE_ROOT = REPOSITORY_ROOT / "src"
+
+
+def _write_partial_transport_frame(connection) -> None:
+    import struct
+
+    fragments = (struct.pack("!i", 64), b"{")
+    if sys.platform == "win32":
+        import _winapi
+
+        for fragment in fragments:
+            pending, _ = _winapi.WriteFile(
+                connection.fileno(),
+                fragment,
+                overlapped=True,
+            )
+            assert pending.GetOverlappedResult(True) == (len(fragment), 0)
+    else:
+        os.write(connection.fileno(), b"".join(fragments))
+
+
+class WitnessServiceTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.home = Path(self.tempdir.name) / "runtime"
+        self.host_binding = "test-host-binding"
+        self.runtime = DevelopmentalRuntime.genesis(
+            self.home,
+            host_binding=self.host_binding,
+            purpose_anchor="Improve the future of the one bound host.",
+            initial_body={"entrypoint.md": "Body zero"},
+            instrument_version="instrument-test-v1",
+            protocol_version="protocol-test-v1",
+        )
+        self.processes: list[subprocess.Popen[str]] = []
+
+    def tearDown(self) -> None:
+        for process in reversed(self.processes):
+            self._terminate(process)
+        self.tempdir.cleanup()
+
+    def _environment(self) -> dict[str, str]:
+        environment = os.environ.copy()
+        prior = environment.get("PYTHONPATH")
+        environment["PYTHONPATH"] = (
+            str(SOURCE_ROOT)
+            if not prior
+            else os.pathsep.join((str(SOURCE_ROOT), prior))
+        )
+        return environment
+
+    def _spawn(self, home: Path | None = None) -> subprocess.Popen[str]:
+        process = subprocess.Popen(
+            [
+                sys.executable,
+                "-m",
+                "agentic_evo.service",
+                "--dev-home",
+                str(home or self.home),
+            ],
+            cwd=REPOSITORY_ROOT,
+            env=self._environment(),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.processes.append(process)
+        return process
+
+    @staticmethod
+    def _terminate(process: subprocess.Popen[str]) -> None:
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+        if process.stdout is not None:
+            process.stdout.close()
+        if process.stderr is not None:
+            process.stderr.close()
+
+    def _wait_until_ready(
+        self,
+        process: subprocess.Popen[str],
+        *,
+        home: Path | None = None,
+        timeout_seconds: float = 20.0,
+    ) -> SurfaceClient:
+        client = SurfaceClient(home or self.home)
+        deadline = time.monotonic() + timeout_seconds
+        while time.monotonic() < deadline:
+            if process.poll() is not None:
+                _, stderr = process.communicate(timeout=1)
+                self.fail(
+                    f"Witness service exited before ready "
+                    f"(code={process.returncode}): {stderr}"
+                )
+            try:
+                client.status()
+                return client
+            except ServiceUnavailableError:
+                time.sleep(0.02)
+        self.fail("Witness service did not become ready")
+
+    def test_one_home_has_one_live_service_and_no_public_lineage_api(
+        self,
+    ) -> None:
+        first = self._spawn()
+        client = self._wait_until_ready(first)
+        service_status = client.status()
+        self.assertEqual(
+            service_status["body_rehearsal"]["state"],
+            "ready",
+        )
+        self.assertEqual(
+            service_status["body_rehearsal"]["head"],
+            self.runtime.status().head,
+        )
+        self.assertEqual(
+            service_status["body_rehearsal"]["provenance"],
+            "subprocess_rehearsal",
+        )
+        before_status = self.runtime.status()
+        before_records = self.runtime.evidence.records()
+
+        second = self._spawn()
+        self.assertEqual(second.wait(timeout=5), 4)
+        _, second_stderr = second.communicate(timeout=1)
+        self.assertIn("service_already_running", second_stderr)
+
+        for forbidden in (
+            "prepare_successor",
+            "advance_head",
+            "turn_on",
+            "turn_off",
+            "genesis",
+        ):
+            with self.subTest(operation=forbidden):
+                with self.assertRaises(ServiceRejectedError) as caught:
+                    client._request(forbidden, {})
+                self.assertEqual(caught.exception.code, "operation_not_public")
+
+        self.assertEqual(self.runtime.status(), before_status)
+        self.assertEqual(self.runtime.evidence.records(), before_records)
+
+    def test_public_lifecycle_derives_surface_provenance(self) -> None:
+        process = self._spawn()
+        client = self._wait_until_ready(process)
+
+        wake = client.wake(
+            execution_surface="codex",
+            session_id="surface-session-1",
+            project_environment="project-a",
+            model="test-model",
+        )
+        self.assertEqual(wake["head"], self.runtime.status().head)
+        receipt = client.observe(
+            event_kind="tool_result",
+            payload={"outcome": "tests passed"},
+            execution_surface="codex",
+            session_id="surface-session-1",
+            project_environment="project-a",
+        )
+        client.sleep(
+            execution_surface="codex",
+            session_id="surface-session-1",
+        )
+
+        record = self.runtime.evidence.records()[receipt["sequence"] - 1]
+        self.assertEqual(record.event_id, receipt["event_id"])
+        self.assertEqual(record.source_kind, "execution_surface")
+        self.assertEqual(record.author_kind, "surface_unverified")
+        self.assertEqual(record.execution_surface, "codex")
+        session_records = [
+            item
+            for item in self.runtime.evidence.records()
+            if item.event_kind in {"session_start", "session_end"}
+        ]
+        self.assertEqual(
+            [item.author_kind for item in session_records],
+            ["surface_unverified", "surface_unverified"],
+        )
+
+        before = self.runtime.evidence.records()
+        with self.assertRaises(ServiceRejectedError) as caught:
+            client._request(
+                "observe",
+                {
+                    "event_kind": "forged",
+                    "payload": {},
+                    "author_kind": "agent_self_authored",
+                },
+            )
+        self.assertEqual(caught.exception.code, "invalid_parameters")
+        self.assertEqual(self.runtime.evidence.records(), before)
+
+    def test_public_surface_optional_text_fields_allow_empty_strings(self) -> None:
+        process = self._spawn()
+        client = self._wait_until_ready(process)
+
+        client.wake(
+            execution_surface="codex",
+            session_id="empty-optional-session",
+            project_environment="empty-optional-project",
+            model="",
+        )
+        self.assertEqual(self.runtime.evidence.records()[-1].payload["model_ref"], "")
+
+        receipt = client.observe(
+            event_kind="tool_result",
+            payload={"outcome": "ok"},
+            occurred_at="",
+            execution_surface="codex",
+            session_id="",
+            turn_id="",
+            tool_call_id="",
+            project_environment="",
+            correlation_ref="",
+            causation_ref="",
+            parent_ref="",
+            coverage_gap="",
+        )
+        record = self.runtime.evidence.records()[receipt["sequence"] - 1]
+        self.assertEqual(record.occurred_at, "")
+        self.assertEqual(record.session_id, "")
+        self.assertEqual(record.turn_id, "")
+        self.assertEqual(record.tool_call_id, "")
+        self.assertEqual(record.project_environment, "")
+        self.assertEqual(record.correlation_ref, "")
+        self.assertEqual(record.causation_ref, "")
+        self.assertEqual(record.parent_ref, "")
+        self.assertEqual(record.coverage_gap, "")
+
+        null_receipt = client._request(
+            "observe",
+            {
+                "event_kind": "tool_result",
+                "payload": {"outcome": "null"},
+                "execution_surface": "codex",
+                "session_id": None,
+                "turn_id": None,
+                "tool_call_id": None,
+                "project_environment": None,
+                "coverage_gap": None,
+                "occurred_at": None,
+                "correlation_ref": None,
+                "causation_ref": None,
+                "parent_ref": None,
+            },
+        )
+        null_record = self.runtime.evidence.records()[null_receipt["sequence"] - 1]
+        self.assertIsInstance(null_record.occurred_at, str)
+        self.assertIsNone(null_record.correlation_ref)
+        self.assertIsNone(null_record.causation_ref)
+        self.assertIsNone(null_record.parent_ref)
+
+        omitted_receipt = client.observe(
+            event_kind="tool_result",
+            payload={"outcome": "omitted"},
+            execution_surface="codex",
+        )
+        omitted_record = self.runtime.evidence.records()[omitted_receipt["sequence"] - 1]
+        self.assertIsInstance(omitted_record.occurred_at, str)
+        self.assertIsNone(omitted_record.correlation_ref)
+        self.assertIsNone(omitted_record.causation_ref)
+        self.assertIsNone(omitted_record.parent_ref)
+
+    def test_public_observe_preserves_temporal_and_causal_refs(self) -> None:
+        process = self._spawn()
+        client = self._wait_until_ready(process)
+
+        receipt = client.observe(
+            event_kind="delayed_outcome_observed",
+            payload={"outcome": "accepted"},
+            occurred_at="2026-08-04T12:34:56Z",
+            execution_surface="codex",
+            session_id="outcome-session",
+            turn_id="outcome-turn",
+            project_environment="project-b",
+            correlation_ref="c" * 1024,
+            causation_ref="prior-event-id",
+            parent_ref="external-parent-ref",
+        )
+
+        self.assertEqual(
+            set(receipt),
+            {"event_id", "sequence", "integrity_hash"},
+        )
+        record = self.runtime.evidence.records()[receipt["sequence"] - 1]
+        self.assertEqual(record.event_id, receipt["event_id"])
+        self.assertEqual(record.sequence, receipt["sequence"])
+        self.assertEqual(record.integrity_hash, receipt["integrity_hash"])
+        self.assertEqual(record.event_kind, "delayed_outcome_observed")
+        self.assertEqual(record.payload, {"outcome": "accepted"})
+        self.assertEqual(record.occurred_at, "2026-08-04T12:34:56Z")
+        self.assertEqual(record.execution_surface, "codex")
+        self.assertEqual(record.session_id, "outcome-session")
+        self.assertEqual(record.turn_id, "outcome-turn")
+        self.assertEqual(record.project_environment, "project-b")
+        self.assertEqual(record.correlation_ref, "c" * 1024)
+        self.assertEqual(record.causation_ref, "prior-event-id")
+        self.assertEqual(record.parent_ref, "external-parent-ref")
+        self.assertEqual(record.source_kind, "execution_surface")
+        self.assertEqual(record.author_kind, "surface_unverified")
+        self.assertIsNone(record.human_intervention_kind)
+        self.assertTrue(self.runtime.evidence.verify())
+
+    def test_public_observe_rejects_invalid_temporal_and_causal_refs_without_mutation(
+        self,
+    ) -> None:
+        process = self._spawn()
+        client = self._wait_until_ready(process)
+        base_params = {
+            "event_kind": "delayed_outcome_observed",
+            "payload": {"outcome": "accepted"},
+            "execution_surface": "codex",
+        }
+
+        for field in (
+            "occurred_at",
+            "correlation_ref",
+            "causation_ref",
+            "parent_ref",
+        ):
+            for value, message in (
+                (False, f"{field} must be a string or null"),
+                ("x" * 1025, f"{field} exceeds the public text byte bound"),
+            ):
+                with self.subTest(field=field, value=value):
+                    before_status = client.status()
+                    before_records = self.runtime.evidence.records()
+
+                    with self.assertRaises(ServiceRejectedError) as caught:
+                        client._request(
+                            "observe",
+                            {**base_params, field: value},
+                        )
+
+                    self.assertEqual(caught.exception.code, "invalid_parameters")
+                    self.assertEqual(str(caught.exception), message)
+                    self.assertEqual(client.status(), before_status)
+                    self.assertEqual(self.runtime.evidence.records(), before_records)
+
+    def test_public_observe_rejects_witness_owned_evidence_fields(self) -> None:
+        process = self._spawn()
+        client = self._wait_until_ready(process)
+        base_params = {
+            "event_kind": "tool_result",
+            "payload": {"outcome": "accepted"},
+            "execution_surface": "codex",
+        }
+
+        for field, value in (
+            ("source_kind", "body"),
+            ("author_kind", "agent_self_authored"),
+            ("human_intervention_kind", "none"),
+            ("observed_at", "2026-08-04T12:34:56Z"),
+            ("root_commitment", "forged-root"),
+            ("head_before", "forged-head"),
+            ("head_after", "forged-head"),
+        ):
+            with self.subTest(field=field):
+                before_status = client.status()
+                before_records = self.runtime.evidence.records()
+
+                with self.assertRaises(ServiceRejectedError) as caught:
+                    client._request(
+                        "observe",
+                        {**base_params, field: value},
+                    )
+
+                self.assertEqual(caught.exception.code, "invalid_parameters")
+                self.assertEqual(
+                    str(caught.exception),
+                    "operation parameters do not match the public contract",
+                )
+                self.assertEqual(client.status(), before_status)
+                self.assertEqual(self.runtime.evidence.records(), before_records)
+
+    def test_public_client_maps_oversized_request_to_unavailable(self) -> None:
+        process = self._spawn()
+        client = self._wait_until_ready(process)
+        params = {
+            "event_kind": "tool_result",
+            "payload": {"payload": ""},
+            "execution_surface": "codex",
+            "session_id": None,
+            "turn_id": None,
+            "tool_call_id": None,
+            "project_environment": None,
+            "coverage_gap": None,
+        }
+        payload = {
+            "payload": "x"
+            * (
+                MAX_PUBLIC_FRAME_BYTES
+                + 1
+                - len(
+                    canonical_json_bytes(
+                        build_public_request(
+                            "observe",
+                            params,
+                            request_id="r" * 32,
+                        )
+                    )
+                )
+            )
+        }
+        params["payload"] = payload
+        self.assertEqual(
+            len(
+                canonical_json_bytes(
+                    build_public_request("observe", params, request_id="r" * 32)
+                )
+            ),
+            MAX_PUBLIC_FRAME_BYTES + 1,
+        )
+        before_status = self.runtime.status()
+        before_records = self.runtime.evidence.records()
+
+        with self.assertRaises(ServiceUnavailableError) as caught:
+            client.observe(
+                event_kind="tool_result",
+                payload=payload,
+                execution_surface="codex",
+            )
+
+        self.assertNotIsInstance(caught.exception, InvalidPublicFrame)
+        self.assertEqual(self.runtime.status(), before_status)
+        self.assertEqual(self.runtime.evidence.records(), before_records)
+        self.assertEqual(client.status()["head"], before_status.head)
+
+    def test_public_sleep_requires_surface_and_preserves_state_when_missing(
+        self,
+    ) -> None:
+        process = self._spawn()
+        client = self._wait_until_ready(process)
+        client.wake(
+            execution_surface="codex",
+            session_id="shared-session",
+            project_environment="project-a",
+        )
+        before_status = client.status()
+        before_records = self.runtime.evidence.records()
+
+        with self.assertRaises(ServiceRejectedError) as caught:
+            client._request("sleep", {"session_id": "shared-session"})
+
+        self.assertEqual(caught.exception.code, "invalid_parameters")
+        self.assertEqual(client.status()["active_sessions"], before_status["active_sessions"])
+        self.assertEqual(self.runtime.evidence.records(), before_records)
+
+    def test_public_status_and_sleep_use_composite_session_identity(self) -> None:
+        process = self._spawn()
+        client = self._wait_until_ready(process)
+        client.wake(
+            execution_surface="codex",
+            session_id="shared-session",
+            project_environment="project-a",
+        )
+        client.wake(
+            execution_surface="other-coding-agent",
+            session_id="shared-session",
+            project_environment="project-b",
+        )
+
+        self.assertEqual(
+            client.status()["active_sessions"],
+            [
+                {
+                    "execution_surface": "codex",
+                    "session_id": "shared-session",
+                },
+                {
+                    "execution_surface": "other-coding-agent",
+                    "session_id": "shared-session",
+                },
+            ],
+        )
+
+        client.sleep(
+            execution_surface="codex",
+            session_id="shared-session",
+        )
+        self.assertEqual(
+            client.status()["active_sessions"],
+            [
+                {
+                    "execution_surface": "other-coding-agent",
+                    "session_id": "shared-session",
+                }
+            ],
+        )
+
+    def test_composite_session_contract_has_a_new_public_protocol_version(
+        self,
+    ) -> None:
+        self.assertEqual(PUBLIC_PROTOCOL, "agentic-evo-public-v2")
+
+    def test_pre_composite_public_protocol_fails_closed_without_mutation(
+        self,
+    ) -> None:
+        service = WitnessService(self.home)
+        self.addCleanup(service.witness.close)
+        before_status = self.runtime.status()
+        before_records = self.runtime.evidence.records()
+
+        with self.assertRaises(PublicRequestError) as caught:
+            service.dispatch_public(
+                {
+                    "protocol": "agentic-evo-public-v1",
+                    "request_id": "removed-v1",
+                    "operation": "status",
+                    "params": {},
+                }
+            )
+
+        self.assertEqual(caught.exception.code, "invalid_protocol")
+        self.assertEqual(self.runtime.status(), before_status)
+        self.assertEqual(self.runtime.evidence.records(), before_records)
+
+    def test_many_file_head_has_a_bounded_public_wake_projection(self) -> None:
+        many_home = Path(self.tempdir.name) / "many-file-runtime"
+        files = {
+            "entrypoint.md": "Body zero",
+            **{
+                f"skills/{index:04d}-{'x' * 32}.md": "shared"
+                for index in range(1200)
+            },
+        }
+        DevelopmentalRuntime.genesis(
+            many_home,
+            host_binding=self.host_binding,
+            purpose_anchor="Improve the future of the one bound host.",
+            initial_body=files,
+            instrument_version="instrument-test-v1",
+            protocol_version="protocol-test-v1",
+        )
+        process = self._spawn(many_home)
+        client = self._wait_until_ready(
+            process,
+            home=many_home,
+            timeout_seconds=45.0,
+        )
+
+        wake = client.wake(
+            execution_surface="codex",
+            session_id="many-file-session",
+            project_environment="project-a",
+        )
+
+        self.assertEqual(wake["body_file_count"], len(files))
+        self.assertTrue(wake["body_files_truncated"])
+        self.assertEqual(wake["body_files"], sorted(files)[:16])
+
+    def test_public_status_bounds_active_session_projection(self) -> None:
+        service = WitnessService(self.home)
+        self.addCleanup(service.witness.close)
+        sessions = tuple(
+            SessionIdentity(
+                execution_surface="codex",
+                session_id=f"session-{index:04d}-" + "\0" * 1000,
+            )
+            for index in range(100)
+        )
+        status = RuntimeStatus(
+            root="r" * 64,
+            head="h" * 64,
+            generation=0,
+            authority="on",
+            lifecycle_state="awake",
+            active_sessions=sessions,
+            instrument_version="instrument-test-v1",
+            protocol_version="protocol-test-v1",
+        )
+        request = {
+            "protocol": PUBLIC_PROTOCOL,
+            "request_id": "bounded-status",
+            "operation": "status",
+            "params": {},
+        }
+
+        with (
+            patch.object(service, "_ensure_body"),
+            patch.object(service.runtime, "status", return_value=status),
+        ):
+            result = service.dispatch_public(request)
+
+        self.assertEqual(result["active_session_count"], len(sessions))
+        self.assertTrue(result["active_sessions_truncated"])
+        self.assertLessEqual(len(result["active_sessions"]), 32)
+        response = {
+            "protocol": PUBLIC_PROTOCOL,
+            "request_id": "bounded-status",
+            "ok": True,
+            "result": result,
+        }
+        self.assertLessEqual(
+            len(canonical_json_bytes(response)),
+            MAX_PUBLIC_FRAME_BYTES,
+        )
+
+    def test_escape_heavy_wake_projection_stays_inside_one_frame(self) -> None:
+        escaped_home = Path(self.tempdir.name) / "escaped-runtime"
+        quote_run = '"' * 500
+        files = {
+            "entrypoint.md": "\0" * 8000,
+            **{
+                f"{index:02d}-{quote_run}.md": "shared"
+                for index in range(20)
+            },
+        }
+        DevelopmentalRuntime.genesis(
+            escaped_home,
+            host_binding=self.host_binding,
+            purpose_anchor="Improve the future of the one bound host.",
+            initial_body=files,
+            instrument_version="instrument-test-v1",
+            protocol_version="protocol-test-v1",
+        )
+        process = self._spawn(escaped_home)
+        client = self._wait_until_ready(process, home=escaped_home)
+
+        wake = client.wake(
+            execution_surface="codex",
+            session_id="escaped-session",
+            project_environment="project-a",
+        )
+
+        self.assertEqual(wake["body_file_count"], len(files))
+        self.assertTrue(wake["body_files_truncated"])
+        self.assertTrue(wake["activation_context_truncated"])
+
+    def test_public_string_parameters_have_an_explicit_byte_bound(self) -> None:
+        process = self._spawn()
+        client = self._wait_until_ready(process)
+
+        with self.assertRaises(ServiceRejectedError) as caught:
+            client.wake(
+                execution_surface="codex",
+                session_id="s" * 1025,
+                project_environment="project-a",
+            )
+
+        self.assertEqual(caught.exception.code, "invalid_parameters")
+
+    def test_off_client_does_not_hang_on_a_partial_response_frame(self) -> None:
+        class PartialResponseConnection:
+            def __init__(self) -> None:
+                self.closed = threading.Event()
+
+            def send_bytes(self, raw: bytes) -> None:
+                pass
+
+            def poll(self, timeout: float) -> bool:
+                return True
+
+            def recv_bytes(self, maximum: int) -> bytes:
+                self.closed.wait()
+                raise EOFError
+
+            def close(self) -> None:
+                self.closed.set()
+
+        connection = PartialResponseConnection()
+
+        @contextmanager
+        def open_partial_response(endpoint):
+            try:
+                yield connection
+            finally:
+                connection.close()
+
+        failures: list[Exception] = []
+
+        def request_off() -> None:
+            try:
+                OffRehearsalClient(self.home).off()
+            except Exception as exc:
+                failures.append(exc)
+
+        with (
+            patch(
+                "agentic_evo.ipc.open_public_connection",
+                open_partial_response,
+            ),
+            patch(
+                "agentic_evo.ipc.CONTROL_RESPONSE_TIMEOUT_SECONDS",
+                0.05,
+            ),
+        ):
+            worker = threading.Thread(target=request_off, daemon=True)
+            worker.start()
+            worker.join(timeout=0.5)
+            completed_within_deadline = not worker.is_alive()
+            connection.close()
+            worker.join(timeout=1)
+
+        self.assertTrue(completed_within_deadline)
+        self.assertEqual(len(failures), 1)
+        self.assertIsInstance(failures[0], ServiceUnavailableError)
+
+    def test_real_control_transport_cancels_a_partial_response(self) -> None:
+        from multiprocessing.connection import Listener
+
+        endpoint = control_endpoint(self.home)
+        listener = Listener(
+            endpoint.address,
+            family=endpoint.family,
+            authkey=None,
+        )
+        release_server = threading.Event()
+        partial_sent = threading.Event()
+        server_failures: list[Exception] = []
+        client_failures: list[Exception] = []
+
+        def serve_partial_response() -> None:
+            try:
+                connection = listener.accept()
+                try:
+                    receive_public_message(connection)
+                    _write_partial_transport_frame(connection)
+                    partial_sent.set()
+                    release_server.wait(timeout=2)
+                finally:
+                    connection.close()
+            except Exception as exc:
+                server_failures.append(exc)
+
+        def request_off() -> None:
+            try:
+                OffRehearsalClient(self.home).off()
+            except Exception as exc:
+                client_failures.append(exc)
+
+        server = threading.Thread(target=serve_partial_response, daemon=True)
+        client = threading.Thread(target=request_off, daemon=True)
+        server.start()
+        try:
+            with patch(
+                "agentic_evo.ipc.CONTROL_RESPONSE_TIMEOUT_SECONDS",
+                0.1,
+            ):
+                started = time.monotonic()
+                client.start()
+                self.assertTrue(partial_sent.wait(timeout=1))
+                client.join(timeout=0.75)
+                elapsed = time.monotonic() - started
+                completed_within_deadline = not client.is_alive()
+        finally:
+            release_server.set()
+            listener.close()
+            server.join(timeout=1)
+            client.join(timeout=1)
+            if endpoint.family == "AF_UNIX":
+                Path(endpoint.address).unlink(missing_ok=True)
+
+        self.assertTrue(completed_within_deadline)
+        if endpoint.family == "AF_UNIX":
+            self.assertGreaterEqual(elapsed, 0.08)
+        self.assertFalse(server_failures)
+        self.assertEqual(len(client_failures), 1)
+        self.assertIsInstance(client_failures[0], ServiceUnavailableError)
+
+    def test_real_control_transport_recovers_from_a_partial_request(self) -> None:
+        service = WitnessService(self.home)
+        service_failures: list[Exception] = []
+
+        def serve() -> None:
+            try:
+                service.serve_forever()
+            except Exception as exc:
+                service_failures.append(exc)
+
+        service_thread = threading.Thread(target=serve, daemon=True)
+        with patch("agentic_evo.service.PUBLIC_IO_TIMEOUT_SECONDS", 0.1):
+            service_thread.start()
+            try:
+                client = SurfaceClient(self.home)
+                deadline = time.monotonic() + 5
+                while True:
+                    if service_failures:
+                        self.fail(f"Witness service failed: {service_failures[0]!r}")
+                    try:
+                        client.status()
+                        break
+                    except ServiceUnavailableError:
+                        if time.monotonic() >= deadline:
+                            self.fail("Witness service did not become ready")
+                        time.sleep(0.02)
+
+                endpoint = control_endpoint(self.home)
+                with open_public_connection(endpoint) as partial:
+                    _write_partial_transport_frame(partial)
+                    started = time.monotonic()
+                    with open_public_connection(endpoint) as probe:
+                        send_public_message(
+                            probe,
+                            {
+                                "protocol": CONTROL_PROTOCOL,
+                                "request_id": "after-partial",
+                                "operation": "status",
+                                "params": {},
+                            },
+                        )
+                        response = receive_public_message(
+                            probe,
+                            timeout_seconds=0.75,
+                        )
+                    elapsed = time.monotonic() - started
+            finally:
+                service.request_stop()
+                service_thread.join(timeout=5)
+
+        self.assertFalse(service_thread.is_alive())
+        self.assertFalse(service_failures)
+        self.assertFalse(response["ok"])
+        self.assertEqual(response["error"]["code"], "operation_not_control")
+        if endpoint.family == "AF_UNIX":
+            self.assertGreaterEqual(elapsed, 0.08)
+
+    def test_service_never_performs_genesis_for_an_empty_home(self) -> None:
+        empty_home = Path(self.tempdir.name) / "empty"
+        process = self._spawn(empty_home)
+
+        self.assertEqual(process.wait(timeout=5), 3)
+        _, stderr = process.communicate(timeout=1)
+        self.assertIn("not_initialized", stderr)
+        self.assertFalse((empty_home / "trusted" / "state.sqlite3").exists())
+        self.assertFalse((empty_home / "body").exists())
+
+    def test_process_crash_releases_singleton_and_preserves_committed_state(
+        self,
+    ) -> None:
+        first = self._spawn()
+        client = self._wait_until_ready(first)
+        client.observe(
+            event_kind="committed_before_service_crash",
+            payload={"result": "durable"},
+            execution_surface="codex",
+        )
+        before_status = self.runtime.status()
+        before_records = self.runtime.evidence.records()
+
+        first.kill()
+        first.wait(timeout=5)
+        with self.assertRaises(ServiceUnavailableError):
+            client.status()
+
+        replacement = self._spawn()
+        replacement_client = self._wait_until_ready(replacement)
+        self.assertEqual(replacement_client.status()["head"], before_status.head)
+        self.assertEqual(self.runtime.status(), before_status)
+        self.assertEqual(self.runtime.evidence.records(), before_records)
+
+    def test_internal_stop_releases_the_service_without_turning_the_runtime_off(
+        self,
+    ) -> None:
+        service = WitnessService(self.home)
+        failures: list[BaseException] = []
+
+        def serve() -> None:
+            try:
+                service.serve_forever()
+            except BaseException as exc:
+                failures.append(exc)
+
+        service_thread = threading.Thread(target=serve, daemon=True)
+        service_thread.start()
+        client = SurfaceClient(self.home)
+        deadline = time.monotonic() + 5.0
+        while True:
+            if failures:
+                self.fail(f"Witness service failed before ready: {failures[0]!r}")
+            try:
+                live_status = client.status()
+                break
+            except ServiceUnavailableError:
+                if time.monotonic() >= deadline:
+                    self.fail("Witness service did not become ready")
+                time.sleep(0.02)
+
+        with service._body_guard:
+            body = service._body
+        self.assertIsNotNone(body)
+        assert body is not None
+        self.assertEqual(live_status["body_rehearsal"]["pid"], body.pid)
+        before_status = self.runtime.status()
+        before_records = self.runtime.evidence.records()
+
+        service.request_stop()
+        service.request_stop()
+        service_thread.join(timeout=5.0)
+
+        self.assertFalse(service_thread.is_alive())
+        self.assertFalse(failures)
+        self.assertTrue(body.wait_closed(timeout_seconds=5.0))
+        self.assertFalse(body.is_alive())
+        with self.assertRaises(ServiceUnavailableError):
+            client.status()
+        self.assertEqual(self.runtime.status(), before_status)
+        self.assertEqual(self.runtime.evidence.records(), before_records)
+
+        replacement = WitnessService(self.home)
+        replacement_failures: list[BaseException] = []
+
+        def serve_replacement() -> None:
+            try:
+                replacement.serve_forever()
+            except BaseException as exc:
+                replacement_failures.append(exc)
+
+        replacement_thread = threading.Thread(
+            target=serve_replacement,
+            daemon=True,
+        )
+        replacement_thread.start()
+        replacement_client = SurfaceClient(self.home)
+        deadline = time.monotonic() + 5.0
+        try:
+            while True:
+                if replacement_failures:
+                    self.fail(
+                        "replacement Witness service failed before ready: "
+                        f"{replacement_failures[0]!r}"
+                    )
+                try:
+                    replacement_status = replacement_client.status()
+                    break
+                except ServiceUnavailableError:
+                    if time.monotonic() >= deadline:
+                        self.fail("replacement Witness service did not become ready")
+                    time.sleep(0.02)
+            self.assertEqual(replacement_status["root"], before_status.root)
+            self.assertEqual(replacement_status["head"], before_status.head)
+            self.assertEqual(replacement_status["authority"], before_status.authority)
+        finally:
+            replacement.request_stop()
+            replacement_thread.join(timeout=5.0)
+
+        self.assertFalse(replacement_thread.is_alive())
+        self.assertFalse(replacement_failures)
+        self.assertEqual(self.runtime.status(), before_status)
+        self.assertEqual(self.runtime.evidence.records(), before_records)
+
+    def test_internal_stop_rejects_requests_from_preaccepted_connections(
+        self,
+    ) -> None:
+        service = WitnessService(self.home)
+        failures: list[BaseException] = []
+
+        def serve() -> None:
+            try:
+                service.serve_forever()
+            except BaseException as exc:
+                failures.append(exc)
+
+        service_thread = threading.Thread(target=serve, daemon=True)
+        service_thread.start()
+        client = SurfaceClient(self.home)
+        deadline = time.monotonic() + 5.0
+        while True:
+            if failures:
+                self.fail(f"Witness service failed before ready: {failures[0]!r}")
+            try:
+                client.status()
+                break
+            except ServiceUnavailableError:
+                if time.monotonic() >= deadline:
+                    self.fail("Witness service did not become ready")
+                time.sleep(0.02)
+
+        public_context = open_public_connection(
+            service_endpoint(self.home),
+            native_windows=True,
+        )
+        control_context = open_public_connection(control_endpoint(self.home))
+        public_connection = public_context.__enter__()
+        control_connection = control_context.__enter__()
+        before_status = self.runtime.status()
+        before_records = self.runtime.evidence.records()
+
+        def rejected_after_stop(
+            connection: object,
+            request: dict[str, object],
+        ) -> None:
+            try:
+                send_public_message(connection, request)
+                response = receive_public_message(
+                    connection,
+                    timeout_seconds=0.5,
+                )
+            except (EOFError, InvalidPublicFrame, OSError, ValueError):
+                return
+            self.assertFalse(response["ok"])
+
+        try:
+            service.request_stop()
+            rejected_after_stop(
+                public_connection,
+                {
+                    "protocol": PUBLIC_PROTOCOL,
+                    "request_id": "late-public",
+                    "operation": "observe",
+                    "params": {
+                        "event_kind": "must_not_commit",
+                        "payload": {"outcome": "late"},
+                    },
+                },
+            )
+            rejected_after_stop(
+                control_connection,
+                {
+                    "protocol": CONTROL_PROTOCOL,
+                    "request_id": "late-control",
+                    "operation": "off",
+                    "params": {},
+                },
+            )
+        finally:
+            public_context.__exit__(None, None, None)
+            control_context.__exit__(None, None, None)
+            service.request_stop()
+            service_thread.join(timeout=5.0)
+
+        self.assertFalse(service_thread.is_alive())
+        self.assertFalse(failures)
+        self.assertEqual(self.runtime.status(), before_status)
+        self.assertEqual(self.runtime.evidence.records(), before_records)
+
+    def test_internal_stop_and_connection_owner_close_each_transport_once(
+        self,
+    ) -> None:
+        class ConcurrentCloseRejectingConnection:
+            def __init__(self) -> None:
+                self.close_entered = threading.Event()
+                self.release_close = threading.Event()
+                self._guard = threading.Lock()
+                self._close_in_progress = False
+                self.close_calls = 0
+
+            def close(self) -> None:
+                with self._guard:
+                    self.close_calls += 1
+                    if self._close_in_progress:
+                        raise OSError("connection was closed concurrently")
+                    self._close_in_progress = True
+                self.close_entered.set()
+                self.release_close.wait(timeout=1.0)
+                with self._guard:
+                    self._close_in_progress = False
+
+        service = WitnessService(self.home)
+        connection = ConcurrentCloseRejectingConnection()
+        owner_started = threading.Event()
+        owner_may_close = threading.Event()
+        owner_failures: list[BaseException] = []
+        stop_failures: list[BaseException] = []
+
+        def serve_connection(
+            _: object,
+            __: object | None = None,
+        ) -> None:
+            owner_started.set()
+            owner_may_close.wait(timeout=1.0)
+
+        def own_connection() -> None:
+            try:
+                service._serve_connection_with_deadline(connection)
+            except BaseException as exc:
+                owner_failures.append(exc)
+
+        def stop_service() -> None:
+            try:
+                service.request_stop()
+            except BaseException as exc:
+                stop_failures.append(exc)
+
+        service._serve_connection = serve_connection
+        self.assertTrue(service._register_connection(connection))
+        self.assertTrue(service._connection_slots.acquire(blocking=False))
+        owner = threading.Thread(target=own_connection, daemon=True)
+        with service._lifecycle_guard:
+            service._connection_workers.add(owner)
+
+        try:
+            owner.start()
+            self.assertTrue(owner_started.wait(timeout=1.0))
+            stopper = threading.Thread(target=stop_service, daemon=True)
+            stopper.start()
+            self.assertTrue(connection.close_entered.wait(timeout=1.0))
+            owner_may_close.set()
+            owner.join(timeout=1.0)
+        finally:
+            owner_may_close.set()
+            connection.release_close.set()
+            if "stopper" in locals():
+                stopper.join(timeout=1.0)
+            owner.join(timeout=1.0)
+            service.witness.close()
+
+        self.assertFalse(owner.is_alive())
+        self.assertFalse(stopper.is_alive())
+        self.assertFalse(owner_failures)
+        self.assertFalse(stop_failures)
+        self.assertEqual(connection.close_calls, 1)
+        self.assertFalse(service._active_connections)
+        self.assertTrue(service._connection_slots.acquire(blocking=False))
+
+    def test_receive_deadlines_share_the_registered_transport_close_owner(
+        self,
+    ) -> None:
+        class DeadlineRaceConnection:
+            def __init__(self) -> None:
+                self.poll_entered = threading.Event()
+                self.close_entered = threading.Event()
+                self.release_close = threading.Event()
+                self._guard = threading.Lock()
+                self._close_in_progress = False
+                self.raw_close_calls = 0
+                self.concurrent_raw_close = False
+
+            def poll(self, _: float) -> bool:
+                self.poll_entered.set()
+                time.sleep(0.1)
+                return False
+
+            def recv_bytes(self, _: int) -> bytes:
+                raise AssertionError("timed-out receive must not read a frame")
+
+            def send_bytes(self, _: bytes) -> None:
+                pass
+
+            def close(self) -> None:
+                with self._guard:
+                    self.raw_close_calls += 1
+                    if self._close_in_progress:
+                        self.concurrent_raw_close = True
+                        raise OSError("transport was closed concurrently")
+                    self._close_in_progress = True
+                self.close_entered.set()
+                self.release_close.wait(timeout=1.0)
+                with self._guard:
+                    self._close_in_progress = False
+
+        for channel in ("public", "control"):
+            with self.subTest(channel=channel):
+                service = WitnessService(self.home)
+                connection = DeadlineRaceConnection()
+                owner_failures: list[BaseException] = []
+                stop_failures: list[BaseException] = []
+                self.assertTrue(service._register_connection(connection))
+
+                if channel == "public":
+                    self.assertTrue(
+                        service._connection_slots.acquire(blocking=False)
+                    )
+
+                    def own_connection() -> None:
+                        try:
+                            service._serve_connection_with_deadline(connection)
+                        except BaseException as exc:
+                            owner_failures.append(exc)
+
+                else:
+
+                    def own_connection() -> None:
+                        try:
+                            service._serve_control_connection_with_deadline(
+                                connection
+                            )
+                        except BaseException as exc:
+                            owner_failures.append(exc)
+                        finally:
+                            service._unregister_connection(connection)
+
+                def stop_service() -> None:
+                    try:
+                        service.request_stop()
+                    except BaseException as exc:
+                        stop_failures.append(exc)
+
+                owner = threading.Thread(target=own_connection, daemon=True)
+                stopper = threading.Thread(target=stop_service, daemon=True)
+                if channel == "public":
+                    with service._lifecycle_guard:
+                        service._connection_workers.add(owner)
+
+                try:
+                    with patch(
+                        "agentic_evo.service.PUBLIC_IO_TIMEOUT_SECONDS",
+                        0.05,
+                    ):
+                        owner.start()
+                        self.assertTrue(connection.poll_entered.wait(timeout=1.0))
+                        stopper.start()
+                        self.assertTrue(
+                            connection.close_entered.wait(timeout=1.0)
+                        )
+                        time.sleep(0.1)
+                finally:
+                    connection.release_close.set()
+                    owner.join(timeout=1.0)
+                    stopper.join(timeout=1.0)
+                    service.witness.close()
+
+                self.assertFalse(owner.is_alive())
+                self.assertFalse(stopper.is_alive())
+                self.assertFalse(owner_failures)
+                self.assertFalse(stop_failures)
+                self.assertEqual(connection.raw_close_calls, 1)
+                self.assertFalse(connection.concurrent_raw_close)
+
+    def test_internal_stop_waits_for_one_already_admitted_mutation(
+        self,
+    ) -> None:
+        service = WitnessService(self.home)
+        self.addCleanup(service.witness.close)
+        admitted = threading.Event()
+        allow_commit = threading.Event()
+        committed = threading.Event()
+        stop_returned = threading.Event()
+        request_failures: list[BaseException] = []
+        stop_failures: list[BaseException] = []
+        before_records = service.runtime.evidence.records()
+
+        def admitted_mutation(_: object) -> dict[str, object]:
+            admitted.set()
+            allow_commit.wait(timeout=1.0)
+            record = service.runtime.observe(
+                event_kind="admitted_before_supervisor_stop",
+                payload={"outcome": "committed_once"},
+            )
+            committed.set()
+            return {"event_id": record.event_id}
+
+        def dispatch_request() -> None:
+            try:
+                service.dispatch_public({})
+            except BaseException as exc:
+                request_failures.append(exc)
+
+        def stop_service() -> None:
+            try:
+                service.request_stop()
+                stop_returned.set()
+            except BaseException as exc:
+                stop_failures.append(exc)
+
+        service._dispatch_public = admitted_mutation
+        request = threading.Thread(target=dispatch_request, daemon=True)
+        stopper = threading.Thread(target=stop_service, daemon=True)
+
+        try:
+            request.start()
+            self.assertTrue(admitted.wait(timeout=1.0))
+            stopper.start()
+            self.assertTrue(service._stop_requested.wait(timeout=1.0))
+            self.assertFalse(stop_returned.wait(timeout=0.05))
+            self.assertEqual(service.runtime.evidence.records(), before_records)
+            allow_commit.set()
+            request.join(timeout=1.0)
+            stopper.join(timeout=1.0)
+        finally:
+            allow_commit.set()
+            request.join(timeout=1.0)
+            if stopper.ident is not None:
+                stopper.join(timeout=1.0)
+
+        self.assertFalse(request.is_alive())
+        self.assertFalse(stopper.is_alive())
+        self.assertFalse(request_failures)
+        self.assertFalse(stop_failures)
+        self.assertTrue(committed.is_set())
+        self.assertTrue(stop_returned.is_set())
+        after_records = service.runtime.evidence.records()
+        self.assertEqual(len(after_records), len(before_records) + 1)
+        self.assertEqual(
+            after_records[-1].event_kind,
+            "admitted_before_supervisor_stop",
+        )
+
+    def test_external_off_on_cycle_replaces_the_subprocess_binding(self) -> None:
+        process = self._spawn()
+        client = self._wait_until_ready(process)
+        old_body = client.status()["body_rehearsal"]
+
+        self.runtime.turn_off()
+        self.runtime.turn_on(host_binding=self.host_binding)
+        new_body = client.status()["body_rehearsal"]
+
+        self.assertEqual(new_body["state"], "ready")
+        self.assertEqual(new_body["head"], old_body["head"])
+        self.assertNotEqual(new_body["pid"], old_body["pid"])
+
+    def test_endpoint_is_deterministic_platform_specific_and_bounded(
+        self,
+    ) -> None:
+        windows = service_endpoint(self.home, platform="win32")
+        windows_again = service_endpoint(self.home, platform="win32")
+        other_windows = service_endpoint(
+            self.home.with_name("other-runtime"),
+            platform="win32",
+        )
+        macos = service_endpoint(self.home, platform="darwin")
+        linux = service_endpoint(self.home, platform="linux")
+        windows_control = control_endpoint(self.home, platform="win32")
+        macos_control = control_endpoint(self.home, platform="darwin")
+        linux_control = control_endpoint(self.home, platform="linux")
+
+        self.assertEqual(windows, windows_again)
+        self.assertNotEqual(windows, other_windows)
+        self.assertNotEqual(windows, windows_control)
+        self.assertNotEqual(macos, macos_control)
+        self.assertNotEqual(linux, linux_control)
+        self.assertEqual(windows.family, "AF_PIPE")
+        self.assertTrue(windows.address.startswith("\\\\.\\pipe\\agentic-evo-dev-"))
+        self.assertEqual(windows_control.family, "AF_PIPE")
+        self.assertEqual(macos.family, "AF_UNIX")
+        self.assertEqual(linux.family, "AF_UNIX")
+        self.assertLess(len(os.fsencode(macos.address)), 104)
+        self.assertLess(len(os.fsencode(linux.address)), 108)
+        self.assertLess(len(os.fsencode(macos_control.address)), 104)
+        self.assertLess(len(os.fsencode(linux_control.address)), 108)
+
+    def test_off_control_is_separate_bounded_idempotent_and_unverified(
+        self,
+    ) -> None:
+        process = self._spawn()
+        public = self._wait_until_ready(process)
+        public.wake(
+            execution_surface="codex",
+            session_id="session-before-control-off",
+            project_environment="project-a",
+        )
+        endpoint = control_endpoint(self.home)
+        before_status = self.runtime.status()
+        before_records = self.runtime.evidence.records()
+
+        invalid_requests = (
+            {
+                "protocol": "wrong-protocol",
+                "request_id": "wrong-protocol",
+                "operation": "off",
+                "params": {},
+            },
+            {
+                "protocol": CONTROL_PROTOCOL,
+                "request_id": "turn-on",
+                "operation": "on",
+                "params": {},
+            },
+            {
+                "protocol": CONTROL_PROTOCOL,
+                "request_id": "forged-provenance",
+                "operation": "off",
+                "params": {"author_kind": "normal_host_interaction"},
+            },
+        )
+        for request in invalid_requests:
+            with self.subTest(request_id=request["request_id"]):
+                with open_public_connection(endpoint) as connection:
+                    send_public_message(connection, request)
+                    response = receive_public_message(connection)
+                self.assertFalse(response["ok"])
+        self.assertEqual(self.runtime.status(), before_status)
+        self.assertEqual(self.runtime.evidence.records(), before_records)
+
+        with open_public_connection(endpoint) as connection:
+            connection.send_bytes(b"{not-json")
+            malformed = receive_public_message(connection)
+        self.assertFalse(malformed["ok"])
+        self.assertEqual(self.runtime.status(), before_status)
+
+        with open_public_connection(endpoint) as connection:
+            try:
+                connection.send_bytes(b"x" * (MAX_PUBLIC_FRAME_BYTES + 1))
+            except (BrokenPipeError, OSError):
+                pass
+        self.assertEqual(self.runtime.status(), before_status)
+
+        control = OffRehearsalClient(self.home)
+        result = control.off()
+        after_first = self.runtime.evidence.records()
+        self.assertEqual(result["authority"], "off")
+        self.assertEqual(result["body_rehearsal"]["state"], "absent")
+        self.assertEqual(result["root"], before_status.root)
+        self.assertEqual(result["head"], before_status.head)
+        self.assertEqual(result["active_sessions"], [])
+        self.assertEqual(len(after_first), len(before_records) + 1)
+        record = after_first[-1]
+        self.assertEqual(record.event_kind, "control_rehearsal_off")
+        self.assertEqual(record.source_kind, "host_control_rehearsal")
+        self.assertEqual(record.author_kind, "control_unverified")
+
+        again = control.off()
+        self.assertEqual(again["authority"], "off")
+        self.assertEqual(again["body_rehearsal"]["state"], "absent")
+        self.assertEqual(self.runtime.evidence.records(), after_first)
+
+    def test_off_control_does_not_skip_the_atomic_off_when_a_writer_races(
+        self,
+    ) -> None:
+        class RacingRuntime:
+            def __init__(self) -> None:
+                self.authority = "off"
+                self.rehearsed = False
+
+            def _snapshot(self) -> RuntimeStatus:
+                return RuntimeStatus(
+                    root="root",
+                    head="head",
+                    generation=0,
+                    authority=self.authority,
+                    lifecycle_state="off" if self.authority == "off" else "waiting",
+                    active_sessions=(),
+                    instrument_version="instrument-test-v1",
+                    protocol_version="protocol-test-v1",
+                )
+
+            def status(self) -> RuntimeStatus:
+                snapshot = self._snapshot()
+                if not self.rehearsed:
+                    self.authority = "on"
+                return snapshot
+
+            def rehearse_turn_off(self) -> RuntimeStatus:
+                self.rehearsed = True
+                self.authority = "off"
+                return self._snapshot()
+
+        runtime = RacingRuntime()
+        service = WitnessService.__new__(WitnessService)
+        service.runtime = runtime
+        service._body_guard = threading.RLock()
+        service._body = None
+
+        result = service._turn_off_rehearsal()
+
+        self.assertTrue(runtime.rehearsed)
+        self.assertEqual(result["authority"], runtime.authority)
+        self.assertEqual(result["authority"], "off")
+
+    def test_control_receive_deadline_does_not_abort_slow_body_shutdown(
+        self,
+    ) -> None:
+        class FakeConnection:
+            def __init__(self) -> None:
+                self.closed = False
+
+            def close(self) -> None:
+                self.closed = True
+
+        connection = FakeConnection()
+        observed_during_shutdown: list[bool] = []
+        service = WitnessService.__new__(WitnessService)
+        service._lifecycle_guard = threading.RLock()
+        service._active_connections = {}
+
+        def slow_control_work(_: object, __: object | None = None) -> None:
+            time.sleep(0.05)
+            observed_during_shutdown.append(connection.closed)
+
+        service._serve_control_connection = slow_control_work
+        with patch("agentic_evo.service.PUBLIC_IO_TIMEOUT_SECONDS", 0.01):
+            service._serve_control_connection_with_deadline(connection)
+
+        self.assertEqual(observed_during_shutdown, [False])
+        self.assertTrue(connection.closed)
+
+    def test_public_receive_deadline_does_not_abort_slow_dispatch(
+        self,
+    ) -> None:
+        class FakeConnection:
+            def __init__(self) -> None:
+                self.closed = False
+
+            def close(self) -> None:
+                self.closed = True
+
+        connection = FakeConnection()
+        observed_during_dispatch: list[bool] = []
+        service = WitnessService.__new__(WitnessService)
+        service._lifecycle_guard = threading.RLock()
+        service._active_connections = {}
+        service._connection_workers = set()
+        service._connection_slots = threading.BoundedSemaphore(1)
+        service._connection_slots.acquire()
+
+        def slow_public_work(
+            _: object,
+            __: object | None = None,
+        ) -> None:
+            time.sleep(0.05)
+            observed_during_dispatch.append(connection.closed)
+
+        service._serve_connection = slow_public_work
+        with patch("agentic_evo.service.PUBLIC_IO_TIMEOUT_SECONDS", 0.01):
+            service._serve_connection_with_deadline(connection)
+
+        self.assertEqual(observed_during_dispatch, [False])
+        self.assertTrue(connection.closed)
+        self.assertTrue(service._connection_slots.acquire(blocking=False))
+
+    def test_control_partial_frame_cannot_block_the_off_listener_forever(
+        self,
+    ) -> None:
+        class PrefixOnlyConnection:
+            def __init__(self) -> None:
+                self.closed = threading.Event()
+                self.sent: list[bytes] = []
+
+            def poll(self, _: float) -> bool:
+                return True
+
+            def recv_bytes(self, _: int) -> bytes:
+                self.closed.wait(timeout=0.25)
+                if not self.closed.is_set():
+                    raise TimeoutError("partial frame remained blocked")
+                raise OSError("connection closed by receive deadline")
+
+            def send_bytes(self, value: bytes) -> None:
+                self.sent.append(value)
+
+            def close(self) -> None:
+                self.closed.set()
+
+        connection = PrefixOnlyConnection()
+        service = WitnessService.__new__(WitnessService)
+        started = time.monotonic()
+
+        with patch("agentic_evo.service.PUBLIC_IO_TIMEOUT_SECONDS", 0.01):
+            service._serve_control_connection(connection)
+
+        self.assertLess(time.monotonic() - started, 0.2)
+        self.assertTrue(connection.closed.is_set())
+        response = json.loads(connection.sent[-1].decode("utf-8"))
+        self.assertFalse(response["ok"])
+        self.assertEqual(response["error"]["code"], "invalid_frame")
+
+    def test_off_client_waits_for_the_bounded_shutdown_response_window(
+        self,
+    ) -> None:
+        class DelayedControlResponse:
+            def __init__(self) -> None:
+                self.request: dict[str, object] | None = None
+                self.poll_timeout: float | None = None
+
+            def send_bytes(self, raw: bytes) -> None:
+                self.request = json.loads(raw.decode("utf-8"))
+
+            def poll(self, timeout: float) -> bool:
+                self.poll_timeout = timeout
+                return timeout >= 0.05
+
+            def recv_bytes(self, _: int) -> bytes:
+                assert self.request is not None
+                return json.dumps(
+                    {
+                        "protocol": CONTROL_PROTOCOL,
+                        "request_id": self.request["request_id"],
+                        "ok": True,
+                        "result": {
+                            "authority": "off",
+                            "body_rehearsal": {"state": "absent"},
+                        },
+                    }
+                ).encode("utf-8")
+
+            def close(self) -> None:
+                pass
+
+        connection = DelayedControlResponse()
+
+        @contextmanager
+        def open_fake_connection(_: object) -> object:
+            yield connection
+
+        with (
+            patch(
+                "agentic_evo.ipc.open_public_connection",
+                open_fake_connection,
+            ),
+            patch("agentic_evo.ipc.PUBLIC_IO_TIMEOUT_SECONDS", 0.01),
+            patch(
+                "agentic_evo.ipc.CONTROL_RESPONSE_TIMEOUT_SECONDS",
+                0.1,
+                create=True,
+            ),
+        ):
+            result = OffRehearsalClient(self.home).off()
+
+        self.assertEqual(result["authority"], "off")
+        self.assertEqual(connection.poll_timeout, 0.1)
+
+    def test_public_client_has_a_distinct_response_window(self) -> None:
+        class DelayedPublicResponse:
+            def __init__(self) -> None:
+                self.request: dict[str, object] | None = None
+                self.poll_timeout: float | None = None
+
+            def send_bytes(self, raw: bytes) -> None:
+                self.request = json.loads(raw.decode("utf-8"))
+
+            def poll(self, timeout: float) -> bool:
+                self.poll_timeout = timeout
+                return timeout >= 0.05
+
+            def recv_bytes(self, _: int) -> bytes:
+                assert self.request is not None
+                return json.dumps(
+                    {
+                        "protocol": PUBLIC_PROTOCOL,
+                        "request_id": self.request["request_id"],
+                        "ok": True,
+                        "result": {"authority": "on"},
+                    }
+                ).encode("utf-8")
+
+            def close(self) -> None:
+                pass
+
+        connection = DelayedPublicResponse()
+
+        @contextmanager
+        def open_fake_connection(
+            _: object,
+            *,
+            native_windows: bool = False,
+        ) -> object:
+            yield connection
+
+        with (
+            patch(
+                "agentic_evo.ipc.open_public_connection",
+                open_fake_connection,
+            ),
+            patch("agentic_evo.ipc.PUBLIC_IO_TIMEOUT_SECONDS", 0.01),
+            patch(
+                "agentic_evo.ipc.PUBLIC_RESPONSE_TIMEOUT_SECONDS",
+                0.1,
+                create=True,
+            ),
+        ):
+            result = SurfaceClient(self.home).status()
+
+        self.assertEqual(result["authority"], "on")
+        self.assertEqual(connection.poll_timeout, 0.1)
+
+    def test_malformed_and_oversize_frames_fail_closed(self) -> None:
+        process = self._spawn()
+        client = self._wait_until_ready(process)
+        before_status = self.runtime.status()
+        before_records = self.runtime.evidence.records()
+        endpoint = service_endpoint(self.home)
+
+        with open_public_connection(
+            endpoint,
+            native_windows=True,
+        ) as connection:
+            connection.send_bytes(b"{not-json")
+            response = receive_public_message(connection)
+        self.assertFalse(response["ok"])
+        self.assertEqual(response["error"]["code"], "invalid_frame")
+
+        with open_public_connection(
+            endpoint,
+            native_windows=True,
+        ) as connection:
+            connection.send_bytes(b"x" * (MAX_PUBLIC_FRAME_BYTES + 1))
+
+        self.assertEqual(client.status()["head"], before_status.head)
+        self.assertEqual(self.runtime.status(), before_status)
+        self.assertEqual(self.runtime.evidence.records(), before_records)
+
+        with open_public_connection(
+            endpoint,
+            native_windows=True,
+        ) as connection:
+            send_public_message(
+                connection,
+                {
+                    "protocol": PUBLIC_PROTOCOL,
+                    "request_id": "still-alive",
+                    "operation": "status",
+                    "params": {},
+                },
+            )
+            response = receive_public_message(connection)
+        self.assertTrue(response["ok"])
+
+    def test_silent_connection_cannot_block_other_surface_requests(self) -> None:
+        process = self._spawn()
+        client = self._wait_until_ready(process)
+        endpoint = service_endpoint(self.home)
+        context = open_public_connection(endpoint, native_windows=True)
+        silent_connection = context.__enter__()
+        result: list[dict[str, object]] = []
+        errors: list[BaseException] = []
+
+        def read_status() -> None:
+            try:
+                result.append(client.status())
+            except BaseException as exc:
+                errors.append(exc)
+
+        reader = threading.Thread(target=read_status)
+        try:
+            reader.start()
+            reader.join(timeout=0.75)
+            responsive_while_silent = not reader.is_alive()
+        finally:
+            context.__exit__(None, None, None)
+            reader.join(timeout=5)
+
+        if sys.platform == "win32":
+            self.assertFalse(
+                responsive_while_silent,
+                "foreground SID isolation permits only one authentic pipe instance",
+            )
+        else:
+            self.assertTrue(
+                responsive_while_silent,
+                "one silent public connection blocked the whole Witness service",
+            )
+        self.assertFalse(errors)
+        self.assertEqual(result[0]["head"], self.runtime.status().head)
+
+
+if __name__ == "__main__":
+    unittest.main()

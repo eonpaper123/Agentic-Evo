@@ -1,0 +1,67 @@
+{
+  "schema": "agentic-evo.windows-gate-b-evidence-corpus.v1",
+  "members": [
+    {
+      "label": "historical_v1_hash_provenance",
+      "kind": "hash_provenance",
+      "materializable": false,
+      "raw_tracked": false,
+      "compatibility_only": true,
+      "lab_binding": "inconclusive",
+      "frozen_hashes": {
+        "bundle_manifest_sha256": "a4c3e2f87830044312279e657d366640c8ce64628bd4436af142bfd40e7ceb04",
+        "bundle_artifact_sha256": "2fa4058e74a37ef4d3f378ad7607774dc7ac4de0bcc9f3a3cd3617dbb4e6623b",
+        "evidence_plan_sha256": "3ac6057c02df0e3674c3909fd3cbaf7445a7412b3a81abb101673b1bc5e18c8a",
+        "evidence_result_sha256": "13629892dc470e2dbb7ee73aa2219c28da25b38673b6a4e801b32e0229ee0e8a"
+      }
+    },
+    {
+      "label": "historical_v1_synthetic",
+      "kind": "synthetic_executable",
+      "materializable": true,
+      "raw_tracked": false,
+      "compatibility_only": true,
+      "lab_binding": "inconclusive",
+      "bundle_seed": {
+        "artifact_file": "AgenticEvo.ScmProbe.exe",
+        "artifact_bytes_b64": "TVpzeW50aGV0aWM=",
+        "gate_a_manifest": {
+          "schema": "agentic-evo.windows-gate-a.v1",
+          "artifact": {
+            "file": "AgenticEvo.ScmProbe.exe",
+            "bytes": 11,
+            "sha256": "3a3bb2549b8e25cd25ffe31d32c670b679a30557b9e31fdc165e290cb503f9d4"
+          }
+        }
+      },
+      "evidence_seed": {
+        "plan_overrides": {
+          "schema": "agentic-evo.windows-gate-b-plan.v1",
+          "mode": "plan"
+        },
+        "result_overrides": {
+          "schema": "agentic-evo.windows-gate-b-result.v1",
+          "status": "configuration_probe_completed",
+          "gate_b_outcome": "not_established",
+          "elevated_exit_code": 0,
+          "elevated_pipe_client_pid": 1234,
+          "report": {
+            "schema": "agentic-evo.windows-gate-b-config-probe.v1",
+            "status": "configuration_probe_completed",
+            "error": "",
+            "elevated_administrator": true
+          }
+        }
+      }
+    },
+    {
+      "label": "v2_synthetic",
+      "kind": "synthetic_executable",
+      "materializable": true,
+      "raw_tracked": false,
+      "compatibility_only": false,
+      "lab_binding": "bound",
+      "lab_id": "3060-computer"
+    }
+  ]
+}

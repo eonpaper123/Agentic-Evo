@@ -1,0 +1,416 @@
+# Agentic-Evo 实现状态：Pre-Genesis
+
+更新时间：2026-08-04
+状态：Pre-Genesis Python 可移植层已到停止点；Windows foreground 四项局部证据、内部 supervisor stop、SCM-only probe bundle、一次零持久残留的 UAC 配置探针，以及无 UAC independent verifier/real-attacker harness 已形成；Cycle 3 的 PII-safe 冻结 v1/v2 evidence corpus 与 public CLI/verifier regression 已完成，但 Gate B 未建立，native security 为 false，尚未 ready-to-install，也没有真实 UAC/SCM proof、运行中 SCM principal、service-owned protected state、distinct Body principal、HostPresence、原生安装或正式 Genesis
+适用范围：当前仓库中的真实实现、已验证性质、未成立性质和 Genesis 前阻断项
+
+---
+
+## 1. 当前结论
+
+Agentic-Evo 已经从纯理论仓库进入工具与实验共同建设阶段，但还没有产生第一个真实 Agent。
+
+当前代码实现的是最终架构的最小纵切面：
+
+```text
+Trusted State（身份锚 + Head + session + evidence + checkpoint）
++ Content-addressed Body
++ Machine Runtime
++ WitnessCore（Current Body lease 逻辑演练）
++ Foreground Witness service / Windows native public pipe
++ restricted exact-Head Body / private lineage transport rehearsal
++ CLI / Off-only control / zero-install-effect native plan
++ Windows no-UAC SCM probe bundle builder / verifier / confined local cleanup
++ Windows pinned-hash UAC configuration probe / exact privileged cleanup
++ Windows no-UAC independent verifier / real-attacker harness（lab-bound v2 receipts）
++ Codex Adapter
++ provider-neutral stdio public adapter
+```
+
+它已经能够在隔离测试目录中模拟：
+
+```text
+Genesis
+→ 同一 Root / Head 跨会话、跨项目、跨 execution surface 被读取
+→ 当前身体被唤醒
+→ 有界事件进入证据链
+→ exact Current Head 取得唯一短期逻辑 lease
+→ 该 lease 准备自己的后继
+→ 合法父代经一次性 lease 在单一可信事务中推进 Head
+→ 等待
+→ Off / On
+→ fixed-home cooperative-singleton foreground service
+→ public Surface allowlist
+→ exact Head package 经匿名 pipe 交给 diagnostic subprocess
+→ ReadyEcho 后重新校验 Head / authority epoch
+→ Windows restricted Low-Integrity Body 在 suspended 状态完成 Job 与显式私有 handle 交接
+→ Body 发起严格序号的 prepare / advance，结果绑定 authoritative Witness response
+→ Codex Hook 只经 public Surface
+→ 独立 unauthenticated Off-only control rehearsal
+→ Off / crash / restart / tracked-service cleanup
+→ deterministic Windows / macOS / Linux plan-install
+→ exact-hash Windows SCM probe bundle（Gate A partial）
+```
+
+但这里的“模拟 Genesis”只是自动化测试夹具，不是正式 Genesis。仓库没有写入用户级 Codex hook，没有安装原生后台服务，没有创建机器级唯一 Root，也没有开始正式纵向实验。`plan-install` 仍只输出 `ready_to_install=false` 的 canonical JSON。Windows builder 本身仍是零 UAC；单独的实验脚本只在宿主明确批准的一次运行中短暂创建 SCM/ACL 对象，service 从未启动，随后由提升端和普通权限端双重确认零残留。该结果是 `configuration_probe_completed`，不是完整 Gate A、Gate B 或安装。无 UAC independent verifier/real-attacker harness 已存在：活跃 receipt 族为 lab-bound `plan.v2`、`config-probe.v2` 与 `result.v2`，`-LabId` 必填；冻结 v1 只作兼容读取，其 lab binding 结论为 inconclusive；A07 只证明 `same_principal_harness`。`agentic-evo.windows-gate-b-retained-preflight.v1` 已实现为 deterministic、plan-only、lab-bound 的预注册工件，只为一个跨恰好一次重启的保留临时 SCM service 固定边界；它不创建 service、不触发 UAC/reboot、不发出 evidence receipt/file、不运行 verifier/attacker/cleanup，也不提出 Gate B 结论，且不是 `plan.v2`、`config-probe.v2` 或 `result.v2` evidence。实际 retained service/restart/token/state/capability/recovery/uninstall 实验仍须重新取得精确用户授权；不得 Genesis 或永久安装。
+
+---
+
+## 2. 唯一宿主与当前覆盖范围
+
+唯一宿主是用户本人，不是 Nira、Agentic-Evo、Codex、模型或当前机器：
+
+\[
+\boxed{
+Host = U
+}
+\qquad
+\boxed{
+Habitat = Machine
+}
+\qquad
+\boxed{
+Surface \in
+\{
+Codex,\ OtherCodingAgents
+\}
+}
+\]
+
+因此当前 adapter 层的意义只是证明机器级 Runtime 已经有一个真实 coding-agent 入口和一个 provider-neutral 公共入口。它不把 Codex 变成 Agent 的身份，也不意味着当前实现已经覆盖机器中的所有 coding agent，更不意味着已经形成 `Codex + 第二真实 coding-agent` 的运行证据。
+
+```mermaid
+flowchart LR
+    U["唯一用户宿主 U"]
+    M["机器生境"]
+    R["微型生命核 Rᵁ"]
+    B["当前身体 Bₜᵁ"]
+    C["Codex adapter<br/>已形成代码，未安装"]
+    G["generic stdio adapter<br/>已形成代码，caller-declared / surface-unverified"]
+    O["其他 coding-agent adapters<br/>尚未实现"]
+    P["Nira、Agentic-Evo 与其他项目"]
+
+    U --> M --> R --> B
+    B <--> C
+    B <--> G
+    B -.-> O
+    C --> P
+    G -.-> P
+    O -.-> P
+```
+
+Nira 只保留两种关系：
+
+1. 它是 Phase 0–2 观测与 trace 设计的祖先技术来源；
+2. 它未来可以成为同一 Agent 经历的一个项目环境。
+
+Nira 不拥有 Root，不产生独立 Agent，也不是本工具的安装范围。
+
+---
+
+## 3. 已经存在的实现
+
+| 边界 | 当前实现 | 当前能证明什么 |
+|---|---|---|
+| 单一可信状态 | 一个标准库 SQLite 事务域保存 `Who / Why / Authority / Root / Head / revision`、session、evidence 与 checkpoint；本地 HMAC checkpoint | 每次变化完整提交或完整回滚；身份锚、Head、Authority、session 与科研记录的局部篡改可被对账发现 |
+| 身体空间 | 内容寻址 blob、v2 manifest、Root、父代、generation、author、`activation_kind + activation_artifact` | 身体内容与谱系承诺可重建；显式缺失入口不再回退；新会话可取得 exact Head 承诺的 activation path 与 digest |
+| 证据与本地见证 | SQLite 内连续 evidence hash chain；每次可信变化一个 checkpoint；checkpoint 承诺 `Who / Why / Root / Head / Authority / sessions_hash / evidence tail` | evidence、状态与 checkpoint 数量和尾部必须一致；人工仪器变化与 Human Learning Intervention 仍可分类；当前 MAC 不是独立数字签名 |
+| Runtime | Genesis 单写者锁、生命周期串行锁、跨会话状态、wake/wait、后继准备、事务内 Head CAS、On/Off | 同一测试安装可跨项目与接入面保持一个 Root 和 Head；并发 Genesis 只有一个成功；独立 Runtime 竞争旧 Head 只有一个赢家；真实进程退出不留半提交历史 |
+| Current Body lease 演练 | volatile `CurrentBodySession`、exact Root / Head、authority epoch、单调 deadline、lease-local candidate set、跨平台 OS 文件锁 | 正常谱系路径不能由 Surface 直接调用；Off→On、旧 Head、过期、其他 lease 候选和伪造 rehearsal 标签不能复用推进权；后续 private transport 复用该语义，但当前仍不认证 distinct OS Body principal |
+| 前台 Witness / 子进程演练 | 固定 dev-home、cooperative-singleton service lock、Windows 原生 public named pipe / POSIX AF_UNIX、public allowlist、exact-Head package、Windows explicit inherited anonymous pipes / POSIX stdio fallback、Boot / ReadyEcho、sanitized environment | Windows public pipe 校验 peer SID；Windows child 是 restricted Low-Integrity suspended process并在 Resume 前加入 Job；Body 真实发起严格序号谱系请求，结果绑定 authoritative Witness response；只证明 foreground `subprocess_rehearsal + private_lineage_transport_rehearsal` |
+| CLI / Off 控制演练 | `serve / status / hook / off / plan-install / surface-stdio`；独立 generic、未认证的 Off endpoint；provider-neutral JSONL stdio bridge；事务内原子幂等；Body 退出后回包；receive Timer 与 response Timer 分离 | Off 控制协议仍只提供 Off，不提供 On 或谱系操作；`surface-stdio` 复用同一 public Surface allowlist、固定 `execution_surface`、本地预检完整 public frame byte bound，并允许空 optional text 与直接 public contract 对齐；它仍是 caller-declared / surface-unverified 的公共入口，不证明第二真实 coding-agent |
+| Windows Gate A probe 子切片 | `prepare / verify / cleanup-windows-gate-a`；系统 C# compiler 构建 SCM-only own-process probe；source/compiler/artifact 三重摘要；console 1063 负向 handshake；canonical protected-target manifest；junction/tamper fail closed | 证明 exact probe bundle 可构建、可复核并局部安全清理；不证明完整 Gate A、SCM/token/ACL、independent verifier/attacker、可信提权交接或可逆 service uninstall |
+| Windows Gate B 配置探针与证据 harness | 外部固定脚本摘要的双层 bootstrap；系统 PowerShell 模块闭包；随机临时 SCM service；restricted SID 配置回读；protected artifact/state ACL；提升端 exact cleanup + 普通权限端独立零残留复核；无 UAC independent verifier/real-attacker harness | 活跃 receipt 族为 lab-bound `plan.v2 / config-probe.v2 / result.v2`，`-LabId` 必填；冻结 v1 仅兼容读取且 lab binding inconclusive；A07 仅为 `same_principal_harness`。service 未启动、未重启，token/攻击矩阵均 `not_run`，所以 Gate B 未建立 |
+| Codex adapter | `SessionStart / SessionEnd / prompt / tool / compact / subagent / stop / permission` 映射；实现路径只经 `SurfaceClient`；原文哈希化；失败隔离 | Codex 可作为端口而不成为身份；当前 adapter 没有 trusted-state 或 Off 操作，观测失败不阻断 coding-agent 主任务；同 OS 用户下的实际读取/调用能力尚未隔离 |
+| provider-neutral stdio adapter | `agentic-evo.surface-stdio.v1` JSONL bridge，固定 `execution_surface`，只公开 `status / wake / observe / sleep`，EOF 零退出，不隐式 `sleep` | 已形成第二个 shipped public execution-surface adapter；可证明 generic caller 能经同一 public Surface 契约接入、与 Codex surface 共存同裸 `session_id`、本地拒绝 oversize full-frame request 而不污染状态；但它不等于第二真实 coding-agent，也不证明任何 provider 已安装、认证或自然接入 |
+| 有界公共投影 | string parameter 1024 UTF-8 bytes、Body path 512 bytes；wake body files 最多 16 项/8 KiB、activation context 24 KiB；status active sessions 最多 32 项/24 KiB；按 canonical JSON bytes 预算并返回 total/truncated | 合法大 Head、增长中的 session 集合和 escape-heavy 文本不再必然撑破 64 KiB 响应；内部事实没有被截断，只有公共投影有界 |
+| 三平台安装计划 | canonical、无时间/随机/home/env 的 Windows/macOS/Linux target contract；macOS 明确 Witness UID 与 dedicated Body UID；installation effects 全 false；Hook 映射为 planned/not installed/not integration tested | 可移植协议的原生目标可审查；代码签名不冒充权限主体；不证明任何平台已安装或通过 native security test |
+
+public `observe` 与 `surface-stdio` 现可把调用方提供的可选 `occurred_at / correlation_ref / causation_ref / parent_ref` 追加保存到既有 hash-linked evidence record。一次 Pre-Genesis 本地演练在 service restart 前由 `codex` 写入 cause、重启后由 `generic-stdio` 写入 delayed outcome；reload 后 6 条记录的 sequence / previous hash 连续、Root / Head 不变、引用字段保持，且全部仍为 `source_kind=execution_surface / author_kind=surface_unverified`。
+
+该结果只证明既有 public/stdio 通路的有界传输、追加持久化、跨重启读取与完整性链接。`occurred_at` 是未验证的调用方声明，refs 不校验目标存在性或因果语义；它们不是因果真理、延迟结果真实性、记忆形成、学习或自我进化证据。
+
+独立于 public / stdio 入口，`agentic-evo-private-lineage-v1` 的 Current Body 演练现在可在 `prepare_successor` 时携带一个可选、不透明、最多 1024 UTF-8 bytes 的 `causation_ref`。该值只写入 `body_candidate_prepared`；后续 `head_advanced` 不复制该字段，只通过 `body_candidate_prepared.payload.candidate_head == head_advanced.head_after` 形成结构关联。实现不校验引用目标存在、因果为真、候选更好、发生学习或发生自我进化。
+
+当前实现没有规定记忆 schema、信号、学习算法、候选评分、Better 函数或 evaluator。这些开放空间仍属于身体。
+
+---
+
+## 4. 已验证结果
+
+当前自动化检查覆盖：
+
+- 同一 Root 和 Head 跨项目、跨会话、跨 execution-surface 名称保持；
+- 当前 Head 的 compare-and-swap 式并发推进；
+- 同一 home 的并发 Genesis 只有一个起源；
+- 错 Root 身体不能成为当前 Head；
+- 旧父代不能覆盖已推进的 Head；
+- 伪造 generation 的身体不能推进 Head；
+- Off 后 wake 与 observe 被拒绝，错误用户绑定不能重新开启；
+- 并发 wake 与 Off 经同一生命周期锁形成确定顺序；
+- 并发 load 会等待正在进行的生命周期 transition，不把合法中间态误报为永久损坏；
+- Root、Head、Authority、session、evidence、checkpoint 与 revision 已进入一个 SQLite 原子事务；
+- wake evidence 写入失败不会留下 ghost session，Head / Off 写入失败不会留下半提交状态；
+- Genesis 在 checkpoint 前失败不算出生，可在同一路径重试且最终只有一条 Genesis；
+- 子进程在 checkpoint 前真实 `os._exit` 后，数据库恢复到完整旧状态，生命周期锁也由 OS 自动释放；
+- 单独篡改可信 state 行、session JSON、identity anchor 或 checkpoint 会在加载时失败；
+- 单独回放旧 state 行、但不回放当前 evidence / checkpoint 历史时能够检测；
+- evidence 序列、前序哈希链、checkpoint 链、HMAC 与尾部状态交叉验证；
+- 读取 records 时默认先验证完整证据链；
+- 已篡改的证据历史不能继续追加一个看似正常的新尾部；
+- 退化 body path 被归类为领域错误而非未处理异常；
+- 敏感字段名递归拒绝；
+- 人工仪器变化与 Human Learning Intervention 保持不同来源；
+- Codex prompt、tool input 和 tool response 不以原文进入 ledger；
+- `SessionStart` 返回有界身体激活上下文；
+- wake 返回当前 Head 承诺的 activation kind、path 与 digest；
+- 显式缺失 activation artifact 被拒绝，unknown activation kind 不能成为 Current Head；
+- unsupported Genesis activation 在任何出生状态写入前被拒绝，并可在同一路径重试；
+- candidate probation 已收敛为无谱系权限的 activation gate；当前只实现静态 compatibility，不冒充真实进程试生；
+- exact Current Head 的逻辑 lease 在同一 home 内只允许一个合作式持有者，且只公开 `prepare_successor / advance_head / close`；
+- lease 绑定 Root、Head、authority epoch 与单调 deadline；成功推进一次性消费，失败事务允许修正重试；
+- 外部 Off→On 不能复活旧 lease；伪造 `in_process_rehearsal` 标签不能冒充由该 lease 亲自准备的候选；
+- Surface 不能自报最终 `source_kind / author_kind / human_intervention_kind`，当前统一降级为 `surface_unverified`；
+- Body 逻辑演练只记录 `ingress_path=in_process_rehearsal`，不产生 `agent_self_authored` 主张；
+- 遵守同一 service-lock 协议的 foreground Witness 在同一 dev-home 至多一个；空 home 启动绝不自行 Genesis；
+- 公共 endpoint 只允许 `status / wake / sleep / observe`，lineage、On / Off 与 Genesis 请求均被拒绝；
+- malformed、oversize 与静默公共连接 fail closed，且静默连接不能阻塞其他 Surface 请求；
+- exact Current Head 的完整 manifest 与 blobs 经匿名 pipe 交给 diagnostic subprocess 并在子进程重建；
+- ReadyEcho 精确绑定 boot session、challenge、Root、Head、generation 与 activation descriptor，回声后再次校验 authority epoch；
+- worker crash 只有在 pipe 与 logical lease 已释放后才发布 closed；同一 Head 可由新 boot session 重新实例化；
+- 外部 Off→On 在下一次服务检查时淘汰旧 subprocess binding；当前是惰性 fencing；
+- 有效 6 MiB activation 在专用 30 秒有界 boot 测试窗口内不会因为内部 JSON/base64 的固定帧常数成为不可启动 Head；该证据不覆盖生产默认 5 秒窗口的 Windows 冷机可靠性；
+- worker argv 与继承环境不含 Root、Head、challenge、boot session 或调用进程的任意 secret；
+- public status 不公开 boot session 或 challenge，boot 演练不产生 evidence；
+- Windows diagnostic Body 在接收 Boot 前加入匿名、不可继承、`KILL_ON_JOB_CLOSE` 的 Job Object；真实父/孙进程测试证明最后 handle 关闭会终止进程树，assignment 失败则不发送 Boot 并释放 lease；
+- Windows foreground public Surface 使用显式 DACL，只给 SYSTEM 与绑定用户 SID 最小 `SYNCHRONIZE + read/write data + read/write attributes` 访问；`PIPE_REJECT_REMOTE_CLIENTS` 拒绝远端客户端，要求 `GENERIC_READ | GENERIC_WRITE` 的宽权限客户端被拒绝；
+- public pipe 服务端通过 named-pipe impersonation 读取 `TokenUser` SID，并独立取得 client PID；SID 不匹配即拒绝，PID 只进入诊断事实而不承担授权；
+- Windows child 的实际 token 被重新查询为 restricted、Integrity RID 为 4096、权限至多保留 `SeChangeNotifyPrivilege`；
+- child 以 `CREATE_SUSPENDED` 启动，显式 handle list 只承接私有双管道，Job assignment、父端副本关闭和 child handle seal 均发生在 Boot 前；
+- Body 发起的 `prepare / advance` 绑定 boot session、严格整数序号、same-lease candidate 与 authoritative Witness response；伪造、重放、claimed authorship 与深层 JSON 被拒绝；
+- Boot、command、response 与 stop 的父端写入都有 deadline；写超时先终止 Body，无法排除提交时返回 `BodyLineageOutcomeUnknown`，partial writes 被完整补写；
+- Off 后延迟到达的 session end 被拒绝，不再增长 revision、evidence 或 checkpoint；
+- adapter 的科研仪器失败不会阻断 coding-agent hook；
+- Codex adapter 服务缺席时 fail-open，且不再 fallback 到直接打开 SQLite；
+- provider-neutral `surface-stdio` 与直接 public Surface 对齐：空 optional text 保留为空字符串，oversize full-frame request 在本地以 `invalid_input` 拒绝，失败后 adapter 继续存活且状态不变；
+- CLI Hook 对 malformed、oversize 和深层递归 JSON fail-open，不回显原始输入；
+- public endpoint 继续拒绝 Off；独立 control endpoint 只接受无参数 Off，调用者不能自报 provenance；
+- control Off 在 `BEGIN IMMEDIATE` 内原子幂等，第二次 Off 不新增 evidence；
+- Off 回包前 Body 已退出且 logical lease 已释放；Off 后 Root / Head 不变、sessions 清空；
+- fake close-owner 回归与真实 AF_PIPE / AF_UNIX control endpoint 都已验证 partial request/response 有界；POSIX deadline 先对预先复制的 AF_UNIX socket 执行 `shutdown(SHUT_RDWR)`，再经单一 owner close 并等待 Timer 退出；Windows message-mode 碎片 fail closed；public/control client 的 12 秒 response Timer 与 2 秒 request receive Timer 仍彼此分离；
+- Off 后强杀并重启 service，Authority 仍为 Off，Body 不重生；
+- `control_rehearsal_off` 推进 authority epoch，旧 lease 不能跨该 Off→On 复活；
+- public string parameter 与 Body logical path 有明确 byte bound；含 1201 个文件的合法 Head 可以 wake，body-files、activation-context 与 active-sessions 按 canonical JSON bytes 返回有界投影及 count/truncated；
+- `plan-install` 跨 cwd、环境和伪 home 逐字节确定，不创建 Agent 文件或状态、不安装服务或 Hook、不启动受管 Agent 进程，也不执行 Genesis；
+- Windows、macOS、Linux 目标均保持 `native_test_status=not_run`；
+- Windows Gate A builder 在显式目录生成两个 exact 文件；probe 从普通控制台启动准确返回 1063，不退化为 foreground daemon；manifest 与 artifact 篡改、junction cleanup 和非 Windows materialization 均 fail closed；
+本轮同时完成 detached longitudinal experiment artifact 链路：`src/agentic_evo/experiment_pack.py` 导出 `experiment-prereg.v1 / experiment-pack.v1`，`src/agentic_evo/cli.py` 暴露 `export-experiment-prereg`、`export-experiment-pack` 与 `verify-experiment-artifact` 三个 detached CLI。其验证上限由固定 `claim_ceiling` 明确约束：只证明 prereg/start-anchor、连续 evidence window、`authority_end` 与 committed body manifest chain 的内部一致性；不证明 checkpoint MAC、witness blob、surface 身份、声明元数据真实性、因果成立、能力获得、记忆形成、学习、自我进化、第二真实 coding-agent 或 native Gate B。针对 commit `e24c0bcb77fc4844042d087155134877bbdd90e8` 的仓内回归与 3060 reference namespace membership 自述摘要，见[receipt](../../experiments/receipts/2026-08-04-detached-artifact-regression.receipt.json)。该 receipt 是去敏、受跟踪、非独立的仓内摘要，只记录 targeted 41/41、full 237/237 与 `membership_identical_before_after_full_regression=true`；这些结果只证明当前链路对应代码回归为绿与 reference namespace 的仓内内部一致性，不建立 Gate B，也不改变 A07 的 `same_principal_harness` 上限。
+
+这些结果证明的是代码契约，不是长期学习、自我进化或独立科研证据已经成立。
+
+---
+
+## 5. 目前不能声称成立的性质
+
+### 5.1 完整性检测不等于独立见证
+
+当前：
+
+\[
+\operatorname{DetectLocalEdit}
+\neq
+\operatorname{PreventOrExposeFullRewrite}
+\]
+
+evidence 使用哈希链，checkpoint 使用本地 HMAC；但数据库与 `witness.key` 仍在同一个 OS 用户权限域。如果一个同权限进程能够同时读取 key 并改写整个数据库，它仍可重算完整历史。当前代码可以发现意外损坏和局部篡改，不能抵抗同权限恶意全量重写。
+
+### 5.2 本地 HMAC 不等于不可冒充的身份根
+
+可信状态的 checkpoint 由本地 HMAC 保护，但密钥与数据库目前位于同一 OS 用户可读目录。能够读取并改写两者的代码仍可重新生成 MAC。复制整个目录也会复制当前身份材料。
+
+Runtime 现在会交叉检查 SQLite state、session、当前 Body、evidence 与 checkpoint 尾部，因此只回放其中一个部分会被发现；但攻击者若同时回放整个数据库和旧 key，仍可制造内部一致的旧世界。没有身体权限之外的单调承诺时，HMAC 不能证明“这是历史上最新的状态”。
+
+因此当前只能称为：
+
+> 软件级身份承诺原型。
+
+还不能称为：
+
+> 身体无法冒充、复制或改写的唯一灵魂。
+
+### 5.3 逻辑 Off 与子进程 EOF 不等于机器级真实终止
+
+当前 Windows Body 已由 Job Object 围栏，并以 restricted Low-Integrity token suspended-spawn；foreground public pipe 与 private lineage transport 也已有实机证据。但还没有受 SCM / launchd / systemd 监督的 daemon、distinct Body principal、sleep/GPU worker，macOS / Linux 也没有对应 supervisor。它证明的是 foreground 受跟踪 Body tree 与 transport，不是所有后台活体活动都已被发现或已在宿主 Off 瞬间终止。
+
+### 5.4 adapter 函数不等于已覆盖所有 coding agent
+
+当前已有两个 public execution-surface adapters：一个是未安装的 Codex 生命周期映射，另一个是 provider-neutral 的 `surface-stdio` JSONL bridge。后者只证明 generic public adapter 基础设施成立，不构成第二真实 coding-agent 的自然运行证据。其他 coding agent 仍需要各自经过验证的生命周期入口。没有公开稳定接口的执行表面必须记录覆盖缺口，不能通过全盘监控伪装成全覆盖。
+
+### 5.5 单库原子性不等于独立时间见证
+
+Root、Head、Authority、session、revision、evidence 与 checkpoint 现已进入一个可信事务，意外崩溃不会再暴露半提交世界。但 SQLite 自己不能证明这份数据库从未被整体替换为一个更老、内部同样一致的副本。最新性仍需由身体权限之外的 OS Witness、单调 checkpoint 或机器外锚点提供。
+
+### 5.6 测试中的 Genesis 不是正式实验数据
+
+测试会在临时目录创建并销毁多个 Root。它们验证实现，不属于唯一用户生命史，也不能进入实验 001 的正式样本。
+
+### 5.7 当前 hook、锁和长期运行仍是原型
+
+独立审查还确认了以下尚未解决的工程边界：
+
+- 公共 Surface 已不能自报最终作者；正常 lineage 路径也由 `WitnessCore` 派生 `in_process_rehearsal`。但 Runtime 私有研究入口、BodyStore 与 Witness 仍在同一用户权限内，因此同权限代码仍可绕过 Python 编排；最终必须由独立服务根据认证入口生成作者来源；
+- 当前同一 home 内的 Genesis 已串行化，但 `home` 仍由调用者传入；两个目录仍可分别产生 Root，尚无机器级唯一服务裁决；
+- 文件锁已改为 OS 持有：Windows 使用 byte-range lock，POSIX 使用 `flock`；Windows 子进程 `os._exit` 后自动释放已经验证，POSIX 路径仍需在对应平台 CI 复核；
+- Surface active session 已以 `(execution_surface, session_id)` 真实复合主键进入同一事务，并由 `agentic-evo-sessions-v2` 结构化 `sessions_hash` 承诺；跨 surface 同名 ID 的并存、精确结束、reload 与 Codex SessionEnd 隔离均已验证。Current Body lease 则故意只存在于进程内和 OS lock 中，重启不复活；异常退出和系统重启仍需要机器 service reconciliation；
+- 当前 lease TTL 是下一次 owner check 时的准入失效，不是 deadline 到达瞬间的跨进程主动解锁；绕过 owner Witness 的 Off→On 会 fence 旧 lease 的写入，但旧 OS lock 要等 owner 再交互、close 或死亡才释放；
+- evidence append 每次重新验证完整历史，长期运行会趋向二次增长；需要独立 writer、索引和分段签名 checkpoint；
+- adapter 失败目前静默退出以保护用户任务，但还没有身体之外的 health / coverage-gap 通路；
+- activation artifact 会进入模型上下文，当前尚无内容分级、模型信任域、跨项目泄露检查和最大 body 读取边界；
+- 当前 `surface-context-utf8-v1` 已经在 restricted child 中形成 exact boot 和 private transport rehearsal，但不执行 Body activation 语义，也不是受 protected service principal 约束的最终 Body；
+- worker 已有最小 lineage dispatcher并能发起请求；logical lease、Root/Head/epoch 派生与事务裁决仍由 service 父进程持有，provenance 继续是 `subprocess_rehearsal`；
+- 当前 foreground service、worker、SQLite 和 key 仍处于同一普通用户权限域；private child handles 已显式继承，但 control endpoint、state 与 key 尚无 service SID / distinct Body principal 保护；POSIX 路径也尚无专用 UID 或 peer-credential 实机证据；
+- public pipe 的 SID 只证明客户端 token 属于绑定账户，不证明第一宿主真人此刻在场；client PID 只用于诊断，不能作为稳定身份、授权或防 PID reuse 的依据；
+- 12 秒 response Timer 约束客户端等待，不会强杀卡在业务处理中的 Python worker；原生 service 仍需可取消工作、进程级隔离或 supervisor fencing；
+- Windows launcher 已完成 restricted suspended spawn、Job-before-Resume 与 explicit handle inheritance；但 SCM service crash / restart、未知外部 worker、protected state 和安装后完整攻击矩阵仍未验证，因而不能把该局部证据扩大为整机活体唯一性；
+- 敏感信息过滤主要检查 evidence payload key，尚不能替代完整的值分类与 artifact policy。
+
+### 5.8 Off 控制与三平台计划不等于原生宿主权
+
+当前 Off endpoint 仍使用 generic、未认证 transport，没有自己的 DACL、peer credential、remote-client rejection 或 HostPresence，因此只记录 `control_unverified`。它故意不提供 On：任何能访问该 endpoint 的未认证进程可以造成拒绝服务，不应获得在用户关闭后重新唤醒 Agent 的权力。Windows public pipe 的 SID 只证明账户绑定，不能被借用为真人在场；PID 也只用于诊断。`plan-install` 已如实列出四项 foreground partial component 与 `windows_gate_a_status=scm_probe_bundle_ready`，但 `gate_a_complete=false`、`native_security_verified=false`、`ready_to_install=false`，所有 installation effects 为 false，三平台安装态 native test 仍为 `not_run`。
+
+这些问题不要求人类规定 Agent 应怎样记忆或学习；它们属于研究世界能否可信存在的工程条件。
+
+---
+
+## 6. Genesis 前的四个硬阻断项
+
+按第一性原理和奥卡姆剃刀，Genesis 前不需要先制造更多身体算法，但下面四个因果边界不能省略。
+
+### G0：把最小信任根移出身体权限
+
+至少把以下能力放进身体不能直接读取或改写的最小可信边界：
+
+```text
+Host On / Off authority
++ Root custody
++ current Head transition authority
++ witness signing authority
++ authenticated author provenance
+```
+
+可行载体可以是独立本地服务、不同 OS principal、受限系统凭据库、硬件密钥或其组合。具体实现可以迭代，但验收事实不变：普通身体代码拿不到重签微核或重写证据历史的权力，也不能仅靠自报字段决定一次变化究竟由 Agent、人类还是科研仪器创作。
+
+### G1：为科研见证建立外部承诺
+
+每批事件至少需要由独立 writer 签名并把 checkpoint 锚定到身体不可回写的域。目标不是宣称物理上绝对不可删除，而是保证：
+
+\[
+\operatorname{Rewrite}
+\Rightarrow
+\operatorname{DetectableGapOrSignatureFailure}
+\]
+
+### G2：补全崩溃恢复与状态对账（本地层已完成）
+
+单一 Witness 写入的身份状态必须形成一个原子事务：
+
+```text
+stage content-addressed Body candidate
+→ BEGIN IMMEDIATE
+→ validate Root / Head / Authority / current state
+→ update Head / revision
+→ append transition / evidence / checkpoint
+→ COMMIT
+```
+
+Body candidate 可在事务前完整落盘；未被已提交 Head 引用的 candidate 只是 staging artifact。SQLite 负责意外崩溃、原子性和并发；服务权限、checkpoint 与可选机器外锚点负责恶意回放。Genesis 同样成为一次原子提交，提交前不算正式出生。
+
+当前隔离测试已经验证异常注入、并发 CAS、失败 Genesis 重试和 checkpoint 前真实进程退出。G2 的本地事务命题已到停止点；Current Body lease 的逻辑语义也已实现，但 G0 / G1 所需的独立 Witness 权限与 OS 私有来源仍未完成。完整推导与证明上限见[《单一可信事务域》](单一可信事务域.md)和[《Current Body 私有会话租约》](CurrentBody私有会话租约.md)。
+
+### G3：形成真实机器生命周期
+
+G3 的 Python 可移植层已经完成；Windows foreground 又完成 Job、认证 public pipe、restricted suspended Body、private lineage transport rehearsal、内部 supervisor-stop 关节、不依赖用户 Python 的 SCM-only probe bundle，以及一次配置级 UAC 创建/回读/清理。它没有持久化 lease 表或 bearer token，也没有把 `subprocess_rehearsal`、`private_lineage_transport_rehearsal`、`control_unverified`、rendered plan、`scm_probe_bundle_ready` 或 `configuration_probe_completed` 冒充为真实 Body / Host / installed native 来源。
+
+需要一个机器级、项目无关的安装与运行边界：
+
+- 单安装、单活动 Root；
+- 由服务裁决的固定机器级状态位置，不能由 adapter 任意传入另一个 home；
+- 本地 IPC；
+- 用户级 execution-surface adapters；
+- 显式 On / Off；
+- 等待与最小睡眠活动的资源边界；
+- 进程崩溃与系统重启恢复；
+- 不把项目仓库当作状态目录；
+- 安装前 dry-run 和可验证卸载。
+
+---
+
+## 7. 最小可信计算基
+
+微型不等于把一切放在一个文件中。真正应当保持微型的是不可自我改写的可信计算基：
+
+\[
+\boxed{
+TCB_{\min}
+=
+Authority
++ RootCustody
++ HeadTransition
++ WitnessCommitment
+}
+\]
+
+身体、记忆、技能、workflow、模型路由、学习算法、实验方式和解释器都不属于该 TCB。
+
+这使两件事同时成立：
+
+1. Agent 对自己的身体拥有足够大的自主发展空间；
+2. Agent 不能靠改身份根或科研证据，把任意变化重新解释为“持续提升宿主”。
+
+---
+
+## 8. 下一工程循环
+
+下一步不再新增记忆理论，也不先实现某一种自我学习算法，而是继续同一条终局纵切面：
+
+```text
+[已完成] 把可信身份状态迁入单一 SQLite 事务域
+[已完成] 建立 Current Body lineage lease 的逻辑协议与进程内演练
+[已完成] 建立固定 dev-home 的 cooperative-singleton foreground service 与公共 Surface IPC
+[已完成] 建立 exact-Head package / anonymous pipe / ReadyEcho 子进程演练
+[已完成] 增加最小 CLI、Codex public-Surface adapter 与 Off-only control rehearsal
+[已完成] 在临时目录完成 Off / crash / restart / tracked-service cleanup 演练
+[已完成] 形成 deterministic、zero-install-effect、not-run 的三平台 install plan
+[已完成] Windows Job Object 在 Boot 前围栏 diagnostic Body，并由真实孙进程验证 kill-on-close
+[已完成] Windows foreground public pipe 使用显式 DACL、remote rejection、最小 client access、peer-SID verification 与 diagnostic PID
+[已完成] Windows restricted Low-Integrity suspended Body + explicit inherited private lineage transport rehearsal
+[已完成] 内部 supervisor stop：cutoff、transport close、admitted-work drain 与完整 service-loop 回收分层；不改写 Host Off，stop 自身无 Authority / evidence 增量
+[已完成] 可构建、可复核、SCM-only negative handshake、junction-safe local cleanup 的 exact Windows probe bundle
+[已完成] 一次 externally pinned、config-only、no-start/no-reboot 的 UAC SCM/ACL 配置探针与双重零残留复核
+[已完成] 把跨 coding-agent 会话身份改为 `(execution_surface, session_id)` 复合主键，并用 public-v2 与版本化结构承诺消除覆盖、误删和哈希二义性
+[已完成] 无 UAC independent verifier / real-attacker harness；活跃 receipt 族为 lab-bound v2，冻结 v1 仅兼容读取且 lab binding inconclusive，A07 仅为 `same_principal_harness`
+[已完成] Cycle 3：PII-safe 冻结 v1/v2 evidence corpus 与 public CLI/verifier regression
+→ 下一项实质性 Windows evidence 需要用户精确授权一次、跨 system restart 的单个有保留期临时 SCM service 实验；不执行 Genesis，也不作永久安装
+→ 随后由独立 attacker-verifier 复验运行中 token、protected state、public / Body capability、crash recovery 与可逆 uninstall
+→ 隔离 Authority、Witness、Current Body 与 probation principal
+→ 冻结 I₀ 与 Protocol₀
+→ 用户明确启动正式 Genesis
+```
+
+完成这些条件后，Agentic-Evo 才能第一次真实参与 Agentic-Evo 自身及机器中其他 coding 项目的开发；工具运行和实验 001 的正式纵向数据也从那一刻同时开始。
+
+同权限作者来源不可区分、Windows service boundary、Body 私有 capability 与可信事务域的进一步推导，见[《最小可信边界与来源证明》](最小可信边界与来源证明.md)。
+
+Head 的最小出生信封、解释器不可消除性、exact activation / exact boot 的证明边界及下一轮 probation boot 问题，见[《最小 Body 启动契约》](最小Body启动契约.md)。
+
+候选有限试生、optional rehearsal、Current Body 推进权与禁止 evaluator 自动晋升的边界，见[《候选试生与 Head 推进》](候选试生与Head推进.md)。
+
+身份、Head、session、evidence 与本地 checkpoint 的原子提交、崩溃语义和本地 HMAC 上限，见[《单一可信事务域》](单一可信事务域.md)。
+
+Current Body lease 的公式、状态机、authority epoch、候选归属、已验证性质与惰性 TTL / OS principal 上限，见[《Current Body 私有会话租约》](CurrentBody私有会话租约.md)。
+
+restricted Body token、suspended handoff、private lineage transport、authoritative result binding、deadline 与失败三态，见[《受限 Body 与私有谱系能力演练》](受限Body与私有谱系能力演练.md)。
+
+固定 dev-home 服务、公共 IPC、exact-Head package、匿名子进程 Boot/ReadyEcho、崩溃与 epoch fencing 的公式、关系图、验证结果和证明上限，见[《机器 Witness 服务与 exact-Head 子进程演练》](机器Witness服务与exact-Head子进程演练.md)。
+
+最小 CLI、Codex Surface-only adapter、Off 原子顺序、partial-frame / response Timer、Off/crash/restart/tracked-service cleanup 与三平台 zero-install-effect plan，见[《跨平台 CLI、Off 控制与零安装副作用计划》](跨平台CLI与Off控制演练.md)。

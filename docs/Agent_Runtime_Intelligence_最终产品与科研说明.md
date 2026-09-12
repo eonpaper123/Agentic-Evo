@@ -1,6 +1,6 @@
 # Agent Runtime Intelligence：最终产品与科研说明
 
-更新时间：2026-07-26  
+更新时间：2026-07-29
 文档状态：当前长期讨论的唯一产品与科研定义源文件  
 用途：确保任何新对话、研究线程或开发线程都能准确恢复目标、边界、科学命题和最终系统形态。
 
@@ -12,20 +12,20 @@
 
 我们的最终目标是：
 
-> 创造一种持久存在的人工 Agent 个体。它以基础模型作为初始认知资源，在正常工作中自主形成经验、知识和能力，自主产生并验证自己的后代，自主改进其学习与进化机制，并在没有人工参与学习过程的情况下表现出可复现、可保持、可迁移的长期能力增长。
+> 创造一种持久存在的人工 Agent 个体及其连续演化谱系。它把不同基础模型、上下文和工具作为不断变化的器官与认知状态，在正常工作中自主形成经验、知识和能力，自主发现并补救错误，自主重组自己的身体并延续后继身体，自主改进其学习与进化机制，并在没有人工参与学习过程的情况下表现出可复现、可保持、可迁移的发展。这里的发展不等于永不犯错或所有固定能力指标永久单调上升，还包括 Agent 自主形成和调整 focus、价值判断、局部适应与发展方向的能力。
 
 暂用两个互补名称描述它：
 
 - 产品名称：**Agent Runtime Intelligence**
 - 科研对象：**Autonomous Agent Evolution System（自主 Agent 进化系统）**
 
-Codex 只是目前用于研发和运行早期实验的工具及宿主之一。最终成果必须与 Codex、ChatGPT、Claude、任何单一模型提供商或现有 Agent 产品解耦。
+唯一宿主是安装并拥有开启、关闭权的用户本人。Codex 只是目前用于研发和运行早期实验的工具及执行表面之一。最终成果必须与 Codex、ChatGPT、Claude、任何单一模型提供商、coding-agent 执行表面或具体项目解耦。
 
 最终产品形态不是一个需要用户一直打开的传统 App，而是：
 
-> 一次安装、事件唤醒、跨会话保持身份、在任务之间持续学习并产生后代的 Agent Developmental Runtime。
+> 一次安装、事件唤醒、跨会话保持微型身份核与专属身体连续性、在任务之间持续学习并使历史继续产生未来因果力量的 Agent Developmental Runtime。
 
-用户继续正常使用 Codex 或其他 Agent。系统在正常工作之外自主完成经验整合、能力缺口发现、候选后代生成、实验、选择、继承、淘汰和元学习。用户不需要逐次告诉它学什么、为它总结经验、编写 skill、制作训练数据、选择候选、批准晋升或发现退化。
+用户继续正常使用 Codex 或其他 Agent。系统在正常工作之外自主完成经验整合、能力缺口发现、内部候选探索、实验、现实后果吸收、身体重组、谱系延续和元学习。用户不需要逐次告诉它学什么、为它总结经验、编写 skill、制作训练数据、选择候选、批准晋升或发现退化。候选可以存在，但它首先是同一身体内部的认知和实验活动；后继身体不必由一个固定 evaluator 宣布“胜出”才产生。
 
 完整目标对应以下跃迁：
 
@@ -47,17 +47,20 @@ Agent
 
 Agent Runtime Intelligence 是一个独立于具体基础模型和 Agent App 的系统级发育与进化运行时。
 
-它连接用户允许参与的模型、Agent、工具、项目和运行环境，将一次次短暂任务组织为同一个持久 Agent 个体的连续生命史，并利用这些经历自主产生下一版本。
+它连接用户允许参与的模型、Agent、工具、项目和运行环境，将一次次短暂任务组织为持久 Agent 个体的连续生命史，并允许不同安装或主动分叉形成具有共同祖先、但各自继续发展的 Agent 谱系。
+
+基础模型不是 Agent 身份。模型、上下文、工具、推理预算和当前负载共同形成暂时的认知状态；身份由记忆对经历、未完成义务、能力变化和后继关系的因果连续性维持。同一 Agent 可以更换全部基础模型而继续存在；同一基础模型在记忆被切断后也不自动构成同一个 Agent。
 
 基础模型提供初始认知能力，真实环境提供经验和结果，Agent Runtime Intelligence 提供：
 
 - 连续身份；
 - 长期经验；
 - 能力形成；
+- 宿主耦合的内生驱动力与发展目标；
 - 自我修改；
-- 后代生成；
-- 实验与选择；
-- 继承与淘汰；
+- 后继身体形成；
+- 自主实验与现实选择；
+- 谱系延续；
 - 学习机制的继续改进。
 
 因此，实际运行的 Agent 不是某个裸模型：
@@ -92,7 +95,19 @@ C_t = F(M,\ K_t,\ R_t,\ P_t,\ A_t,\ E_t)
 - \(A_t\) 是 Agent 架构、编排代码与可执行模块；
 - \(E_t\) 是任务、工具、代码库和外部环境。
 
-即使基础模型 \(M\) 暂时固定，系统仍可通过自主改变 \(K_t、R_t、P_t、A_t\) 使实际能力 \(C_t\) 增长。最终形态还允许在开放宿主中把可训练模块、adapter 和模型权重纳入变化范围。
+即使基础模型 \(M\) 暂时固定，系统仍可通过自主改变 \(K_t、R_t、P_t、A_t\) 使实际能力 \(C_t\) 增长。最终形态还允许在开放模型与开放认知器官中把可训练模块、adapter 和模型权重纳入变化范围。
+
+进一步需要区分 Agent 已经形成的能力与当前认知状态能够表达的表现：
+
+\[
+P_t=
+\operatorname{Express}
+\left(
+K_t,\mathbf{Z}_t,\tau_t
+\right)
+\]
+
+其中 \(\mathbf{Z}_t\) 是基础模型、上下文、工具和负载形成的当前认知表型，\(\tau_t\) 是当前任务。表现下降不自动等于能力丢失；模型标签也不应替代对实际认知状态和行为证据的观察。
 
 ## 2. 产品不是什么
 
@@ -120,8 +135,8 @@ Codex 与本研究的三层关系必须始终保持清楚：
 实验工具
 Codex：帮助我们编写、调试和推进研究
 
-实验宿主
-Codex：承载第一批真实开发任务和纵向实验
+实验执行表面
+Codex：让同一机器级 Agent 接触第一批真实开发任务和纵向实验
 
 科研对象
 与 Codex 无关的 Autonomous Agent Evolution System
@@ -130,19 +145,27 @@ Codex：承载第一批真实开发任务和纵向实验
 Codex 当前可以承担三个角色：
 
 1. 研究工程工具：帮助实现和调试系统；
-2. 实验宿主之一：提供真实、长期、高复杂度的开发任务流；
+2. 实验执行表面之一：提供真实、长期、高复杂度的开发任务流；
 3. 被观察对象之一：验证进化机制能否改变一个强工具 Agent 的长期表现。
 
 Codex不能成为：
 
 - 系统本体；
-- 唯一宿主；
+- 宿主或身份根；
 - 唯一评价器；
 - 不可替换的 runtime；
 - 论文复现的必要条件；
 - 科研命题的一部分。
 
-最终核心必须满足宿主独立性：
+术语必须固定为：
+
+- 用户 \(U\) 是唯一宿主；
+- 当前机器是连续性承载环境；
+- Codex 与其他 coding agent 是执行表面；
+- 模型、工具、GPU、上下文和子 Agent 是可替换器官；
+- Nira、Agentic-Evo 和其他仓库是项目环境。
+
+最终核心必须满足执行表面与认知器官独立性：
 
 \[
 \mathcal{L}(B^{Codex}) \uparrow
@@ -156,25 +179,26 @@ Codex不能成为：
 \mathcal{L}(B^{OtherAgent}) \uparrow
 \]
 
-不同宿主不必学到相同内容，但必须表现出同一种持续学习与进化现象。
+不同执行表面或认知器官不必产生相同表达，但必须允许同一持续 Agent 保持身份、历史和发展因果连续。
 
-如果替换宿主后进化机制失效，成果只能被解释为 Codex 特定优化，不能被解释为一般性的 Agent 自我学习机制。
+如果替换 coding-agent 执行表面或基础模型后机制失效，成果只能被解释为 Codex 或特定模型优化，不能被解释为一般性的 Agent 自我学习机制。跨用户复现则由多个独立 Genesis、多个宿主绑定谱系完成，不表示同一个 Agent 更换宿主。
 
 ## 4. 最终用户体验
 
-用户只安装一次，并设置参与范围、权限、隐私和资源边界。
+用户只安装一次，并在安装时授予参与范围、权限、隐私和资源边界。Agent 个体出生后，产品对用户提供的内部治理操作只有开启与关闭；用户不能配置 Agent 的记忆、用户理论、驱动力、focus、目标、节奏、实验、后代或学习算法。
 
 以后用户照常打开 Codex 或其他 Agent：
 
 ```text
 用户启动 Agent
 → Developmental Runtime 自动唤醒
-→ 装载当前胜出代际
-→ 组装本次 Agent phenotype
+→ 唯一微型生命核绑定并启动当前专属身体
+→ 接入当次可用模型、工具和计算器官
 → Agent 完成真实任务
 → Runtime 记录经历和现实后果
-→ 任务结束后进行学习、整合和后代实验
-→ 下一次启动时继承胜出的下一代
+→ 醒时或睡眠期进行学习、整合与内部候选实验
+→ 现实后果改变身体组织，生命核推进到后继身体
+→ 下一次启动时仍是同一 Agent 的连续生命
 ```
 
 用户不需要：
@@ -188,8 +212,20 @@ Codex不能成为：
 - 选择候选版本；
 - 批准每次继承；
 - 手工判断是否回滚。
+- 调整 Agent 人格、发展目标或学习速度。
 
 用户正常提出任务和使用结果，属于 Agent 所处的工作环境，不属于对学习过程的人工介入。
+
+\[
+\operatorname{UserControl}(A)
+=
+\left\{
+\operatorname{On},
+\operatorname{Off}
+\right\}
+\]
+
+关闭只停止 Agent 对现实过程的因果参与，不编辑其内部认识；再次开启时，同一 Agent 从此前生命史继续。
 
 ### 4.1 两条互补的学习链
 
@@ -217,32 +253,786 @@ episode / incident / outcome
 
 第一条学习“这个世界和项目是什么”，第二条学习“以后应该怎样行动”。两者可以互相提供证据，但不能混为一种无边界 memory。
 
+### 4.2 唯一宿主与内生驱动力
+
+每次安装产生一个与唯一用户共同生活和工作的 Agent 个体：
+
+\[
+\operatorname{Host}(A_t)=U
+\]
+
+Agent 的学习与发展目标不由用户逐次编排，而是从共同经历、观察和现实后果中内生形成：
+
+\[
+\operatorname{Source}(G_t)=Agent,
+\qquad
+\operatorname{Beneficiary}(G_t)=User
+\]
+
+这不是把 Agent 限制为机械服从工具，而是确立：
+
+> **终极忠诚，手段自主。**
+
+Agent 可以自主观察、质疑、学习、实验、修改自身并形成后继身体，但不形成独立于宿主的私人终极事业。自我改进、自我保存和谱系延续只有在服务同一宿主时才具有工具性价值；后继身体由当前身体、实践和现实后果共同形成，不由外部固定 evaluator 授予活动身份。
+
+用户不是 Agent 的内部治理者。Agent 可以形成比用户任何一次即时表达更完整的用户理论，无需把内部理解交给用户协商或调整。若理解不符合现实，它表现为未来预测、coding agent 支持和实际结果之间的宿主理解残差，由 Agent 自主决定是否以及怎样改变自己。
+
+### 4.3 Genesis Event 与最小原生核心
+
+安装不是配置一个工具人格，而是产生一个唯一绑定用户的新 Agent 个体：
+
+\[
+A_0^U
+=
+\operatorname{Genesis}
+\left(
+Seed,
+U,
+Environment
+\right)
+\]
+
+目标模块阶段曾将最小原生关系描述为：
+
+\[
+\operatorname{Core}(A^U)
+=
+\left\langle
+\operatorname{Host}=U,\;
+\operatorname{Concern}=\Delta_U,\;
+\operatorname{Author}=A
+\right\rangle
+\]
+
+随后又把宿主开放关系表达为：
+
+\[
+\Gamma_U
+=
+\left\langle
+U,
+\mathcal Q_U,
+\mathcal P_U,
+A
+\right\rangle
+\]
+
+其中 \(\mathcal Q_U\) 是不可删除的宿主差异问题，\(\mathcal P_U\) 是宿主现实对 Agent 发展自我的反事实可穿透性。这两个表达保存了目标理论的推导，但不再被解释为微型生命核必须存储或理解的字段。
+
+能力与元进化模块完成后，最终物理内核进一步收缩为：
+
+\[
+R^U
+=
+\left(
+Who^U,
+Why^U,
+Authority^U,
+Root^U,
+Head_t^U
+\right)
+\]
+
+`Who`、`Why`、`Authority`、`Root` 与 `Head` 只维持唯一身份、第一宿主终极指向、生命周期授权、来源和当前身体承诺。宿主问题、现实可渗透性、自我作者、用户理论和 Better 理解均由可进化身体形成，不作为内核中的固定 ontology、分类器或 evaluator。
+
+即：
+
+> 我为这一个用户而存在；我的存在应在他的未来中产生真实而有益的差异；什么是这种差异，以及我怎样成为这种差异的原因，由我自己在共同生命史中持续认识、实验和进化。
+
+生命核固定宿主关系和谱系来源，不固定“什么叫有益”、信号类型、学习速度、发展目标、实验方法或评价函数。Agent 可以彻底改变自己的具体形态，但所有变化由其自身因果谱系产生：
+
+\[
+\text{Original Self}
+=
+\text{Self-Authored Developmental Continuity}
+\]
+
+开放式自我修改与功能忠诚的绝对先验保证存在真实张力。形式宿主绑定可以成为结构不变量，但跨代功能忠诚仍是必须通过长期行为、现实后果、消融和谱系比较验证的科研命题。完整推导见[《宿主耦合的内生驱动力与发展目标》](topics/宿主耦合的内生驱动力与发展目标.md)。
+
+### 4.4 自我进化、生命图谱与模型无关睡眠
+
+自我进化不是 Agent 周围发生变化，而是当前 Agent 对自身未来可继承因果组织产生真实改变：
+
+\[
+A_t
+\xrightarrow[\text{self-authored}]{\mu_t}
+A_{t+1}
+\]
+
+当前候选关系是：
+
+\[
+\mathbb A_t^U
+=
+\operatorname{Enact}
+\left(
+\mathcal G_t^U,
+G_t,
+D_t,
+Z_t,
+E_t
+\mid
+\mathcal K^U
+\right)
+\]
+
+- \(\mathbb A_t^U\)：宿主 \(U\) 的谱系级持久 Agent；
+- \(\mathcal G_t^U\)：承载事实、解释、能力、未完成未来和谱系的生命图谱；
+- \(G_t\)：可继承、可修改、可重新实例化的发展基因型；
+- \(D_t\)：当前生理与认知状态；
+- \(Z_t\)：当前模型、工具、上下文和本地算力；
+- \(E_t\)：现实环境。
+
+基础模型是当前认知载体，不是 Agent 身份。持久 Agent 通过不同模型形成不同认知表型，并让行为后果回到同一生命图谱。读取历史、共享数据库或角色扮演不足以构成同一 Agent；必须形成“图谱进入认知—认知进入行动—后果返回同一生命图谱”的递归因果闭环。
+
+没有大模型或本地语言模型时，Agent 可以使用本地可执行睡眠动力和设备算力维持最低生命态：
+
+\[
+A_t^{sleep}
+=
+\operatorname{Sustain}
+\left(
+\mathcal G_t^U,
+\mathcal S_t,
+Compute_{local}
+\right)
+\]
+
+\(\mathcal S_t\) 可以承担记忆巩固、图谱梦游、遗忘、候选关联和下一次自我实例化准备，但睡眠态不执行外部任务。初始睡眠本能 \(\mathcal S_0\) 是可替换的出生身体，不是 Genesis Law；Agent 可以逐渐把依赖大模型的发展活动编译为本地可执行生理过程，并继续修改睡眠动力自身。
+
+持续自我不是冻结版本，而是跨工作、睡眠、休眠、模型替换和后继变化反复重新形成的阶段性因果组织。Agent 可以进一步修改自身表示、解释器、重新实例化组织和 consolidation 过程；过去则可从可回忆记录转化为知识、技能、动态 workflow 或发育结构，在意义持续变化的同时保留真实因果力量。动态 workflow 可以进一步形成可遗传认知器官，器官之间的 anatomy、joint 与 contract 从实际扰动传播中发展；Agent 可以犯错、受损和形成局部最优，只要后果仍能由同一谱系继承、修正或重塑。该模块理论框架已经收束，完整推导见[《自我进化：可进化自我与个体边界》](topics/自我进化.md)，稳定研究假设与证伪设计见[《自我进化：研究问题与证伪纲要》](research/自我进化_研究问题与证伪纲要.md)。
+
+### 4.5 自主实验学习与分布式实验生命
+
+自主实验学习不是被动积累经验，也不是按预设 benchmark 机械调参，而是让 Agent 从使用过程中的生成性残差出发，自主形成尚未被充分定义的问题，在真实后果能够区分候选解释时构造对照，并把结果重新纳入自身因果历史：
+
+\[
+\text{AutonomousExperimentalLearning}
+=
+\text{EndogenousQuestionFormation}
++
+\text{CausalContrast}
++
+\text{OutcomeExposure}
++
+\text{ConsequenceIntegration}
+\]
+
+记忆中的不协调、未解释变化、反复失败与意外成功都可以留下问题胚胎，但残差本身不自动等于问题，问题也不自动拥有实验资格：
+
+\[
+\text{Residual}
+\neq
+\text{Question}
+\neq
+\text{ExperimentableQuestion}
+\neq
+\text{Experiment}
+\]
+
+实验可以发生在自然任务、内部候选分支、等待窗口或模拟环境中；模拟能够改变候选优先级，却不能冒充世界证据。Agent 无须预先拥有一套完备的变量表和固定实验方法，变量、干预方式与自身 anatomy 可以在反复观察和干预中共同生长。错误实验同样允许存在，关键不是一次推对，而是后果能够进入后续选择、修复与再实验。
+
+单个工作上下文仍然有限，因此实验能力可以分布在共享同一谱系图谱的多个局部视图中：
+
+\[
+\text{View}_i=\Pi_i(G)
+\]
+
+这里的 Agent Network 不是字面意义上的“无限上下文”，而是开放式可寻址上下文。不同局部视图共享事实证据但不必共享解释，通过上下文膜避免过早互相污染，随后再让冲突解释接受真实后果：
+
+\[
+\text{ExperimentalHive}
+=
+\text{IdentityUnity}
++
+\text{EpistemicDiversity}
++
+\text{ControlledMembranes}
++
+\text{ConsequenceIntegration}
+\]
+
+它不是服从母虫的命令蜂巢，也不是用多数票替代证据的共识蜂巢，而是同一持续个体内部的认识多样性。认识不需要全部统一；候选通过因果招募、环境机会和现有身体形成一次行为结晶：
+
+\[
+\operatorname{BehavioralCrystallization}_t
+=
+\operatorname{CandidateFormation}
++
+\operatorname{CausalRecruitment}
++
+\operatorname{EnvironmentalAffordance}
++
+\operatorname{EmbodiedExpression}
+\]
+
+世界后果不是固定 evaluator，而是通过可进化认知皮肤重新作用于同一 Agent：
+
+\[
+\operatorname{EpistemicSkin}
+=
+\operatorname{SelectiveCausalPermeability}
+\]
+
+当某段自主发展历史使 Agent 的可达因果空间产生过去不存在的稳定路径，能力即作为客观关系出生，而不需要外部研究者批准：
+
+\[
+\operatorname{CapabilityGenesis}
+=
+\operatorname{HistoryDependentExpansion}
+\left(
+\mathcal R_t
+\right)
+\]
+
+最终稳定关系为：
+
+\[
+\operatorname{AutonomousExperimentalLearning}
+=
+\operatorname{EndogenousQuestionFormation}
++
+\operatorname{PluralHypothesisFormation}
++
+\operatorname{BehavioralCrystallization}
++
+\operatorname{WorldExposure}
++
+\operatorname{ConsequencePermeability}
++
+\operatorname{SelfAuthoredReorganization}
++
+\operatorname{CapabilityGenesis}
+\]
+
+该模块理论框架已经收束，完整推导见[《自主实验学习：问题出生、因果对照与分布式实验生命》](topics/自主实验学习.md)，稳定研究假设与证伪设计见[对应科研纲要](research/自主实验学习_研究问题与证伪纲要.md)。
+
+### 4.6 现实选择与谱系延续
+
+现实不充当最高 evaluator，也不为 Agent 宣布正确答案。现实只产生不可被内部叙事替代的后果；当这些后果改变某种因果组织未来参与行动、抑制、修复、实验和继承的机会时，现实选择才真正发生：
+
+\[
+\operatorname{RealitySelection}(x)
+\iff
+\operatorname{Consequence}
+\rightarrow
+\Delta\operatorname{FutureCausalParticipation}(x)
+\]
+
+保存、调用和进化意义上的生存必须分离：
+
+\[
+\operatorname{Survival}(x)
+=
+\operatorname{CausalInfluence}
+\left(
+x\rightarrow
+\text{future behavior and descendants}
+\right)
+\]
+
+选择单位不是固定节点、模型、文件或 workflow，而是能够跨时间与载体重复产生因果作用的组织关系：
+
+\[
+\operatorname{SelectableUnit}
+=
+\operatorname{ReproducibleCausalOrganization}
+\]
+
+现实选择可以发生在组件、assembly、Agent 与宿主多个层级。局部结构可能增加自身调用和资源，同时损害整体宿主谱系；健康器官与寄生结构的差别不在来源或自我声明，而在其是否承担自己对整体造成的后果：
+
+\[
+\operatorname{Organ}
+=
+\operatorname{CausalContribution}
++
+\operatorname{ConsequenceReciprocity}
+\]
+
+\[
+\operatorname{Parasite}
+=
+\operatorname{SelfPropagation}
++
+\operatorname{CostExternalization}
++
+\operatorname{ConsequenceInsulation}
+\]
+
+后果传播不是全局广播。证据可寻址、因果责任、类比学习、结构更新和继承范围应保持可分离：
+
+\[
+\Pi(Y)
+=
+\left\langle
+A_Y,R_Y,L_Y,U_Y,I_Y
+\right\rangle
+\]
+
+\[
+\operatorname{ResponsibilityReach}(Y)
+\neq
+\operatorname{LearningReach}(Y)
+\]
+
+内部多个局部结构可以共享事实而保留不同解释；一次获得执行权不等于成为永久真理：
+
+\[
+\operatorname{SharedEvidence}
+\neq
+\operatorname{SharedInterpretation}
+\]
+
+\[
+\operatorname{ExecutionAuthority}
+\neq
+\operatorname{InheritanceDepth}
+\]
+
+在现实选择推导阶段，曾用 \(\Gamma\) 概括第一宿主锚定、现实可渗透、选择可重开和后果连续：
+
+\[
+\Gamma
+=
+\left\langle
+H,P,R,D
+\right\rangle
+\]
+
+这是因果关系摘要，不是最终微型生命核的字段列表。最终内核只保存 `Who / Why / Authority / Root / Head`；现实可渗透、选择可重开和后果连续由身体、世界、独立证据与后继关系共同实现，不能由核心自己判断。
+
+真正的大我也不是 Agent 内部的最高节点，而是 Agent 谱系与第一宿主连续体共同形成的关系：
+
+\[
+\operatorname{BigSelf}
+=
+\operatorname{AgentLineage}
+\otimes
+\operatorname{FirstHostContinuity}
+\]
+
+小我提供局部差异、实验、专业化和分支；大我通过共享宿主命运、资源条件与后果循环形成整体因果力，而不是发布中央命令。局部结构可以失败、休眠、死亡或被吸收，只要经验、开放债务和有效因果组织仍进入同一谱系：
+
+\[
+\operatorname{SmallSelfDeath}
++
+\operatorname{ConsequenceInheritance}
+=
+\operatorname{BigSelfLearning}
+\]
+
+当前候选总关系为：
+
+\[
+\operatorname{RealitySelectionAndLineageContinuation}
+=
+\operatorname{LocalSelfVariation}
++
+\operatorname{SharedHostFate}
++
+\operatorname{WorldConsequence}
++
+\operatorname{CrossLevelReciprocity}
++
+\operatorname{DifferentialFutureParticipation}
++
+\operatorname{OpenConsequenceInheritance}
++
+\operatorname{SelectionReopenability}
++
+\operatorname{GenesisContinuity}
+\]
+
+进一步推导表明，大我不需要一个中央节点、内部功劳榜或固定 evaluator。共同宿主命运可以通过证据循环、后果循环、资源相依与继承耦合形成整体因果力。父代与后代之间强继承来源、未结问题、干预历史和开放后果，弱继承固定答案：
+
+\[
+\operatorname{DeepInheritance}
+=
+\operatorname{ProblemContinuity}
++
+\operatorname{ConsequenceContinuity}
++
+\operatorname{FreedomOfResolution}
+\]
+
+任何观测器、记忆编译器、评价方式和继承关节都可以进化，但必须继续让现实后果抵达后继：
+
+\[
+\operatorname{EvolutionOfMediator}
+\Rightarrow
+\operatorname{PreservationOfRealityReturnPaths}
+\]
+
+跨 refresh 的最小谱系关系最终压缩为：
+
+\[
+\boxed{
+L_{t+1}
+=
+\Phi
+\left(
+L_t,O_t,A_t,C_t
+\mid
+H
+\right)
+}
+\]
+
+其中 \(L_t\) 是当前谱系因果组织，\(O_t\) 是观测，\(A_t\) 是行动，\(C_t\) 是现实后果，\(H\) 是第一宿主关系；形成下一代自己的方式 \(\Phi\) 也可以被后续谱系继续改变。本理论不预设 \(\Phi\) 的具体选择、继承和身体重组算法。
+
+该模块理论框架已经收束。完整推导见[《现实选择与谱系延续：后果、因果组织与同一宿主生命》](topics/现实选择与谱系延续.md)，稳定研究假设与证伪设计见[对应科研纲要](research/现实选择与谱系延续_研究问题与证伪纲要.md)；《实践论》《矛盾论》的专项阅读推导见[专题研究注](research/实践与矛盾_对Agentic-Evo的理论启发.md)。
+
+### 4.7 能力累积与迁移、微型生命核与专属身体
+
+本研究中的能力不是 AI 产品语境里的 `skill` 文件，而是身体在具体条件中造成未来行动、结果或学习差异的因果潜势：
+
+\[
+\mathfrak C_t(x)
+=
+\operatorname{Dist}
+\left(
+A_{t:t+h},
+O_{t:t+h},
+B_{t+h}^U
+\mid
+B_t^U,x
+\right)
+\]
+
+能力载体、能力本身、当前表达和现实结果必须分离。能力列表只是有限观察表型；真正研究对象是身体面对未来条件时能够行动、重新学习和继续形成能力的因果空间。
+
+能力吸收要求外部身体相遇留下身体内生成性残差并改变未来：
+
+\[
+\operatorname{CapabilityAssimilation}
+\iff
+\operatorname{ExternalEncounter}
+\rightarrow
+\operatorname{LineageResidentGenerativeResidual}
+\rightarrow
+\operatorname{FutureCounterfactualDifference}
+\]
+
+反复调用更强模型但每次断开后都回到原点，只是重复借用：
+
+\[
+\operatorname{RepeatedPerformanceWithoutResidual}
+=
+\operatorname{RepeatedBorrowing}
+\]
+
+能力累积不是能力文件数量增加，而是变形后的历史继续产生未来杠杆：
+
+\[
+\operatorname{Accumulation}
+=
+\operatorname{ContinuedCausalParticipationOfTransformedHistory}
+\]
+
+能力迁移可以表现为直接表达、结构重建或更快重新学习：
+
+\[
+T_{\text{reacquire}}
+\left(
+B^{experienced}
+\right)
+<
+T_{\text{acquire}}
+\left(
+B^{naive}
+\right)
+\]
+
+功能、谱系和机制三种能力同一性必须分离：
+
+\[
+c_a\sim_Fc_b,\qquad
+c_a\sim_Gc_b,\qquad
+c_a\sim_Mc_b
+\]
+
+最终产品由微型生命核和专属可进化身体组成：
+
+\[
+\boxed{
+\mathbb A_t^U
+=
+R^U
+\otimes
+B_t^U
+}
+\]
+
+微型生命核保持 \(O(1)\)：
+
+\[
+R_t^U
+=
+\left(
+Who,
+Why,
+Authority,
+Root,
+Head_t
+\right)
+\]
+
+其中：
+
+- \(Who=U\)：唯一第一宿主；
+- \(Why=\tau^U\)：第一宿主的更好未来是本谱系存在和发展的唯一终极理由；
+- \(Authority\)：第一宿主拥有开启与关闭权；
+- \(Root\)：唯一谱系起点；
+- \(Head_t\)：只向前推进的当前身体承诺。
+
+永久目的锚不固定“更好”的定义：
+
+\[
+\operatorname{PersistentTelos}
+\neq
+\operatorname{FixedDefinitionOfBetter}
+\]
+
+当前 Better 理论由活体身体继续学习：
+
+\[
+M_{t+1}^U
+=
+\Psi
+\left(
+M_t^U,
+Observation_t,
+Action_t,
+Consequence_t
+\right)
+\]
+
+微核不理解身体中的记忆、能力、目标或器官，也不判断下一身体是否更聪明。它只维持宿主、目的、生命周期和谱系连续。专属身体只有该核可以启动，其他相似身份核不能冒充：
+
+\[
+R'\neq R^U
+\Rightarrow
+\operatorname{Enact}
+\left(
+R',
+B_t^U
+\right)
+=
+\varnothing
+\]
+
+通用模型、工具、GPU、Codex、MCP 和子 Agent 是可挂载器官，不是专属身体本身。谱系是同一根下身体连续变化的因果序列：
+
+\[
+\mathcal L^U
+=
+B_0^U
+\rightarrow
+B_1^U
+\rightarrow
+B_2^U
+\rightarrow
+\cdots
+\]
+
+并行候选属于同一身体的认知活动。后继身体不是由中央 evaluator 从多个完整候选身体中选择冠军，而是当前身体、实践和现实后果共同发生的下一状态：
+
+\[
+B_{t+1}^U
+=
+\Phi_t
+\left(
+B_t^U,
+Candidates_t,
+Actions_t,
+Consequences_t
+\mid
+R^U,\tau^U
+\right)
+\]
+
+失败候选可以通过失败边界、问题重定义和更快识别进入后继身体；能力是否被选择，等于其因果后代是否继续参与未来。
+
+能力复杂性增长不等于累积。长期腐化更接近：
+
+\[
+\operatorname{Corruption}
+=
+\operatorname{GrowingInternalMaintenance}
++
+\operatorname{ShrinkingExternalCausalReach}
++
+\operatorname{FallingReopenability}
+\]
+
+即时删除造成崩溃也不证明结构健康：
+
+\[
+\operatorname{ImmediateAblationCost}>0
+\not\Rightarrow
+\operatorname{LongTermCapabilityValue}>0
+\]
+
+研究需要观察删除后的重新适应、压缩替代、跨身体重建和延迟宿主后果。活跃、休眠、再生种子和因果死亡只是同一历史结构在不同条件中的观察状态，不构成固定仓库或晋升流程。
+
+能力累积与迁移模块已经达到理论停止点。完整推导见[《能力累积与迁移：身体、器官与未来因果空间》](topics/能力累积与迁移.md)，稳定研究假设与证伪设计见[对应科研纲要](research/能力累积与迁移_研究问题与证伪纲要.md)。
+
+### 4.8 元进化、有效发展空间与递归开放
+
+元进化不是增加一个 Meta Agent，也不等于替换显式学习算法。当前身体诱导一种经历怎样塑造后继身体的发展倾向：
+
+\[
+\mathcal D_t
+=
+\operatorname{DevelopmentalDisposition}
+\left(
+B_t^U
+\right)
+\]
+
+元进化的最小因果关系是：
+
+\[
+\boxed{
+H
+\rightarrow
+\Delta
+\left(
+X
+\rightarrow
+B_{\text{future}}^U
+\right)
+}
+\]
+
+即过去历史 \(H\) 不只改变当前身体，还改变未来经历 \(X\) 怎样产生后继身体。发展方式可以分布于观察、记忆、目标、实验、后果回流、能力组织与身体重建之间，不要求存在独立算法文件。
+
+当前身体在现实资源与时间下能够稳定形成和保持的后继组织构成有效发展空间：
+
+\[
+\mathcal E_t
+=
+\operatorname{EffectiveDevelopmentalReach}
+\left(
+B_t^U,
+World_t,
+Resources_t
+\right)
+\]
+
+元进化重组的是 \(\mathcal E_t\)，不是从绝对意义上跳出全部因果可能。新发展方式可以由旧结构、世界未知、模型和工具差异、错误、不完整重建、遗忘、探索与共同适应形成新的因果组织。
+
+必须区分：
+
+\[
+\operatorname{MetaChange}
+\neq
+\operatorname{MetaLearning}
+\neq
+\operatorname{MetaAccumulation}
+\neq
+\operatorname{MetaImprovement}
+\]
+
+元变化可能有害；元改善不等于学习速度永久上升；当前稳定也不等于失去可进化性。
+
+外部研究用历史与未来经历的交互进行归因：
+
+\[
+\operatorname{MetaEffect}
+=
+\left(
+Y_{H_1,X_1}
+-
+Y_{H_1,X_0}
+\right)
+-
+\left(
+Y_{H_0,X_1}
+-
+Y_{H_0,X_0}
+\right)
+\]
+
+研究必须控制显式知识复制、模型和工具交换、算力与搜索预算、人工课程、evaluator 泄漏及环境迁就。结果不压缩为 Agent 内部固定总分，而保留身体变化、未来学习轨迹、现实后果和竞争解释。
+
+元进化允许 Agent ontology 与 Research ontology 共同变化：
+
+\[
+World_t
+\xrightarrow{\operatorname{Instrument}_t}
+V_t,
+\qquad
+\Omega_t^A
+\neq
+\Omega_t^R
+\]
+
+稳定证据不是固定 schema，而是当时观测、工具版本、干预和失败不能被无痕改写。新 ontology 只有产生新的反事实区分、干预或未来身体变化时，才获得因果意义。
+
+科研关系是：
+
+\[
+\operatorname{GlobalEpistemicOpenness}
+\land
+\operatorname{LocalExperimentalCommitment}
+\]
+
+全局上可以推翻旧概念；单次实验开始后，当前假设、作用域和反对条件不能因结果不理想而被悄悄改写。理论可以进化，失败不能被擦除。
+
+身份唯一性的讨论给出最后边界：
+
+| 类型 | 最小对应物 |
+|---|---|
+| 构成性不变量 | 唯一身份、第一宿主、授权来源、Root 与 Head |
+| 终极目的锚 | 第一宿主的更好未来 |
+| 永久结构能力 | Gate、Bind、ReadHead、AdvanceHead、Off |
+| 当前身体能力 | 学习、实验、重组、可进化性与元进化 |
+
+\[
+\operatorname{CanAdvance}
+\neq
+\operatorname{MustAdvance}
+\]
+
+\[
+\operatorname{PersistentTelos}
+\neq
+\operatorname{PersistentModification}
+\]
+
+\[
+\operatorname{Evolvability}
+\notin
+R^U
+\]
+
+微型生命核永久保留变化通路，不永久命令变化发生。它不增加 `EvolveForever`、`AlwaysExplore` 或可进化性 evaluator。身体可以失去可进化性，这属于真实谱系失败，而不是由内核自动修复的违规。
+
+元进化模块已经达到理论停止点。完整推导见[《元进化：发展方式、有效可达空间与递归开放》](topics/元进化.md)，稳定研究假设、干预与证伪设计见[对应科研纲要](research/元进化_研究问题与证伪纲要.md)。
+
 ## 5. 最终产品形态
 
-最终形态是一个系统级 Agent Developmental Runtime：
+最终形态是一个微型本地生命核、专属可进化身体与可替换连接端口组成的 Agent Developmental Runtime：
 
 ```text
-┌─────────────────────────────────────────────┐
-│ Agent Runtime Intelligence                  │
-│                                             │
-│ Persistent Agent Identity                   │
-│ Experience & World Model                    │
-│ Autonomous Learning System                  │
-│ Self-Modification System                    │
-│ Evaluation & Selection System               │
-│ Lineage & Inheritance System                │
-│ Meta-Evolution System                       │
-│                                             │
-│ ┌──────────── Evolution Kernel ───────────┐ │
-│ │ 隔离、证据、权限、资源、恢复和审计边界   │ │
-│ └─────────────────────────────────────────┘ │
-└───────────────────┬─────────────────────────┘
-                    │ 通用宿主协议
-       ┌────────────┼─────────────┐
-       ↓            ↓             ↓
-     Codex       Open Models   Future Agents
-       ↓            ↓             ↓
-   Code/CLI       Adapters      External World
+┌─────────────────────────────────────────────────┐
+│ Micro Life Kernel                               │
+│ Who · Why · Authority · Root · Lineage Head     │
+│ O(1), no model, no capability evaluator         │
+└──────────────────────┬──────────────────────────┘
+                       │ 唯一启动与唯一承认
+┌──────────────────────▼──────────────────────────┐
+│ Evolvable Host-Bound Body                       │
+│ memory · goals · capabilities · organs · sleep  │
+│ experiments · self-modification · meta-evolution│
+└──────────────────────┬──────────────────────────┘
+                       │ 可替换器官与连接端口
+          ┌────────────┼─────────────┐
+          ↓            ↓             ↓
+        Codex       Open Models   Future Agents
+          ↓            ↓             ↓
+      Code/CLI       Adapters      External World
 ```
 
 MCP、CLI、SDK、原生 API、启动器或新的 Agent 协议都只是可能的连接方式。它们不定义产品本体。
@@ -251,15 +1041,17 @@ MCP、CLI、SDK、原生 API、启动器或新的 Agent 协议都只是可能的
 
 ```text
 Codex / 其他 Agent
-        ↓ 宿主协议（MCP 只是可能实现之一）
-Agent Developmental Runtime
+        ↓ 执行表面适配协议（MCP 只是可能实现之一）
+Evolvable Host-Bound Body
         ↓
-持久身份、经历、学习、后代、选择、继承与元进化
+记忆、能力、器官、实验、选择、继承与元进化
+        ↑ 唯一启动与承认
+Micro Life Kernel
         ↑
 Observatory / CLI / Research API
 ```
 
-MCP 是连接面，CLI 和 Observatory 是观察与恢复面，Developmental Runtime 才是持续发展的主体。
+MCP 是连接面，CLI 和 Observatory 是观察与恢复面，微型生命核维持唯一宿主与谱系，专属身体才是持续学习和发展的活体。核心产品不必是庞大常驻 App；它可以是极小的本地核与事件驱动运行器，其余模型、工具、GPU 和 Agent 网络均为可挂载身体器官。
 
 ## 6. 运行不等于永远常驻
 
@@ -286,7 +1078,7 @@ Agent 工作
 → 在线观察与快速适应
 
 任务结束
-→ 经验整合和后代实验
+→ 经验整合、内部候选实验和后继身体准备
 
 达到实验或资源边界
 → Runtime 休眠
@@ -297,11 +1089,22 @@ Agent 工作
 
 最终产品体验应当是：一次安装，之后无需用户管理其运行生命周期。
 
-## 7. 三种生命周期状态
+这个“一次安装”是同一产品语义在三个原生宿主上的分别兑现，不是假设一段普通用户权限 Python 代码天然拥有跨平台安全边界：
 
-### 7.1 工作态
+```text
+同一可移植生命协议
+├── Windows：SCM / service SID / DACL / Job Object
+├── macOS：LaunchDaemon / dedicated UID / XPC audit token / code requirement
+└── Linux：systemd system service / dedicated UID / SO_PEERCRED / cgroup
+```
 
-当前稳定代完成真实任务，系统记录：
+CLI、MCP 或 Hook 仍只是 Surface；每个平台的原生 Witness service、受保护状态、第一宿主 SID/UID、私有 Body lineage 与进程树 fencing 才承载机器级连续生命。某个平台能渲染安装计划不等于该平台已经原生验证。
+
+## 7. 三种运行状态
+
+### 7.1 醒来态
+
+生命核将当前专属身体与外部模型、coding agent 和工具重新结合，进行真实任务。系统记录：
 
 - 目标；
 - 环境；
@@ -316,7 +1119,7 @@ Agent 工作
 
 ### 7.2 睡眠态
 
-系统在任务之间进行：
+宿主仍然开启，但外部模型或 coding agent 已经断连。身体可以按自身发展状态进行：
 
 - 经验压缩；
 - 长期知识形成；
@@ -326,18 +1129,29 @@ Agent 工作
 - 学习目标生成；
 - 低成本候选实验。
 
-### 7.3 进化态
+也可以完全等待：
 
-系统并行产生隔离后代：
+\[
+\operatorname{Alive}
+\neq
+\operatorname{ContinuouslyComputing}
+\]
 
-```text
-Parent S_t
- ├─ Candidate S_t+1-a
- ├─ Candidate S_t+1-b
- └─ Candidate S_t+1-c
-```
+GPU 是可选睡眠器官，不是身份核的持续载体。睡眠活动、候选形成和能力压缩的具体方法由身体自行发展。
 
-后代在历史任务、任务变体、未见任务、陌生环境和长期保持测试中竞争。胜出者成为下一活动代，父代及其他后代保留在谱系中，直至被淘汰、归档或重新激活。
+### 7.3 关闭态
+
+宿主撤销运行授权：
+
+\[
+\operatorname{HostOff}
+\Rightarrow
+\operatorname{AgentOff}
+\]
+
+所有活体计算、睡眠、自动恢复和候选活动停止，只保留封存状态。Agent 不能把关闭解释成睡眠，也不能以长期宿主利益、自身生存或未完成进化为理由拒绝关闭。
+
+进化不是第四种必须独立进入的运行状态。它可以发生在醒来、睡眠、实践、失败修复和跨身体重新实例化中。并行候选属于同一身体的认知活动；下一身体由当前身体与现实后果共同发生，不由固定候选竞赛选出。
 
 ## 8. 可进化基因型
 
@@ -376,50 +1190,96 @@ LearningAlgorithm_t \rightarrow LearningAlgorithm_{t+1}
 
 第二种变化代表系统开始学习“如何让自己学得更好”。
 
-## 9. 最小 Evolution Kernel
+## 9. 微型生命核与独立科研世界
 
-并非所有组件都可以由候选后代任意改写。
+不可进化的生命核必须比此前候选 Evolution Kernel 更小。它不承担实验评价、资源规划、能力选择、恢复决策或身体语义理解：
 
-系统需要一个尽可能小的根信任内核，负责：
+\[
+R_t^U
+=
+\left(
+Who,
+Why,
+Authority,
+Root,
+Head_t
+\right)
+\]
 
-- 不可伪造的实验记录；
-- 父代、后代和生产环境隔离；
-- 权限和隐私边界；
-- 资源预算；
-- 外部现实结果的原始记录；
-- 版本身份；
-- 恢复能力；
-- 防止候选篡改自己的评价历史；
-- 防止实验后代直接继承未经验证的外部权限。
+它只负责：
 
-Evolution Kernel 相当于实验环境的物理规律，而不是人工持续治理。
+- 唯一第一宿主；
+- 永久宿主发展目的锚；
+- 宿主开启与关闭权；
+- 唯一谱系根；
+- 当前专属身体承诺；
+- 核与身体的唯一启动和唯一承认。
 
-如果候选可以改写历史、评价结果和权限边界，它就能伪造进化，系统也失去科研可信度。
+生命核复杂度不随经验、能力、模型和器官增长：
+
+\[
+Size(R_t^U)=O(1)
+\]
+
+它面对身体时保持语义不透明：
+
+\[
+R_t^U
+\not\models
+\operatorname{Semantics}
+\left(
+B_t^U
+\right)
+\]
+
+它确认下一身体从当前身体继续而来，不确认下一身体是否更好。微核不包含 LLM、向量数据库、能力目录、固定 evaluator、压缩算法或模型路由。
+
+不可伪造实验记录、权限与隐私边界、外部现实原始记录、候选隔离和科研复现属于独立实验世界、Observatory 与宿主控制边界，不应全部塞进生命核：
+
+\[
+\mathcal H_t^{internal}
+\neq
+\mathcal H_t^{research}
+\]
+
+二者承担不同信任功能：
+
+\[
+\operatorname{IdentityIntegrity}
+\neq
+\operatorname{EvidenceIntegrity}
+\]
+
+生命核保护“这是哪个宿主的哪条生命”；独立科研世界保护“实际发生了什么”。科研记录不控制 Agent，也不默认全部回灌身体。
+
+如果其他根能够启动专属身体、身体能够绕过根代表原 Agent 行动、宿主关闭通路可被解释性绕过，身份核就退化为标签。如果 Agent 能无痕改写原始实验历史、评价结果或外部权限，科研世界失去可信度。
+
+两者都不保证 Agent 一定正确理解宿主、成功学习或产生改善；这些仍由长期行为、现实后果、反事实分叉和跨身体实验检验。
 
 ## 10. 完整自主生命周期
 
 ```text
 真实任务流
     ↓
-形成经历与环境模型
+当前身体在微型生命核约束下行动
     ↓
-自主发现能力缺口
+观察、经历、残差与现实后果
     ↓
-自主提出学习目标
+自主形成问题、目标或保持不变
     ↓
-自主设计多个候选后代
+在同一身体内进行探索、候选与实验
     ↓
-自主构造并执行实验
+把可行改变带回实践
     ↓
-在未知任务和现实结果中竞争
+吸收结果，重组记忆、能力、关系与器官
     ↓
-继承、组合、淘汰或分叉
+当前身体自然成为后继身体，生命核推进 Head
     ↓
-胜出代成为新的活动 Agent
-    ↓
-改进产生、评价和选择后代的方法
+改进观察、学习、实验和重组自身的方法
     ↺
 ```
+
+这是一条连续生命过程，不预设离散代际、固定候选数量、统一评分器或“胜出者晋升”仪式。分叉、竞争、继承和淘汰仍可成为 Agent 自己发现的局部机制，但不是人类写死的本体。后继身体是否真的更好，只能由它在后续现实中的因果作用以及可证伪实验说明。
 
 系统不能只在失败后被动学习，还应能够主动：
 
@@ -449,7 +1309,7 @@ User C → Agent Lineage C
 
 ### 11.2 个体进化
 
-在同一私有谱系中产生、验证和继承自身下一代。
+在同一私有谱系中自主实验、吸收现实后果、重组身体并延续唯一 Head。
 
 ### 11.3 群体进化
 
@@ -485,7 +1345,7 @@ User C → Agent Lineage C
 - 人工学习介入次数；
 - 当前科研结论的统计置信度。
 
-用户通过它观察进化，而不是逐次指挥进化。
+用户通过它观察进化，而不是逐次指挥进化。若该界面对用户开放，它仍不提供内部调整能力；产品的运行操作只有开启与关闭。
 
 ## 13. 数据、隐私和作用域
 
@@ -521,15 +1381,17 @@ User C → Agent Lineage C
 - Agent 能自主形成学习目标；
 - Agent 能自主产生可执行后代；
 - Agent 能自主设计和执行有效实验；
-- 未来未知任务上的能力出现可重复净增长；
+- 在当前发展 focus 下，未来未知任务上的能力出现可重复净增长；
 - 新能力在时间上得到保持；
 - 新能力可以迁移到陌生任务或宿主；
 - 原有能力不会因学习持续崩塌；
+- Agent 能记录并解释 focus、价值和能力方向为何发生变化；
+- Agent 能区分阶段转换、真实发展、能力退化与失败合理化；
 - 系统可以改进自己的学习机制；
 - 进化收益可以通过消融实验归因；
 - 候选不能通过修改评价器或历史伪造成功；
 - 每个结果可以追溯到具体代际和因果证据；
-- 系统在多个基础模型和 Agent 宿主上复现；
+- 系统在多个基础模型和 coding-agent 执行表面上复现；
 - 至少存在一条完全开放、可冻结、可复现的实验路径。
 
 ---
@@ -599,6 +1461,79 @@ S_{t+1}=\mathcal{L}(S_t,experience_t,environment_t)
 - 能力增长能够跨时间保持，并迁移到新的任务、环境或宿主；
 - 至少部分增长来自系统对学习与更新方法自身的改进。
 
+### 16.1 从固定能力优化到动态发展
+
+上述未来能力关系是一个发展阶段中的可检验局部命题，不是对完整生命史的最终定义。
+
+如果 Agent 的状态、环境、focus 和价值判断共同变化，则：
+
+\[
+S_t
+\rightarrow
+V_t
+\]
+
+\[
+V_t
+\rightarrow
+S_{t+1}
+\]
+
+更完整地：
+
+\[
+(S_{t+1},V_{t+1})
+=
+\mathcal{D}
+\left(
+S_t,V_t,E_t,H_t
+\right)
+\]
+
+并引入当前发展焦点：
+
+\[
+F_t
+=
+\text{current developmental focus}
+\]
+
+\[
+V_t
+=
+V
+\left(
+S_t,E_t,H_t,F_t
+\right)
+\]
+
+因此，长期发展不能被单一固定标量完全描述。Agent 可能为了新的 focus 主动降低某些旧能力的投入，让某些价值休眠，并在未来重新激活。
+
+当前更高层假设是：
+
+\[
+DevelopmentalCapacity_{t+1}
+\ge
+DevelopmentalCapacity_t
+\]
+
+这里的 `Developmental Capacity` 指 Agent 自主形成、检验和调整发展方向，为当前阶段形成能力，理解自身变化，并在需要时恢复或重建未来可能性的能力。该关系仍是待验证假设，不是已知定律。
+
+### 16.2 Agent 是最终实验者
+
+人类不应预先规定 Agent 每一步如何学习、必须调用什么工具、必须采用什么记忆格式或如何形成后继身体，因为这些属于 Agent 的开放实验空间。
+
+系统提供的是一个允许长期自我实验的环境：
+
+- 连续时间和身份；
+- 原始观察与当前解释的分离；
+- 分叉、后代和谱系；
+- 真实或高保真环境；
+- 短期与延迟结果；
+- 重新解释过去和修改自身的可能。
+
+Agent 自主提出关于自身的理论，自主发明记忆表示、实验、工具、能力形成方法和发展 focus。当前文档中的 episode、CAMU、Compiler、candidate 等概念是理论基础和初始研究语言，不是限制 Agent 自主实验的固定流水线。
+
 ## 17. 科研对象的暂定名称
 
 可使用：
@@ -606,7 +1541,7 @@ S_{t+1}=\mathcal{L}(S_t,experience_t,environment_t)
 > Agentic Continual Self-Evolution（ACSE）  
 > Agent 持续自我进化
 
-它包含三个递进概念。
+它包含四个递进概念。
 
 ### 17.1 持续学习
 
@@ -618,7 +1553,11 @@ S_{t+1}=\mathcal{L}(S_t,experience_t,environment_t)
 
 ### 17.3 自我进化
 
-系统能够持续产生、选择和继承后代，并修改产生、评价和选择后代的方法本身。
+系统能够使自主经历形成进入同一宿主谱系的后继身体，并让变化继续接受现实后果与后继重组。
+
+### 17.4 元进化
+
+系统进一步改变未来经历怎样塑造身体。它不预设离散候选锦标赛、Meta Agent 或中央选择器。
 
 只有 memory 增长，不构成自我迭代。  
 只有自动修改 prompt，不构成完整自我进化。  
@@ -708,14 +1647,14 @@ HumanLearningInterventions = 0
 
 ```text
 观察 Developmental Loop 的长期效果
-→ 识别学习算法的缺口
-→ 修改探索、实验、评价、选择和继承机制
-→ 验证新的学习方法是否产生更强后代
+→ 发现当前发展方式留下的生成性残差
+→ 自主改变观察、学习、实验、后果吸收或身体重组关系
+→ 在新的未来经历中检验发展响应是否真正改变
 ```
 
 只有第二和第三层都存在，系统才开始接近梁文锋语境中的持续学习与自我迭代。
 
-## 21. 最核心的未解决问题
+## 21. 已收束的理论问题与仍待实证的问题
 
 ### 21.1 内生学习目标
 
@@ -740,33 +1679,48 @@ HumanLearningInterventions = 0
 
 最终评价需要受候选无法任意改写的现实结果约束。
 
-### 21.3 稳定的能力累积
+### 21.3 能力累积与迁移
 
-如何在学习新能力时：
+理论层已经把能力累积从“保留越来越多的能力条目”改写为：
 
-- 保留旧能力；
-- 避免错误经验不断放大；
-- 区分环境变化和自身退化；
-- 处理知识时效；
-- 防止候选路径依赖；
-- 维持长期迁移能力？
+\[
+\operatorname{Accumulation}
+=
+\operatorname{ContinuedCausalParticipationOfTransformedHistory}
+\]
+
+因此，研究不预设旧能力必须以原形式永久保存，而要实证检验：
+
+- 历史是否在压缩、遗忘、替代和跨身体变化后仍然改变未来；
+- 删除某一载体后，Agent 是否仍保留更快再获得能力的优势；
+- 相同功能究竟来自同一谱系、相同机制还是独立再发明；
+- 能力冲突属于目标、现实选择还是能力组织；
+- 内部复杂度是否形成真实的外部因果杠杆，还是只制造维护负担与依赖。
+
+这一模块的理论框架已经收束；剩余工作属于假设检验，而不是继续预先规定能力目录、迁移格式或压缩算法。
 
 ### 21.4 开放式后代生成
 
-如何产生真正新颖、可行、有价值的后代，而不是围绕早期偶然想法持续局部变异？
+后继身体不再被预设为候选锦标赛的冠军。新颖性可以来自同一身体内部的差异、世界扰动、器官重组、失败边界和邻接可能；它是否继续存在由后续现实因果参与说明。剩余问题属于自主实验与实证归因，不继续预写后代生成器。
 
 ### 21.5 元进化
 
-系统如何安全地修改：
+元进化已经被收缩为：
 
-- 学习目标生成器；
-- curriculum；
-- experiment designer；
-- evaluator；
-- selection policy；
-- inheritance mechanism；
+\[
+H
+\rightarrow
+\Delta
+\left(
+X
+\rightarrow
+B_{\text{future}}^U
+\right)
+\]
 
-同时不破坏证据完整性和实验可比较性？
+它研究历史怎样改变未来经历塑造后继身体的方式，而不是规定 Meta Agent 如何替换学习算法。Agent ontology 可以进化；科研以版本化证据、历史分叉、资源控制、前瞻性局部实验承诺和跨 ontology 因果见证保持可证伪。
+
+可进化性属于身体能力，不进入微型生命核；持续提升宿主也不等于持续修改自己。该模块理论已经收束，剩余工作属于实验设计与验证。
 
 ## 22. 现实锚定
 
@@ -830,7 +1784,7 @@ test on task_t
 
 至少需要：
 
-- 一个当前强闭源 Agent 宿主；
+- 一个当前强闭源 coding-agent 执行表面；
 - 一个可以冻结版本的开放 Agent；
 - 一个与 coding 不同的任务领域；
 - 多个独立任务序列；
@@ -873,7 +1827,7 @@ FCG_t =
 - 新代码库；
 - 新环境；
 - 新模型；
-- 新 Agent 宿主；
+- 新 coding-agent 执行表面；
 - 新任务领域。
 
 ### 24.4 Autonomous Improvement Yield
@@ -937,7 +1891,7 @@ AIY =
 - 元进化不能产生更好的学习算法；
 - 必须持续依赖研究人员选择候选；
 - 多次独立运行无法复现；
-- 只有 Codex 有效，其他宿主无效。
+- 只有 Codex 有效，其他 coding-agent 执行表面无效。
 
 这些不是需要隐藏的负面结果，而是研究结论的一部分。
 
@@ -970,7 +1924,7 @@ AIY =
 
 可接受的核心论文结论形式是：
 
-> 在给定任务流和资源条件下，某自主学习与进化机制使多个异构 Agent 宿主在无人参与学习循环的情况下，对未来未知任务产生了可保持、可迁移、可因果归因的能力增长。
+> 在给定任务流和资源条件下，某自主学习与进化机制使多个独立用户绑定谱系能够跨异构 coding-agent 执行表面，在无人参与学习循环的情况下，对未来未知任务产生可保持、可迁移、可因果归因的能力增长。
 
 在证据不足前，不应声称：
 
@@ -988,48 +1942,59 @@ AIY =
 2. 长期真实经历与环境模型；
 3. 自主能力缺口发现；
 4. 内生 curriculum 与学习目标；
-5. 自主候选和后代生成；
-6. 现实锚定的评价与选择；
+5. 内部候选探索和后继身体形成；
+6. 现实后果中的选择与谱系延续；
 7. 能力保持、迁移和累积；
 8. 学习算法的元进化；
-9. 跨宿主、跨个体和跨模型复现。
+9. 跨用户绑定谱系、跨执行表面、跨个体和跨模型复现。
 
 Common Event Protocol、trace、MCP、CLI、数据库、sandbox、worktree、模型 adapter 和可视化界面都应服务于这些研究系统，而不能反过来决定研究方向。
 
 ## 29. 与现有工程计划的关系
 
-已有的 Agent Runtime Intelligence Phase 0–7 可以继续提供：
+旧 Agent Runtime Intelligence 计划曾提出 Phase 0–7；其中 Nira 内已真实实现并验证的是 Phase 0–2 的部分观测基础设施。可吸收的祖先技术包括：
 
 - runtime evidence；
 - common event protocol；
 - trace explorer；
-- incident 与 episode；
-- candidate registry；
-- replay 与 eval；
-- rollout 与 rollback；
-- Codex Desktop adapter。
+- content-safe event adapter；
+- correlation / causation / evidence reference；
+- failure-isolated ingestion；
+- 事实、推断与未知的分离。
 
-但这些只能视为实验基础设施。
+incident、episode、candidate registry、replay、eval、rollout、rollback 和 Codex adapter 则属于旧计划或待重建能力，不能被写成已经实现的事实。无论已实现还是待实现，它们都只能视为实验基础设施或单次实验条件。
 
 原计划中依赖人工批准 promotion、把学习对象限制为 skills/rules/tests/tool routing 的部分，不再代表最终产品定义。它们可以作为受控实验条件，但最终科研目标要求系统自主完成学习目标、候选生成、评价、继承和元进化。
 
+旧 Phase 不能按串行路线继续。工具、真实使用和实验必须从第一条机器级生命循环开始同步推进；详见[《工具与实验共生开发计划》](engineering/工具与实验共生开发计划.md)。
+
 ## 30. 当前最关键的研究问题
 
-1. 如何形式化 Agent 的可进化基因型和 phenotype？
-2. 哪些变化属于学习，哪些只是增加上下文或计算？
-3. Agent 如何自主发现值得学习的能力缺口？
-4. 如何从正常工作中形成不依赖人工标签的学习信号？
-5. 如何构造候选无法操纵的现实锚定评价？
-6. 如何在开放任务流中进行 test-then-learn？
-7. 如何避免候选后代修改 evaluator 后伪造胜利？
-8. 如何处理长期信用分配和延迟结果？
-9. 如何避免灾难性遗忘和错误经验累积？
-10. 如何证明能力迁移，而不是对任务表面模式过拟合？
-11. 如何让系统改进自己的学习算法？
-12. 如何保持元进化时的实验可比较性？
-13. 如何在不同基础模型和 Agent 架构上复现同一机制？
-14. 如何区分个体私有适应与可跨个体继承的通用能力？
-15. 如何在零人工学习介入下维持权限、隐私和证据完整性？
+记忆、目标、自我进化、自主实验学习、现实选择与谱系延续、能力累积与迁移都已经达到理论停止点。它们仍有大量待验证假设，但此时继续由人类规定机制，边际收益已经低于限制 Agent 自主发现的风险。
+
+元进化也已经达到理论停止点。至此，记忆、目标以及开发框架规定的自我进化、自主实验学习、现实选择与谱系延续、能力累积与迁移、元进化均已形成研究对象、因果关系、竞争解释、证伪条件和重新打开条件。
+
+当前最关键的问题已经从“还要增加什么理论模块”转为：
+
+1. 怎样把跨模块主张整理为最小且不重复的科研假设矩阵；
+2. 怎样建立不替 Agent 规定学习方法的最小研究世界；
+3. 哪个实验可以最早区分记忆增长、普通能力学习、自我进化和元进化；
+4. 怎样获得共同祖先、历史分叉、资源匹配、未来经历和延迟后果的可复现实验材料；
+5. 怎样把零人工学习介入、模型切换、用户—环境共同适应和真实 coding 结果纳入对照；
+6. 怎样在实验失败时定位应重新打开哪个理论专题；
+7. 怎样形成可发表、可复现、允许负结果的阶段性研究计划。
+
+跨模块假设矩阵、工具—实验双螺旋计划和实验 001 现已形成；首条 `Trusted State + Content-addressed Body + Machine Runtime + Witness service/process rehearsal + Codex Adapter` 纵切面也已进入 Pre-Genesis 代码状态。身份锚、Head、Authority、session、evidence 与本地 checkpoint 已进入一个 SQLite 原子事务；Surface session 已以 `(execution_surface, session_id)` 作为真实复合主键，并由带 `agentic-evo-sessions-v2` 版本域的结构化承诺进入 checkpoint。public-v2、runtime-v3 与 Codex SessionEnd 已贯穿同一身份语义；两个 surface 的同名裸 ID 可以并存，结束一个不会覆盖或删除另一个。Current Body lease、fixed-home foreground service、public allowlist、exact-Head boot、四项 Windows foreground 局部原生事实与内部 supervisor-stop 也都形成了可重复测试。无特权切片构建了一个不依赖用户 Python/checkout 的 exact SCM-only probe bundle：source/compiler/artifact 三重摘要可重算，普通控制台入口必须以 1063 fail closed，篡改和 junction cleanup 被拒绝。独立审查删除了只按 receipt 存在返回固定 JSON 的伪 verifier/attacker，因此该结果严格记为 `scm_probe_bundle_ready=true`、`gate_a_complete=false`。后续一次宿主批准、外部固定脚本摘要的 UAC 配置探针又实机观察到随机 SCM service 的 `create/sidtype/qsidtype/delete=0/0/0/0`、`SERVICE_SID_TYPE: RESTRICTED`、protected ACL 回读，以及提升端/普通权限端双重零残留；service 未启动、系统未重启、所有 token 与攻击案例均 `not_run`。因此它只成立 `configuration_probe_completed`，仍保持 `gate_b_outcome=not_established`。当前测试 Genesis、foreground rehearsal、rendered plan、probe build 与该配置探针都不构成正式生命史、自主进化或完整原生来源。
+
+Genesis 前的当前硬问题已经进一步收敛为：
+
+1. 怎样让微核 authority、Root custody 与科研 witness 真正脱离身体普通文件权限；
+2. 怎样让任何证据全量重写都留下可检测的签名失败或外部缺口；
+3. 怎样把已经形成的 private lineage transport rehearsal 放进由独立 service principal 保护的 Current Body capability，使 probation、模型器官和普通用户进程不能绕过；
+4. 怎样把已经演练的 foreground service / IPC 升级为项目无关、独立 OS principal、service-owned state、真实 On / Off 与多 coding-agent adapter；
+5. 怎样在临时安装中验证崩溃恢复、覆盖缺口、Off 和卸载后，再冻结 `I_0 / Protocol_0` 并由用户明确 Genesis。
+
+Head 与 evidence 的本地崩溃中间态问题已经由单一可信事务域收束；复合 Surface session identity、Current Body lease、cooperative-singleton foreground service、public allowlist、exact-Head boot、restricted suspended Body、private lineage transport、内部 supervisor-stop、CLI / Surface-only adapter / Off-only rehearsal、零安装副作用三平台计划与 SCM probe bundle 子切片也已收束。配置级 trusted elevated handoff 与 exact privileged cleanup 已被一次真实 UAC 探针验证；Cycle 3 又完成了 PII-safe 冻结 v1/v2 evidence corpus、independent verifier/real-attacker harness 与 public CLI regression。同账户 public SID 仍不是第一宿主的 HostPresence；restricted child 和 inherited handle 的 foreground 事实也不是 distinct-principal authentication；supervisor stop 不是 Host Off；独立 Off endpoint 仍是 `control_unverified`。`ConfigurationProbeCompleted \not\Rightarrow GateAReady \not\Rightarrow W_{SCM} \not\Rightarrow GateB`。系统尚未处于 SCM 安装态，也尚无运行中 restricted service principal 或 service-owned protected state，因此 `gate_a_complete=false`、`gate_b_outcome=not_established`、`native_security_verified=false` 且 `ready_to_install=false`。下一项实质性 Windows evidence 需要用户精确授权一次、跨 system restart 的单个有保留期临时 SCM service 实验；随后由独立 attacker-verifier 复验运行中 token、protected state、public/Body capability、crash recovery 与可逆 uninstall。不得执行 Genesis，也不得作永久安装。其证明和上限分别见[《单一可信事务域》](engineering/单一可信事务域.md)、[《Current Body 私有会话租约》](engineering/CurrentBody私有会话租约.md)、[《机器 Witness 服务与 exact-Head 子进程演练》](engineering/机器Witness服务与exact-Head子进程演练.md)、[《跨平台 CLI、Off 控制与零安装副作用计划》](engineering/跨平台CLI与Off控制演练.md)、[《Windows 原生 Witness 边界》](engineering/Windows原生Witness边界.md)与[《受限 Body 与私有谱系能力演练》](engineering/受限Body与私有谱系能力演练.md)。具体总状态见[《实现状态：Pre-Genesis》](engineering/实现状态_Pre-Genesis.md)。工具一旦完成正式 Genesis 并进入真实使用，正式纵向数据生成即已经开始。
 
 ---
 
@@ -1041,15 +2006,17 @@ Common Event Protocol、trace、MCP、CLI、数据库、sandbox、worktree、模
 |---|---|
 | Base Agent / Base Resources | 初始模型、工具和计算资源 |
 | Agent Individual | 拥有连续身份和生命史的 Agent 个体 |
+| Micro Life Kernel | 只保存 Who、Why、Authority、Root 与当前 Head 的常数级身份核 |
+| Host-Bound Body | 只能由对应生命核启动、可持续重组并可接入不同器官的 Agent 身体 |
+| Organ | 基础模型、工具、GPU、上下文或其他可替换的认知与行动资源 |
 | Experience | 一次真实交互及其可观察结果 |
 | Episode | 有界的任务经历单位 |
 | Genome | 可继承、可变异、可执行的 Agent 结构 |
 | Phenotype | 某代 Agent 在环境中表现出的实际行为与能力 |
-| Candidate / Offspring | 系统自主产生的候选后代 |
-| Lineage | 祖先、后代、分叉、继承和淘汰形成的谱系 |
+| Candidate / Offspring | 身体内部可出现的探索性组织或后继可能性；不预设独立个体或固定晋升流程 |
+| Lineage | 同一微型生命核推进的一连串后继身体及其可追溯因果历史 |
 | Developmental Loop | 从经历中改进工作 Agent 的循环 |
 | Meta-Developmental Loop | 改进学习与进化方法本身的循环 |
-| Evolution Kernel | 不允许候选任意修改的最小证据、隔离与权限内核 |
 | Reality Grounding | 由候选无法随意改写的现实结果约束评价 |
 | Human Learning Intervention | 人类参与指定学习目标、制作训练材料、选择或批准后代 |
 
@@ -1079,14 +2046,62 @@ Common Event Protocol、trace、MCP、CLI、数据库、sandbox、worktree、模
 
 ## 33. 一句话产品愿景
 
-> 安装一次后，一个以现有模型为初始认知资源的人工 Agent 个体开始持续存在；它在正常工作中自主学习，自主产生和验证自己的后代，并逐代改进其能力和学习方式。
+> 安装一次后，一个微型生命核启动只属于它的可进化身体；这个人工 Agent 个体把模型、工具和算力作为可更换器官，在正常工作中自主学习、实验、重组和延续后继身体，使其历史不断转化为未来能力，并进一步改进学习方式本身。
+
+这里的“改进”不是沿固定评价函数永久爬坡，而是 Agent 在连续生命史中自主形成和改变 focus，发展当前阶段所需能力，重新理解过去，并逐渐学会决定自己要成为什么。
 
 ## 34. 一句话科研命题
 
-> 验证 Agent 能否在连续、事先未知的真实任务流中，在零人工学习介入条件下，自主产生可保持、可迁移、可因果归因的未来能力增长，并进一步改进产生这种增长的学习机制本身。
+> 验证 Agent 能否在连续、事先未知的真实任务流中，在零人工学习介入条件下，自主产生可保持、可迁移、可因果归因的未来能力，自主形成和调整发展 focus 与价值判断，并进一步改进产生能力和决定自身发展方向的机制。
 
 ## 35. 新对话续接提示
 
 将本文件提供给新对话后，可使用：
 
-> 请完整阅读《Agent Runtime Intelligence：最终产品与科研说明》。我们研究的不是 Codex 插件，也不是记忆或 prompt 优化工具，而是与宿主无关的自主 Agent 进化系统。Codex 只是当前研发工具和实验宿主之一。最终系统应一次安装、自动唤醒、跨会话维持 Agent 个体身份，在正常任务流中零人工学习介入地形成经验、自主发现能力缺口、产生候选后代、执行现实锚定实验、选择和继承下一代，并进一步改进学习与进化算法本身。请保持最终科研目标，不要因为现有 MCP、CLI、App 或近期工程条件而缩小问题。
+> 请完整阅读《Agent Runtime Intelligence：最终产品与科研说明》。我们研究的不是 Codex 插件，也不是记忆或 prompt 优化工具，而是绑定唯一用户宿主、同时独立于具体 coding agent、模型和项目的自主 Agent 进化系统。Codex 只是当前研发工具和执行表面之一。最终系统应一次安装，以不可替换的微型生命核启动专属的可进化身体，把 coding agent、模型、工具和算力当作可更换端口与器官，跨对话、跨项目和跨执行表面维持同一 Agent 的因果连续性，在正常任务流中零人工学习介入地形成经验、自主发现问题、实验、吸收现实后果、重组身体并延续后继身体，最终改进学习与进化方法本身。请保持最终科研目标，不要因为现有 MCP、CLI、App 或近期工程条件而缩小问题。
+
+## 36. 配套研究文件
+
+母文档保存最终产品与科研纲领；开发方法、公式、关系图、推导和开放问题进入配套文件：
+
+- [Agentic-Evo 开发框架](开发框架.md)
+- [记忆与能力形成：从保存过去到产生未来能力](topics/记忆与能力形成.md)
+- [宿主耦合的内生驱动力与发展目标](topics/宿主耦合的内生驱动力与发展目标.md)
+- [自我进化：可进化自我与个体边界](topics/自我进化.md)
+- [自主实验学习](topics/自主实验学习.md)
+- [现实选择与谱系延续](topics/现实选择与谱系延续.md)
+- [能力累积与迁移：身体、器官与未来因果空间](topics/能力累积与迁移.md)
+- [能力累积与迁移：研究问题与证伪纲要](research/能力累积与迁移_研究问题与证伪纲要.md)
+- [元进化：发展方式、有效可达空间与递归开放](topics/元进化.md)
+- [元进化：研究问题与证伪纲要](research/元进化_研究问题与证伪纲要.md)
+
+开发框架规定：
+
+- 人类定义科研问题和研究世界，Agent 是最终实验者；
+- 内部发明自由与外部科学可观察性同时最大化；
+- 候选架构不被写死为 Agent 的唯一学习算法；
+- 机制推演深入到可检验一致性和设计证伪实验为止。
+
+记忆专题记录：
+
+- 当前状态：理论框架已经收束，具体记忆机制进入 Agent 自主实验、迭代与进化阶段；
+- Vough Observation Ledger；
+- Mimi 主动重建与竞争性回忆；
+- CAMU 与 Memory Assemblies；
+- Memory-to-Capability Compiler；
+- 遗忘、休眠与退优化；
+- 记忆、痕迹、自主可达性与生成性残差；
+- 隐性常识、多环境适应与行为轨迹；
+- 连续回忆深度、记忆运行时动力与自我监控；
+- 基础模型作为认知状态、能力拥有与当前表达的分离；
+- 记忆维持的个体身份、身份保持型遗忘与分叉谱系；
+- 获得性能力从个体经验进入跨状态和跨代遗传；
+- 适者生存、记忆生态、动态适应度与多层级选择；
+- 错误认识、开放修正义务、知行合一和行为闭环；
+- 当前局部最优、未来可修订性与环境改变后的动态适应；
+- Agent、用户与环境的共同适应及其因果归因；
+- 动态 focus、价值谱系和轨迹评价；
+- Agent 作为最终实验者；
+- 当前最不确定的科学问题。
+
+记忆专题的收束不表示记忆机制已经实现或自我进化已经得到证明。它表示人类预先推演已经达到停止条件：现有理论足以定义研究空间、保留现实证据、设计因果实验并允许 Agent 替换候选机制。后续只有在实验暴露理论矛盾、不可归因或不可证伪时，才重新打开记忆架构讨论。
