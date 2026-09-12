@@ -1,0 +1,1 @@
+smoke fixture=failed exit=0 kinds=observe,candidate,probation,outcome,rollback consolidation_store_lines=0 loop_home=C:\Users\1\AppData\Local\Temp\agentic-evo-loop-smoke-07eu6ein check=failed fixture: rollback with no consolidation

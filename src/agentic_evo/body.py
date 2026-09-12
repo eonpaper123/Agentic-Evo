@@ -12,6 +12,7 @@ from .errors import BodyNotFoundError, IntegrityError, InvalidBodyError
 
 BODY_SCHEMA_VERSION = "agentic-evo-body-v2"
 MAX_BODY_LOGICAL_PATH_BYTES = 512
+DEVELOPMENT_DESCRIPTOR_UNSET = object()
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,8 @@ class BodyManifest:
     created_at: str
     activation_kind: str | None
     activation_artifact: str | None
+    development_kind: str | None
+    development_artifact: str | None
     files: tuple[tuple[str, str], ...]
 
     @property
@@ -50,6 +53,8 @@ class BodyStore:
         author_kind: str,
         activation_kind: str | None = None,
         activation_artifact: str | None = None,
+        development_kind: str | None | object = DEVELOPMENT_DESCRIPTOR_UNSET,
+        development_artifact: str | None | object = DEVELOPMENT_DESCRIPTOR_UNSET,
     ) -> str:
         if not root or not author_kind:
             raise InvalidBodyError("root and author_kind are required")
@@ -66,12 +71,16 @@ class BodyStore:
         generation = 0
         inherited_activation_kind: str | None = None
         inherited_activation: str | None = None
+        inherited_development_kind: str | None = None
+        inherited_development_artifact: str | None = None
         if parent_head is not None:
             try:
                 parent = self.read_manifest(parent_head)
                 generation = parent.generation + 1
                 inherited_activation_kind = parent.activation_kind
                 inherited_activation = parent.activation_artifact
+                inherited_development_kind = parent.development_kind
+                inherited_development_artifact = parent.development_artifact
             except BodyNotFoundError:
                 generation = 1
         selected_activation_kind = (
@@ -84,6 +93,18 @@ class BodyStore:
             if activation_artifact is not None
             else inherited_activation
         )
+        if (development_kind is DEVELOPMENT_DESCRIPTOR_UNSET) != (
+            development_artifact is DEVELOPMENT_DESCRIPTOR_UNSET
+        ):
+            raise InvalidBodyError(
+                "development kind and development artifact must be supplied together"
+            )
+        if development_kind is DEVELOPMENT_DESCRIPTOR_UNSET:
+            selected_development_kind = inherited_development_kind
+            selected_development_artifact = inherited_development_artifact
+        else:
+            selected_development_kind = development_kind
+            selected_development_artifact = development_artifact
         if selected_activation_kind is not None:
             if (
                 not isinstance(selected_activation_kind, str)
@@ -102,6 +123,30 @@ class BodyStore:
                 raise InvalidBodyError(
                     "activation artifact is not present in body files"
                 )
+        if selected_development_kind is not None:
+            if (
+                not isinstance(selected_development_kind, str)
+                or not selected_development_kind
+                or len(selected_development_kind) > 128
+                or any(character.isspace() for character in selected_development_kind)
+            ):
+                raise InvalidBodyError(
+                    "development kind must be a compact non-empty string"
+                )
+        if (selected_development_kind is None) != (
+            selected_development_artifact is None
+        ):
+            raise InvalidBodyError(
+                "development kind and development artifact must be specified together"
+            )
+        if selected_development_artifact is not None:
+            selected_development_artifact = self._normalize_relative_path(
+                selected_development_artifact
+            )
+            if selected_development_artifact not in normalized:
+                raise InvalidBodyError(
+                    "development artifact is not present in body files"
+                )
 
         manifest = {
             "schema_version": BODY_SCHEMA_VERSION,
@@ -112,6 +157,8 @@ class BodyStore:
             "created_at": utc_now(),
             "activation_kind": selected_activation_kind,
             "activation_artifact": selected_activation,
+            "development_kind": selected_development_kind,
+            "development_artifact": selected_development_artifact,
             "files": dict(sorted(normalized.items())),
         }
         commitment = sha256_hex(canonical_json_bytes(manifest))
@@ -154,6 +201,8 @@ class BodyStore:
             created_at = str(manifest["created_at"])
             activation_kind = manifest.get("activation_kind")
             activation_artifact = manifest.get("activation_artifact")
+            development_kind = manifest.get("development_kind")
+            development_artifact = manifest.get("development_artifact")
         except (KeyError, TypeError, ValueError) as exc:
             raise IntegrityError("invalid body manifest envelope") from exc
         if parent_head is not None:
@@ -178,6 +227,24 @@ class BodyStore:
             )
             if activation_artifact not in dict(files):
                 raise IntegrityError("activation artifact is not present in body files")
+        if development_kind is not None:
+            if (
+                not isinstance(development_kind, str)
+                or not development_kind
+                or len(development_kind) > 128
+                or any(character.isspace() for character in development_kind)
+            ):
+                raise IntegrityError("invalid development kind")
+        if (development_kind is None) != (development_artifact is None):
+            raise IntegrityError(
+                "development kind and development artifact must be specified together"
+            )
+        if development_artifact is not None:
+            development_artifact = self._normalize_relative_path(
+                str(development_artifact)
+            )
+            if development_artifact not in dict(files):
+                raise IntegrityError("development artifact is not present in body files")
         return BodyManifest(
             commitment=commitment,
             root=root,
@@ -187,6 +254,8 @@ class BodyStore:
             created_at=created_at,
             activation_kind=activation_kind,
             activation_artifact=activation_artifact,
+            development_kind=development_kind,
+            development_artifact=development_artifact,
             files=tuple(files),
         )
 

@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from dataclasses import replace
 import io
+import json
 import os
 from pathlib import Path
 from queue import Queue
 import tempfile
 import threading
 import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import MagicMock, patch
 import sys
@@ -16,14 +18,24 @@ from agentic_evo import body_process as body_process_module
 from agentic_evo._util import canonical_json_bytes, sha256_hex
 from agentic_evo.body_process import (
     BODY_BOOT_PROTOCOL,
+    BODY_LINEAGE_PROTOCOL,
     BodyBootError,
     BodyProcessSupervisor,
+    BootEnvelope,
     SpawnedBodyProcess,
+    _development_result_from_frame,
     _body_worker_environment,
+    _lpac_body_worker_environment,
+    _require_lpac_token_contract,
     read_private_frame,
     validate_ready_echo,
     write_private_frame,
 )
+from agentic_evo.development_executor import (
+    CurrentBodyLineageFacts,
+    DevelopmentOpportunity,
+)
+from agentic_evo.organ_broker import OrganResponse, RecallTrace
 from agentic_evo.runtime import DevelopmentalRuntime
 from agentic_evo.witness import WitnessCore
 
@@ -37,7 +49,10 @@ class BodyProcessTests(unittest.TestCase):
             self.home,
             host_binding=self.host_binding,
             purpose_anchor="Improve the future of the one bound host.",
-            initial_body={"entrypoint.md": "Body zero"},
+            initial_body={
+                "entrypoint.md": "Body zero",
+                "develop.py": "raise AssertionError('a suffix is not an entrypoint')",
+            },
             instrument_version="instrument-test-v1",
             protocol_version="protocol-test-v1",
         )
@@ -60,6 +75,23 @@ class BodyProcessTests(unittest.TestCase):
         self.bodies.append(body)
         return body
 
+    def _lineage_facts(self, head: str) -> CurrentBodyLineageFacts:
+        manifest = self.runtime.body_store.read_manifest(head)
+        return CurrentBodyLineageFacts(
+            manifest_head=manifest.commitment,
+            manifest_generation=manifest.generation,
+            manifest_parent_head=manifest.parent_head,
+            manifest_created_at=manifest.created_at,
+            manifest_activation_kind=manifest.activation_kind,
+            manifest_activation_artifact=manifest.activation_artifact,
+            manifest_development_kind=manifest.development_kind,
+            manifest_development_artifact=manifest.development_artifact,
+            head_advanced_event_ref=None,
+            head_advanced_event_status="no_recorded_head_advanced",
+            latest_recorded_resolution_action="no_recorded_resolution",
+            latest_recorded_resolution_record_ref=None,
+        )
+
     def test_exact_head_snapshot_crosses_only_the_private_boot_pipe(
         self,
     ) -> None:
@@ -71,6 +103,8 @@ class BodyProcessTests(unittest.TestCase):
         self.assertEqual(body.boot.root, status.root)
         self.assertEqual(body.boot.head, status.head)
         self.assertEqual(body.boot.generation, status.generation)
+        self.assertIsNone(body.boot.development_kind)
+        self.assertIsNone(body.boot.development_artifact)
         self.assertEqual(
             body.boot.activation_digest,
             sha256_hex(b"Body zero"),
@@ -102,6 +136,228 @@ class BodyProcessTests(unittest.TestCase):
             replacement.boot.challenge,
             body.boot.challenge,
         )
+
+    def test_development_offer_preserves_host_only_organ_metadata(self) -> None:
+        status = self.runtime.status()
+        opportunity = DevelopmentOpportunity(
+            id="opportunity-1",
+            reason="task_end",
+            root=status.root,
+            current_body_ref=status.head,
+            after_sequence=0,
+            organ_argv=("codex",),
+            working_dir=str(self.home),
+            lineage_facts=self._lineage_facts(status.head),
+        )
+        trace = RecallTrace(
+            before_sequence=None,
+            limit=1,
+            returned_event_refs=(),
+            has_more=False,
+        )
+
+        class StaticBroker:
+            def __init__(self) -> None:
+                self.requests = []
+                self.cancelled = []
+
+            def invoke(self, request, cancel_event):
+                self.requests.append(request)
+                return OrganResponse(
+                    final_text='{"action":"no_change"}',
+                    organ_call_ref="thread-1",
+                    recall_trace=(trace,),
+                )
+
+            def cancel(self, opportunity_id):
+                self.cancelled.append(opportunity_id)
+
+        broker = StaticBroker()
+        body = BodyProcessSupervisor(
+            self.runtime,
+            self.witness,
+            ready_timeout_seconds=5.0,
+            request_timeout_seconds=5.0,
+            organ_broker=broker,
+        ).spawn_current()
+        self.bodies.append(body)
+
+        result = body.offer_development(opportunity=opportunity)
+
+        self.assertEqual(result.action, "no_change")
+        self.assertEqual(result.organ_call_ref, "thread-1")
+        self.assertEqual(result.recall_trace, (trace,))
+        self.assertEqual(len(broker.requests), 1)
+        self.assertIn("develop.py", broker.requests[0].prompt)
+
+    def test_private_development_recall_records_bound_trace_for_final_result(
+        self,
+    ) -> None:
+        status = self.runtime.status()
+        opportunity = DevelopmentOpportunity(
+            id="opportunity-direct-recall",
+            reason="task_end",
+            root=status.root,
+            current_body_ref=status.head,
+            after_sequence=0,
+            organ_argv=("codex",),
+            working_dir=str(self.home),
+            lineage_facts=self._lineage_facts(status.head),
+        )
+        boot = BootEnvelope(
+            protocol=BODY_BOOT_PROTOCOL,
+            boot_session="boot-direct-recall",
+            challenge="challenge-direct-recall",
+            root=status.root,
+            head=status.head,
+            generation=status.generation,
+            activation_kind="surface-context-utf8-v1",
+            activation_artifact="entrypoint.md",
+            activation_digest="a" * 64,
+            body_package={},
+        )
+        body = object.__new__(SpawnedBodyProcess)
+        body.boot = boot
+        body._organ_guard = threading.Lock()
+        body._active_organ_opportunity = opportunity
+        body._organ_cancel_event = threading.Event()
+        body._organ_revoked = False
+        body._pending_rehearsal = ("offer_development", 1)
+        body._active_development_deadline = time.monotonic() + 5.0
+        broker_trace = RecallTrace(
+            before_sequence=None,
+            limit=1,
+            returned_event_refs=("broker-page",),
+            has_more=False,
+        )
+        body._organ_response = OrganResponse(
+            final_text='{"action":"no_change"}',
+            organ_call_ref="thread-1",
+            recall_trace=(broker_trace,),
+        )
+        body._development_direct_recall_trace = []
+        body.assert_bound = MagicMock()
+        body._write_frame = MagicMock()
+        observed: list[tuple[int | None, int]] = []
+
+        def recall_provider(*, opportunity, before_sequence, limit, cancel_event):
+            self.assertIs(opportunity, body._active_organ_opportunity)
+            self.assertIs(cancel_event, body._organ_cancel_event)
+            observed.append((before_sequence, limit))
+            event_id = "direct-latest" if before_sequence is None else "direct-earlier"
+            return ([{"event_id": event_id}], before_sequence is None)
+
+        body._development_recall = recall_provider
+        for before_sequence in (None, 7):
+            body._handle_development_recall(
+                {
+                    "protocol": BODY_LINEAGE_PROTOCOL,
+                    "kind": "development_recall",
+                    "operation": "recall_experiences",
+                    "boot_session": boot.boot_session,
+                    "root": boot.root,
+                    "opportunity_id": opportunity.id,
+                    "bound_head": boot.head,
+                    "sequence": 1,
+                    "before_sequence": before_sequence,
+                    "limit": 1,
+                }
+            )
+
+        self.assertEqual(observed, [(None, 1), (7, 1)])
+        self.assertEqual(len(body._development_direct_recall_trace), 2)
+        result = _development_result_from_frame(
+            {
+                "protocol": BODY_LINEAGE_PROTOCOL,
+                "kind": "development_result",
+                "operation": "offer_development",
+                "sequence": 1,
+                "action": "no_change",
+                "opportunity_id": opportunity.id,
+                "current_body_ref": opportunity.current_body_ref,
+                "organ_call_ref": "thread-1",
+                "recall_trace": [broker_trace.to_mapping()],
+            },
+            opportunity=opportunity,
+            organ_response=body._organ_response,
+            organ_result_invalidated=False,
+            direct_recall_trace=tuple(body._development_direct_recall_trace),
+        )
+
+        self.assertEqual(
+            result.recall_trace,
+            (
+                RecallTrace(
+                    before_sequence=None,
+                    limit=1,
+                    returned_event_refs=("direct-latest",),
+                    has_more=True,
+                ),
+                RecallTrace(
+                    before_sequence=7,
+                    limit=1,
+                    returned_event_refs=("direct-earlier",),
+                    has_more=False,
+                ),
+                broker_trace,
+            ),
+        )
+
+    def test_development_submit_successor_returns_advanced_action(self) -> None:
+        status = self.runtime.status()
+        opportunity = DevelopmentOpportunity(
+            id="opportunity-submit",
+            reason="task_end",
+            root=status.root,
+            current_body_ref=status.head,
+            after_sequence=0,
+            organ_argv=("codex",),
+            working_dir=str(self.home),
+            lineage_facts=self._lineage_facts(status.head),
+        )
+        trace = RecallTrace(
+            before_sequence=None,
+            limit=1,
+            returned_event_refs=(),
+            has_more=False,
+        )
+
+        class StaticBroker:
+            def invoke(self, request, cancel_event):
+                return OrganResponse(
+                    final_text=json.dumps(
+                        {
+                            "action": "submit_successor",
+                            "files": {"entrypoint.md": "Body successor"},
+                            "activation_kind": "surface-context-utf8-v1",
+                            "activation_artifact": "entrypoint.md",
+                            "causation_ref": "experience-1",
+                        },
+                        separators=(",", ":"),
+                    ),
+                    organ_call_ref="thread-submit",
+                    recall_trace=(trace,),
+                )
+
+            def cancel(self, opportunity_id):
+                return None
+
+        body = BodyProcessSupervisor(
+            self.runtime,
+            self.witness,
+            ready_timeout_seconds=5.0,
+            request_timeout_seconds=5.0,
+            organ_broker=StaticBroker(),
+        ).spawn_current()
+        self.bodies.append(body)
+
+        result = body.offer_development(opportunity=opportunity)
+
+        self.assertEqual(result.action, "candidate_submitted")
+        self.assertEqual(result.generation, 1)
+        self.assertEqual(result.organ_call_ref, "thread-submit")
+        self.assertEqual(result.recall_trace, (trace,))
+        self.assertEqual(self.runtime.status().head, result.candidate_head)
 
     def test_ready_echo_rejects_every_changed_binding_field(self) -> None:
         body = self._spawn()
@@ -316,6 +572,8 @@ class BodyProcessTests(unittest.TestCase):
                 "ingress_path": "in_process_rehearsal",
                 "operation": "prepare_successor",
                 "affected_domain": "body_lineage",
+                "development_kind": None,
+                "development_artifact": None,
             },
         )
         self.assertEqual(advanced_record.root_commitment, baseline.root)
@@ -442,6 +700,190 @@ class BodyProcessTests(unittest.TestCase):
             body._handle_lineage_request(request)
         self.assertEqual(mutation_snapshot(), before)
         self.assertTrue(self.runtime.evidence.verify())
+
+    def test_private_prepare_preserves_an_explicit_development_descriptor(self) -> None:
+        body = self._spawn()
+
+        candidate = body.rehearse_prepare_successor(
+            files={
+                "entrypoint.md": "descriptor-aware successor",
+                "develop.py": "def develop(context):\n    return {'action': 'no_change'}\n",
+            },
+            development_kind="python-development-v1",
+            development_artifact="develop.py",
+        )
+
+        manifest = self.runtime.body_store.read_manifest(candidate)
+        self.assertEqual(manifest.development_kind, "python-development-v1")
+        self.assertEqual(manifest.development_artifact, "develop.py")
+
+    def test_descriptor_body_never_falls_back_to_the_low_integrity_launcher(self) -> None:
+        status = self.runtime.status()
+        lease = self.witness.open_current_body_session(expected_head=status.head)
+        candidate = lease.prepare_successor(
+            files={
+                "entrypoint.md": "descriptor-aware successor",
+                "develop.py": "def develop(context):\n    return {'action': 'no_change'}\n",
+            },
+            development_kind="python-development-v1",
+            development_artifact="develop.py",
+        )
+        with patch(
+            "agentic_evo.body_lpac.is_lpac_body_runtime_available",
+            return_value=True,
+        ):
+            lease.advance_head(candidate_head=candidate)
+        lease.close()
+
+        with (
+            patch(
+                "agentic_evo.body_lpac.is_lpac_body_runtime_available",
+                return_value=False,
+            ),
+            patch(
+                "agentic_evo.body_process.spawn_restricted_suspended_process"
+            ) as low_integrity_spawn,
+            self.assertRaisesRegex(BodyBootError, "Windows LPAC launch path"),
+        ):
+            BodyProcessSupervisor(self.runtime, self.witness).spawn_current()
+
+        low_integrity_spawn.assert_not_called()
+
+    def test_lpac_token_contract_requires_exact_registry_read_sid_set(self) -> None:
+        expected_sid = "S-1-15-2-100"
+        expected_capabilities = ("S-1-15-3-200",)
+        valid_process = SimpleNamespace(
+            token_profile=SimpleNamespace(
+                is_app_container=True,
+                is_less_privileged_app_container=True,
+                appcontainer_sid=expected_sid,
+                capability_count=1,
+                capability_sids=expected_capabilities,
+            )
+        )
+
+        _require_lpac_token_contract(
+            valid_process,
+            expected_appcontainer_sid=expected_sid,
+            expected_capability_sids=expected_capabilities,
+        )
+
+        with self.assertRaisesRegex(
+            BodyBootError,
+            "fixed registryRead contract",
+        ):
+            _require_lpac_token_contract(
+                valid_process,
+                expected_appcontainer_sid=expected_sid,
+                expected_capability_sids=(
+                    expected_capabilities[0],
+                    "S-1-15-3-extra",
+                ),
+            )
+
+        for actual_capabilities in ((), ("S-1-15-3-unexpected",)):
+            with self.subTest(actual_capabilities=actual_capabilities):
+                invalid_process = SimpleNamespace(
+                    token_profile=SimpleNamespace(
+                        is_app_container=True,
+                        is_less_privileged_app_container=True,
+                        appcontainer_sid=expected_sid,
+                        capability_count=len(actual_capabilities),
+                        capability_sids=actual_capabilities,
+                    )
+                )
+                with self.assertRaisesRegex(
+                    BodyBootError,
+                    "fixed registryRead contract",
+                ):
+                    _require_lpac_token_contract(
+                        invalid_process,
+                        expected_appcontainer_sid=expected_sid,
+                        expected_capability_sids=expected_capabilities,
+                    )
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows LPAC contract")
+    def test_descriptor_body_rejects_wrong_lpac_capability_before_resume(self) -> None:
+        status = self.runtime.status()
+        lease = self.witness.open_current_body_session(expected_head=status.head)
+        candidate = lease.prepare_successor(
+            files={
+                "entrypoint.md": "descriptor-aware successor",
+                "develop.py": "def develop(context):\n    return {'action': 'no_change'}\n",
+            },
+            development_kind="python-development-v1",
+            development_artifact="develop.py",
+        )
+        fake_profile = SimpleNamespace(
+            sid=123,
+            sid_string="S-1-15-2-123",
+            close=MagicMock(),
+        )
+        fake_stage = SimpleNamespace(
+            python_executable=Path("D:/rawle/test-lpac/python.exe"),
+            payload_root=Path("D:/rawle/test-lpac/payload"),
+            scratch_path=Path("D:/rawle/test-lpac/scratch"),
+            close=MagicMock(),
+        )
+        fake_process = MagicMock()
+        fake_process.process_handle = 456
+        fake_process.poll.return_value = None
+        fake_process.wait.return_value = 0
+        fake_process.token_profile = SimpleNamespace(
+            is_app_container=True,
+            is_less_privileged_app_container=True,
+            appcontainer_sid=fake_profile.sid_string,
+            capability_count=1,
+            capability_sids=("S-1-15-3-unexpected",),
+        )
+        fake_spawn = MagicMock(return_value=fake_process)
+        fake_lpac = SimpleNamespace(
+            BODY_LPAC_CAPABILITY_NAMES=("registryRead",),
+            is_lpac_body_runtime_available=lambda: True,
+            create_ephemeral_lpac_profile=MagicMock(return_value=fake_profile),
+            lpac_body_capability_sids=lambda: ("S-1-15-3-expected",),
+            stage_lpac_body_payload=MagicMock(return_value=fake_stage),
+        )
+        fake_launcher = SimpleNamespace(
+            spawn_lpac_suspended_process=fake_spawn,
+        )
+
+        with patch.dict(
+            sys.modules,
+            {
+                "agentic_evo.body_lpac": fake_lpac,
+                "agentic_evo.windows_appcontainer": fake_launcher,
+            },
+        ):
+            lease.advance_head(candidate_head=candidate)
+            lease.close()
+            with (
+                patch("agentic_evo.body_process.KillOnCloseJob") as job_type,
+                patch(
+                    "agentic_evo.body_process.spawn_restricted_suspended_process"
+                ) as low_integrity_spawn,
+                self.assertRaisesRegex(
+                    BodyBootError,
+                    "fixed registryRead contract",
+                ),
+            ):
+                BodyProcessSupervisor(self.runtime, self.witness).spawn_current()
+
+        low_integrity_spawn.assert_not_called()
+        fake_spawn.assert_called_once()
+        self.assertEqual(
+            fake_spawn.call_args.kwargs["capability_names"],
+            ("registryRead",),
+        )
+        self.assertEqual(
+            fake_spawn.call_args.kwargs["environment"]["LOCALAPPDATA"],
+            str(fake_stage.scratch_path),
+        )
+        self.assertIn("-S", fake_spawn.call_args.args[0])
+        fake_process.resume.assert_not_called()
+        job_type.return_value.assign_handle.assert_not_called()
+        job_type.return_value.close.assert_called_once()
+        fake_stage.close.assert_called_once()
 
     def test_in_flight_advance_timeout_is_reported_as_outcome_unknown(
         self,
@@ -688,6 +1130,14 @@ class BodyProcessTests(unittest.TestCase):
                 body._pending_lineage_request = None
                 body._pending_lineage_response = None
                 body._last_lineage_sequence = 0
+                body._organ_guard = threading.Lock()
+                body._active_organ_opportunity = None
+                body._organ_cancel_event = None
+                body._organ_broker = None
+                body._organ_response = None
+                body._organ_invocation_seen = False
+                body._organ_revoked = False
+                body._organ_result_invalidated = False
                 body._rehearsal_outcomes = Queue(maxsize=1)
                 body._process = MagicMock()
                 body._process.poll.return_value = None
@@ -841,6 +1291,57 @@ class BodyProcessTests(unittest.TestCase):
                 "WINDIR",
             },
         )
+
+    def test_lpac_worker_environment_uses_only_its_payload_and_scratch(self) -> None:
+        payload_root = self.home / "lpac-payload"
+        scratch_path = self.home / "lpac-scratch"
+        with patch.dict(
+            os.environ,
+            {"AGENTIC_EVO_TEST_SECRET": "must-not-cross"},
+        ):
+            environment = _lpac_body_worker_environment(
+                payload_root=payload_root,
+                scratch_path=scratch_path,
+            )
+
+        self.assertEqual(environment["PYTHONPATH"], str(payload_root))
+        self.assertEqual(environment["LOCALAPPDATA"], str(scratch_path))
+        self.assertEqual(environment["TEMP"], str(scratch_path))
+        self.assertEqual(environment["TMP"], str(scratch_path))
+        self.assertNotIn("AGENTIC_EVO_TEST_SECRET", environment)
+        self.assertLessEqual(
+            set(environment),
+            {
+                "PYTHONPATH",
+                "PYTHONUTF8",
+                "PYTHONNOUSERSITE",
+                "PYTHONDONTWRITEBYTECODE",
+                "LOCALAPPDATA",
+                "TEMP",
+                "TMP",
+                "SystemRoot",
+                "WINDIR",
+            },
+        )
+
+    def test_lpac_staging_is_released_when_the_body_retires(self) -> None:
+        body = object.__new__(SpawnedBodyProcess)
+        body._guard = threading.Lock()
+        body._closed = threading.Event()
+        body._private_writer = MagicMock()
+        body._private_reader = MagicMock()
+        body._process_fence = MagicMock()
+        body._process = MagicMock()
+        body._session = MagicMock()
+        body._lpac_staging = MagicMock()
+
+        body._retire()
+
+        body._lpac_staging.close.assert_called_once()
+        body._session.close.assert_called_once()
+        body._process_fence.close.assert_called_once()
+        body._process.close.assert_called_once()
+        self.assertTrue(body._closed.is_set())
 
 
 if __name__ == "__main__":

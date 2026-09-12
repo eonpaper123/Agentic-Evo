@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass
+import errno
 import json
 import os
 from pathlib import Path
@@ -31,7 +32,11 @@ class ServiceIPCError(AgenticEvoError):
 
 
 class ServiceUnavailableError(ServiceIPCError):
-    """Raised when no foreground Witness rehearsal is reachable."""
+    """Raised when the Witness transport cannot be used safely."""
+
+
+class ServiceNotRunningError(ServiceUnavailableError):
+    """Raised only when the configured Witness endpoint is absent or refused."""
 
 
 class ServiceRejectedError(ServiceIPCError):
@@ -242,6 +247,13 @@ def open_public_connection(
                 authkey=None,
             )
     except (EOFError, OSError) as exc:
+        if isinstance(exc, OSError) and (
+            getattr(exc, "winerror", None) == 2
+            or exc.errno in {errno.ENOENT, errno.ECONNREFUSED}
+        ):
+            raise ServiceNotRunningError(
+                "Witness service is not running"
+            ) from exc
         raise ServiceUnavailableError(
             "Witness foreground rehearsal is unavailable"
         ) from exc
@@ -259,6 +271,11 @@ class SurfaceClient:
 
     def status(self) -> dict[str, Any]:
         return self._request("status", {})
+
+    def stop_service(self) -> dict[str, Any]:
+        """Stop the current Witness process without changing Agent authority."""
+
+        return self._request("stop_service", {})
 
     def wake(
         self,
@@ -331,6 +348,49 @@ class SurfaceClient:
             params,
         )
 
+    def recall_experiences(
+        self,
+        *,
+        execution_surface: str,
+        session_id: str,
+        limit: int = 12,
+        before_sequence: int | None = None,
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {
+            "execution_surface": execution_surface,
+            "session_id": session_id,
+            "limit": limit,
+        }
+        if before_sequence is not None:
+            params["before_sequence"] = before_sequence
+        return self._request(
+            "recall_experiences",
+            params,
+        )
+
+    def submit_successor(
+        self,
+        *,
+        execution_surface: str,
+        session_id: str,
+        expected_head: str,
+        files: Mapping[str, str],
+        activation_kind: str,
+        activation_artifact: str,
+        causation_ref: str | None = None,
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {
+            "execution_surface": execution_surface,
+            "session_id": session_id,
+            "expected_head": expected_head,
+            "files": dict(files),
+            "activation_kind": activation_kind,
+            "activation_artifact": activation_artifact,
+        }
+        if causation_ref is not None:
+            params["causation_ref"] = causation_ref
+        return self._request("submit_successor", params)
+
     def _request(
         self,
         operation: str,
@@ -384,12 +444,18 @@ class OffRehearsalClient:
         self.endpoint = control_endpoint(home)
 
     def off(self) -> dict[str, Any]:
+        return self._request("off", {})
+
+    def on(self, host_binding: str) -> dict[str, Any]:
+        return self._request("on", {"host_binding": host_binding})
+
+    def _request(self, operation: str, params: Mapping[str, Any]) -> dict[str, Any]:
         request_id = uuid4().hex
         request = {
             "protocol": CONTROL_PROTOCOL,
             "request_id": request_id,
-            "operation": "off",
-            "params": {},
+            "operation": operation,
+            "params": dict(params),
         }
         with open_public_connection(self.endpoint) as connection:
             try:
