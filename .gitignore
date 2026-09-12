@@ -19,6 +19,7 @@ artifacts/
 outputs/
 runtime-data/
 .agentic-evo/
+.lingtai/**/.secrets/telegram.json
 
 .idea/
 .vscode/
