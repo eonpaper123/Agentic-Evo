@@ -1,7 +1,7 @@
 # Agentic-Evo v1.0 Goal
 
 状态：active  
-适用范围：`D:\rawle\Coding\Agentic-Evo`；第一参考实验台为 `3060-computer`。根 checkout 的当前分支不再代表项目总进度，必须同时核对集成分支、研究分支、独立 worktree 与实时实验状态。
+适用范围：本仓库；第一参考实验台为 `3060-computer`。根 checkout 的当前分支不再代表项目总进度，必须同时核对集成分支、研究分支、独立 worktree 与实时实验状态。
 
 目标：把当前已进入真实出生 home、跨 coding-agent 接入和纵向观测阶段的纵切面，推进为一个可安装、可运行、可复现实验、能在真实 coding-agent 使用过程中零人工逐步介入地持续学习与自我进化的 `Agent Developmental Runtime`。唯一宿主始终是用户本人；机器、Codex、基础模型、GPU、工具和项目都只是可更换的身体、器官或执行表面。
 

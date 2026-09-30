@@ -1427,7 +1427,7 @@ User C → Agent Lineage C
 
 原始参考：
 
-`C:\Users\rawle\Documents\xwechat_files\rawpaper_af80\msg\file\2026-07\梁文锋投资者交流会-录音转文本.pdf`
+用户提供的《梁文锋投资者交流会-录音转文本.pdf》（本地私人文件，不随仓库发布）。
 
 该文件是录音转写稿，存在语音识别错误。对外逐字引用前必须回听原始录音核对。
 
