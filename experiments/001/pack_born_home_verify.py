@@ -6,6 +6,8 @@ Read-only with respect to the runtime home: loads the runtime, validates the
 committed prereg, exports the pack over the genesis-anchored window (seq 2),
 verifies the artifact, and writes ONLY the pack JSON under experiments/001/ in
 this worktree. stdlib only; no network; no lifecycle/service/UAC/restart.
+Run from the repository root with PYTHONPATH=src and
+AGENTIC_EVO_EXPERIMENT_HOME set to the original born home.
 """
 
 import hashlib

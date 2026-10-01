@@ -1,6 +1,7 @@
 # 实验 001 预注册报告 — 机器级连续生命循环（正式样本起点）
 
 公开文本中的本机路径与操作者名称已作脱敏；预注册 JSON 保留原始 `project_environment`，因此下述工件哈希与原始实验一致。
+重跑 `experiments/001/prereg_export.py` 时，从仓库根目录设置 `PYTHONPATH=src`、`AGENTIC_EVO_EXPERIMENT_HOME`（原始出生 home）和 `AGENTIC_EVO_EXPERIMENT_PROJECT`（与已提交 `prereg.json` 中的 `project_environment` 完全一致）。重跑 `pack_born_home_verify.py` 也需前两项。新机器路径不能冒充原始实验锚点。
 
 Worktree：`<AGENTIC_EVO_REPO>\.lingtai\agentic-evo-total\work\dev-integrate`
 日期：2026-08-05

@@ -6,6 +6,10 @@ Read-only with respect to the runtime home: loads the runtime, reads status and
 evidence records, exports the prereg, applies the task-pinned anchors, and runs
 the module's own prereg validation. Writes only the canonical artifact JSON
 under experiments/001/ in this worktree. stdlib only; no network.
+Run from the repository root with PYTHONPATH=src and set
+AGENTIC_EVO_EXPERIMENT_HOME to the original born home plus
+AGENTIC_EVO_EXPERIMENT_PROJECT to the exact project_environment in the
+committed prereg.json. A new checkout path is not an equivalent anchor.
 """
 
 import hashlib
