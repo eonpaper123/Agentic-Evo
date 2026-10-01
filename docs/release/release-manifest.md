@@ -8,7 +8,7 @@
 
 > **Slice H 集成状态（2026-08-05 +08，worktree `dev-genesis`）**：新增 `runtime-adopt` 子命令
 > （`src/agentic_evo/runtime_adopt.py` + `cli.py` 加法接线；未改 `trusted.py`/`body.py`/`kernel.py`）。
-> 真实出生 home（`D:\rawle\Coding\Agentic-Evo\.agentic-evo\runtime-home`）已备份、采纳并 serve/status 冒烟通过
+> 真实出生 home（`<AGENTIC_EVO_REPO>\.agentic-evo\runtime-home`）已备份、采纳并 serve/status 冒烟通过
 > （详见 `runtime_home_report.md`）。`tests/test_runtime_adopt.py` 7 例全绿；全量 299 tests 仅余
 > 两个**预先存在**的环境性失败模块（`test_windows_gate_b_evidence.py` 43 例、`test_windows_gate_b.py` 1 例，
 > 均为 sandbox 子进程非 UTF-8 输出解码）。
@@ -38,7 +38,7 @@
 
 | 阻塞项 | 影响 | 授权状态 |
 | --- | --- | --- |
-| Gate B 重启实验（RetainedPreflight → Run/Elevated 保留服务生命周期） | 要求 1 的安装/恢复/卸载零残留 | `blocked_authorization`（待 Rawle 重启授权） |
+| Gate B 重启实验（RetainedPreflight → Run/Elevated 保留服务生命周期） | 要求 1 的安装/恢复/卸载零残留 | `blocked_authorization`（待 the operator 重启授权） |
 | 正式 Genesis | 要求 5 的真实纵向实验起点；要求 2 的跨重启存在 | `blocked_authorization` |
 | 第二个真实 coding-agent 接入并产出可重跑证据 | 要求 2 验收 | `blocked_authorization` + `not_proven_runtime` |
 | 私有远端推送 | 要求 6 的“Git 中保留聚焦提交并推送私有远端” | `blocked_authorization`（本 slice 明确不推送） |
@@ -50,7 +50,7 @@
 
 | 分支（worktree） | tip SHA（已确认） | 聚焦内容 |
 | --- | --- | --- |
-| `agent/p0-p1-evidence-readiness` | `1eac396`（`chore(lab): declare 3060-computer as host per Rawle`） | 证据准备度闭包：`1bae2e4 feat(evidence): P0/P1 evidence-readiness closure`、`936e939`（实验包泄漏检查结构化）、`893b502`（canonical 工件 CLI 输出）、`7d16855`/`c47505f`（red 测试：工件 CLI / 纵向证据包）、`87c9c99`/`c857c7a`（evidence/backend 边界文档）、`7c745fc`/`fff6c5c`/`cfd6deb`/`0289268`/`c4113c1`（跨平台 backend 契约冻结）、`ef67624`（五模块实证覆盖要求） |
+| `agent/p0-p1-evidence-readiness` | `1eac396`（`chore(lab): declare 3060-computer as host per the operator`） | 证据准备度闭包：`1bae2e4 feat(evidence): P0/P1 evidence-readiness closure`、`936e939`（实验包泄漏检查结构化）、`893b502`（canonical 工件 CLI 输出）、`7d16855`/`c47505f`（red 测试：工件 CLI / 纵向证据包）、`87c9c99`/`c857c7a`（evidence/backend 边界文档）、`7c745fc`/`fff6c5c`/`cfd6deb`/`0289268`/`c4113c1`（跨平台 backend 契约冻结）、`ef67624`（五模块实证覆盖要求） |
 | `agent/autonomous-loop` | `1f886b0`（`feat(loop): add caller-owned autonomous repair loop engine`） | **发布 base**：自治循环引擎（`autonomous_loop.py`）+ 上游 `870c932`/`36698b9`（experiment pack 导出/CLI）、`3f9cf17`/`e24c0bc`（prereg/pack CLI 测试）、`7f618b0`/`3c2db88`/`1349de6`（artifact receipt / 文档） |
 | `agent/memory-capability` | `2b09bd2`（`feat(memory): add Body-owned CAMU memory mechanism space`） | 在 `1f886b0` 之上 +1：CAMU 机制空间（`memory_store.py`、`memory-camu-*` CLI、`tests/test_memory_camu.py`） |
 | `agent/loop-demo` | `e138b9a`（`feat(loop): add real-task autonomous-loop integration demo`） | 在 `1f886b0` 之上 +1：真实任务循环集成 demo（`loop_integration.py`、`loop-demo-run` CLI、`tests/test_loop_integration.py`） |

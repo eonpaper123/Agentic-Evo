@@ -1,6 +1,6 @@
 # Slice E report — Genesis CLI capability (no real execution)
 
-Worktree: `D:\rawle\Coding\Agentic-Evo\.lingtai\agentic-evo-total\work\dev-genesis`
+Worktree: `<AGENTIC_EVO_REPO>\.lingtai\agentic-evo-total\work\dev-genesis`
 (branch `agent/genesis`, base `94f2823` — the integration tip). Nothing was staged or committed.
 Spec: `../slice_e_genesis_design.md` (followed strictly).
 
@@ -115,7 +115,7 @@ or the genesis slice; all 5 new tests pass. Excluding those two modules, the rem
 evidence recording, second-genesis refusal exit 6 with unchanged state, authority gate on wrong
 host binding, JSON receipt shape).
 - It does **NOT** perform or claim a real Genesis, and does **NOT** claim any v1.0 requirement
-completion. Real execution is a separate parent step requiring Rawle parameter confirmation.
+completion. Real execution is a separate parent step requiring the operator parameter confirmation.
 - Genesis creates identity only; it does not by itself prove install/uninstall, Gate B,
 second-agent, or longitudinal learning (see `docs/engineering/genesis.md` §6).
 

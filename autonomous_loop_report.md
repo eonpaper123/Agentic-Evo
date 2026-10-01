@@ -1,6 +1,6 @@
 # Autonomous Loop v1.0 — Implementation Report
 
-Worktree: `D:\rawle\Coding\Agentic-Evo\.lingtai\agentic-evo-total\work\dev-loop`
+Worktree: `<AGENTIC_EVO_REPO>\.lingtai\agentic-evo-total\work\dev-loop`
 Branch: `agent/autonomous-loop`  HEAD: `1349de685559e942890a7b7086e2a5d63ee80767`
 
 ## 1. Files created / changed
@@ -28,7 +28,7 @@ Changed (worktree only; shared checkout untouched):
 
 Not modified: `tests/`, life-core modules (`kernel.py`, `trusted.py`,
 `runtime.py`, `body.py`, `witness.py`), the shared checkout
-`D:\rawle\Coding\Agentic-Evo`; nothing staged or committed.
+`<AGENTIC_EVO_REPO>`; nothing staged or committed.
 
 ## 2. Design decisions
 

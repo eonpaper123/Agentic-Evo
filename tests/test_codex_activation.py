@@ -36,8 +36,8 @@ from agentic_evo.ipc import ServiceNotRunningError, ServiceUnavailableError
 from agentic_evo.runtime import DevelopmentalRuntime
 
 
-_SOURCE = r"D:\rawle\.codex\hooks.json"
-_COMMAND = '"D:/Python/python.exe" "D:/rawle/.codex/agentic-evo.pyz" hook --surface codex'
+_SOURCE = r"D:\sample-user\.codex\hooks.json"
+_COMMAND = '"D:/Python/python.exe" "D:/sample-user/.codex/agentic-evo.pyz" hook --surface codex'
 _HASH = "sha256:" + "a" * 64
 _REQUIRED_EVENT_NAMES = frozenset(
     {
@@ -168,12 +168,12 @@ class CodexActivationTests(unittest.TestCase):
 
     def test_windows_hook_command_is_a_single_quoted_launcher_path(self) -> None:
         command = _codex_windows_hook_command(
-            Path(r"D:\rawle\.codex\agentic-evo\agentic-evo-hook.cmd")
+            Path(r"D:\sample-user\.codex\agentic-evo\agentic-evo-hook.cmd")
         )
 
         self.assertEqual(
             command,
-            '"D:/rawle/.codex/agentic-evo/agentic-evo-hook.cmd"',
+            '"D:/sample-user/.codex/agentic-evo/agentic-evo-hook.cmd"',
         )
 
     def test_installed_hooks_use_the_windows_launcher_and_real_timeouts(self) -> None:
@@ -184,7 +184,7 @@ class CodexActivationTests(unittest.TestCase):
                 Path("/var/lib/agentic-evo"),
             )
             windows = _codex_windows_hook_command(
-                Path(r"D:\rawle\.codex\agentic-evo\agentic-evo-hook.cmd")
+                Path(r"D:\sample-user\.codex\agentic-evo\agentic-evo-hook.cmd")
             )
 
             added = _install_codex_hooks(codex_home, portable, windows)
@@ -200,7 +200,7 @@ class CodexActivationTests(unittest.TestCase):
         self.assertEqual(handlers["SessionEnd"]["timeout"], 3)
 
     def test_trust_selection_only_includes_this_enabled_command_at_this_source(self) -> None:
-        target = _hook(key=r"D:\rawle\.codex\hooks.json:session_start:1:0")
+        target = _hook(key=r"D:\sample-user\.codex\hooks.json:session_start:1:0")
         selected = select_exact_codex_hooks(
             [
                 target,
@@ -208,7 +208,7 @@ class CodexActivationTests(unittest.TestCase):
                     key="other-command",
                     command="python unrelated-hook.py",
                 ),
-                _hook(key="other-source", source_path=r"C:\rawle\.codex\hooks.json"),
+                _hook(key="other-source", source_path=r"C:\sample-user\.codex\hooks.json"),
                 _hook(key="disabled", enabled=False),
             ],
             source_path=_SOURCE,
@@ -222,7 +222,7 @@ class CodexActivationTests(unittest.TestCase):
             [
                 {
                     "keyPath": (
-                        'hooks.state."D:\\\\rawle\\\\.codex\\\\hooks.json:'
+                        'hooks.state."D:\\\\sample-user\\\\.codex\\\\hooks.json:'
                         'session_start:1:0".trusted_hash'
                     ),
                     "mergeStrategy": "replace",
@@ -256,7 +256,7 @@ class CodexActivationTests(unittest.TestCase):
     def test_activation_writes_only_selected_hashes_then_checks_fresh_list(self) -> None:
         before = _required_hooks(trust_status="untrusted")
         after = _required_hooks(trust_status="trusted")
-        config_path = Path(r"D:\rawle\.codex\config.toml")
+        config_path = Path(r"D:\sample-user\.codex\config.toml")
         source_path = Path(_SOURCE)
 
         with patch("agentic_evo.activation._CodexHookTrustProtocol") as protocol_type:
@@ -264,15 +264,15 @@ class CodexActivationTests(unittest.TestCase):
             protocol.list_hooks.side_effect = [before, after]
 
             count = trust_installed_codex_hooks(
-                codex_executable=Path(r"D:\rawle\Apps\CodexCLI\codex.exe"),
-                working_directory=Path(r"D:\rawle\Coding\Agentic-Evo"),
+                codex_executable=Path(r"D:\sample-user\Apps\CodexCLI\codex.exe"),
+                working_directory=Path(r"D:\sample-user\Coding\Agentic-Evo"),
                 config_path=config_path,
                 source_path=source_path,
                 command=_COMMAND,
             )
 
         self.assertEqual(count, len(_REQUIRED_EVENT_NAMES))
-        protocol.list_hooks.assert_called_with(Path(r"D:\rawle\Coding\Agentic-Evo"))
+        protocol.list_hooks.assert_called_with(Path(r"D:\sample-user\Coding\Agentic-Evo"))
         protocol.write_trusted_hashes.assert_called_once_with(
             trusted_hash_edits(select_exact_codex_hooks(before, source_path=source_path, command=_COMMAND)),
             config_path=config_path,
@@ -285,9 +285,9 @@ class CodexActivationTests(unittest.TestCase):
 
             with self.assertRaises(CodexHookTrustError):
                 trust_installed_codex_hooks(
-                    codex_executable=Path(r"D:\rawle\Apps\CodexCLI\codex.exe"),
-                    working_directory=Path(r"D:\rawle\Coding\Agentic-Evo"),
-                    config_path=Path(r"D:\rawle\.codex\config.toml"),
+                    codex_executable=Path(r"D:\sample-user\Apps\CodexCLI\codex.exe"),
+                    working_directory=Path(r"D:\sample-user\Coding\Agentic-Evo"),
+                    config_path=Path(r"D:\sample-user\.codex\config.toml"),
                     source_path=Path(_SOURCE),
                     command=_COMMAND,
                 )
@@ -311,7 +311,7 @@ class CodexActivationTests(unittest.TestCase):
                 home=home,
                 install_root=root / "install",
                 codex_home=codex_home,
-                codex_executable=Path(r"D:\rawle\Apps\CodexCLI\codex.exe"),
+                codex_executable=Path(r"D:\sample-user\Apps\CodexCLI\codex.exe"),
             )
 
             with (

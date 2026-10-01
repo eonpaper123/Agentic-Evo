@@ -104,7 +104,7 @@ Gate B 结论：`not_proven_runtime`；重启实验：`blocked_authorization`。
 ## 5. 授权边界与阻塞项
 
 - UAC / 系统重启 / 永久服务 / 正式 Genesis / 推送私有远端：全部属于 `GOAL.md` 不可变边界第 5 条，必须事先获得明确授权；
-- 当前状态：`blocked_authorization`（重启验证待 Rawle 授权；正式 Genesis 待授权；私有远端推送待授权）。
+- 当前状态：`blocked_authorization`（重启验证待 the operator 授权；正式 Genesis 待授权；私有远端推送待授权）。
 
 ## 6. 声明上限（Claim ceilings）
 

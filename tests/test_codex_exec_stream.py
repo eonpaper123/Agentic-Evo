@@ -68,7 +68,7 @@ class CodexExecStreamTests(unittest.TestCase):
 
         with patch("agentic_evo.codex_exec_stream.subprocess.Popen", return_value=process) as popen:
             result = run_codex_exec_stream(
-                executable=Path("D:/rawle/Apps/CodexCLI/codex.exe"),
+                executable=Path("D:/sample-user/Apps/CodexCLI/codex.exe"),
                 args=("--full-auto",),
                 cwd=Path("D:/work/project"),
                 wrapped_prompt="=== USER TASK ===\nDo the task.",
@@ -79,7 +79,7 @@ class CodexExecStreamTests(unittest.TestCase):
         self.assertEqual(
             popen.call_args.args[0],
             [
-                str(Path("D:/rawle/Apps/CodexCLI/codex.exe")),
+                str(Path("D:/sample-user/Apps/CodexCLI/codex.exe")),
                 "exec",
                 "--json",
                 "--full-auto",

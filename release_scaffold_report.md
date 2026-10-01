@@ -1,6 +1,6 @@
 # Slice D — Release Scaffold Report
 
-Worktree: `D:\rawle\Coding\Agentic-Evo\.lingtai\agentic-evo-total\work\dev-release`
+Worktree: `<AGENTIC_EVO_REPO>\.lingtai\agentic-evo-total\work\dev-release`
 Branch: `agent/release-scaffold`（base `1f886b0`）
 
 ## 1. Files created

@@ -1,6 +1,6 @@
 # Slice B report — Memory-to-Capability mechanism space (CAMU store)
 
-Worktree: `D:\rawle\Coding\Agentic-Evo\.lingtai\agentic-evo-total\work\dev-memory`
+Worktree: `<AGENTIC_EVO_REPO>\.lingtai\agentic-evo-total\work\dev-memory`
 (branch `agent/memory-capability`, base `1f886b0`). Nothing was staged or committed.
 Spec: `../slice_b_memory_design.md` (followed strictly).
 

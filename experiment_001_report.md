@@ -1,6 +1,8 @@
 # 实验 001 预注册报告 — 机器级连续生命循环（正式样本起点）
 
-Worktree：`D:\rawle\Coding\Agentic-Evo\.lingtai\agentic-evo-total\work\dev-integrate`
+公开文本中的本机路径与操作者名称已作脱敏；预注册 JSON 保留原始 `project_environment`，因此下述工件哈希与原始实验一致。
+
+Worktree：`<AGENTIC_EVO_REPO>\.lingtai\agentic-evo-total\work\dev-integrate`
 日期：2026-08-05
 范围：仅在本 worktree 内落盘；未 stage/commit；未触碰共享 checkout；对真实出生 home 仅只读（load/status/evidence 读取，未执行 Genesis/Off/serve/安装/生命周期操作）。
 
@@ -36,7 +38,7 @@ Worktree：`D:\rawle\Coding\Agentic-Evo\.lingtai\agentic-evo-total\work\dev-inte
   "root_commitment": "c78860b7a6dc65c6af61f69a6e54f4b5c86f9b8b5d612019a7159c95daabe497",
   "head_start": "1628ca500af68509084609a47a692efdad903c47fa612e1fdd070f8e796a5884",
   "execution_surface": "opencode",
-  "project_environment": "D:\\rawle\\Coding\\Agentic-Evo",
+  "project_environment": "<AGENTIC_EVO_REPO>",
   "hypothesis_refs": [
     "H001-A",
     "H001-B",
@@ -78,7 +80,7 @@ Worktree：`D:\rawle\Coding\Agentic-Evo\.lingtai\agentic-evo-total\work\dev-inte
 
 ## 4. 起点锚点如何映射到 genesis 证据
 
-真实 home `D:\rawle\Coding\Agentic-Evo\.agentic-evo\runtime-home` 由 `genesis` CLI 出生并经 `runtime-adopt` 采用（head 从出生钉定值迁到 initial Body commitment）。本次加载实测（`DevelopmentalRuntime.load` + `status()` + `evidence.records()`，全部 home 核对项为 true）：
+真实 home `<AGENTIC_EVO_REPO>\.agentic-evo\runtime-home` 由 `genesis` CLI 出生并经 `runtime-adopt` 采用（head 从出生钉定值迁到 initial Body commitment）。本次加载实测（`DevelopmentalRuntime.load` + `status()` + `evidence.records()`，全部 home 核对项为 true）：
 
 | 字段 | 值 |
 |---|---|
@@ -103,7 +105,7 @@ Worktree：`D:\rawle\Coding\Agentic-Evo\.lingtai\agentic-evo-total\work\dev-inte
 
 1. `root_commitment = sha256_hex("agentic-evo-root-v1") = c78860b7a6dc65c6af61f69a6e54f4b5c86f9b8b5d612019a7159c95daabe497`——模块校验要求 64-hex；任务明确指示对非 hex 出生 root 取其 sha256。
 2. `start_anchor = {sequence: 1, integrity_hash: 9c74390c…}`——任务钉定 genesis 证据为起点（取代代码默认的尾记录锚点）。
-3. `execution_surface = "opencode"`、`project_environment = "D:\rawle\Coding\Agentic-Evo"`——任务指定值（当前实际执行表面与项目环境）。
+3. `execution_surface = "opencode"`、`project_environment = "<AGENTIC_EVO_REPO>"`——任务指定值（当前实际执行表面与项目环境）。
 4. `head_start`、`instrument_version`、`protocol_version`、refs、claim_ceiling 保持代码派生值不变。
 
 写盘注意：`_ceiling_is_exact` 按**键序**与 `EXPERIMENT_CLAIM_CEILING` 比较，工件必须以模块键序写盘（不可 sort_keys）；已用保持键序的 JSON 写盘并回读验证通过（CLI 的 `_json_object` 加载路径也会做同样规范化）。

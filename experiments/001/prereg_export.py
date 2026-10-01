@@ -10,6 +10,7 @@ under experiments/001/ in this worktree. stdlib only; no network.
 
 import hashlib
 import json
+import os
 from pathlib import Path
 import sys
 
@@ -24,7 +25,7 @@ from agentic_evo.experiment_pack import (
 )
 from agentic_evo.runtime import DevelopmentalRuntime
 
-HOME = Path(r"D:\rawle\Coding\Agentic-Evo\.agentic-evo\runtime-home")
+HOME = Path(os.environ["AGENTIC_EVO_EXPERIMENT_HOME"])
 ARTIFACT = Path("experiments") / "001" / "prereg.json"
 
 EXPECTED_ROOT_STRING = "agentic-evo-root-v1"
@@ -34,7 +35,7 @@ EXPECTED_GENESIS_HASH = (
     "9c74390ca2f25bf65fd0538a7fb55230e4c1eb219b8fd01bce203346ef9403b9"
 )
 EXECUTION_SURFACE = "opencode"
-PROJECT_ENVIRONMENT = r"D:\rawle\Coding\Agentic-Evo"
+PROJECT_ENVIRONMENT = os.environ["AGENTIC_EVO_EXPERIMENT_PROJECT"]
 
 
 def _record_summary(record: object) -> dict[str, object]:

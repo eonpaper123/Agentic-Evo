@@ -10,6 +10,7 @@ this worktree. stdlib only; no network; no lifecycle/service/UAC/restart.
 
 import hashlib
 import json
+import os
 from pathlib import Path
 import sys
 
@@ -21,7 +22,7 @@ from agentic_evo.experiment_pack import (
 )
 from agentic_evo.runtime import DevelopmentalRuntime
 
-HOME = Path(r"D:\rawle\Coding\Agentic-Evo\.agentic-evo\runtime-home")
+HOME = Path(os.environ["AGENTIC_EVO_EXPERIMENT_HOME"])
 PREREG = Path("experiments") / "001" / "prereg.json"
 PACK_ARTIFACT = Path("experiments") / "001" / "pack_dry_run.json"
 

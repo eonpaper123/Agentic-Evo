@@ -1,6 +1,8 @@
 # Slice H report — make the Genesis-born home servable by the runtime (identity preserved)
 
-Worktree: `D:\rawle\Coding\Agentic-Evo\.lingtai\agentic-evo-total\work\dev-genesis` (branch `agent/genesis`; nothing staged/committed).
+Local paths and the operator name are redacted in this published narrative; recorded state and integrity values are unchanged.
+
+Worktree: `<AGENTIC_EVO_REPO>\.lingtai\agentic-evo-total\work\dev-genesis` (branch `agent/genesis`; nothing staged/committed).
 Spec: `../slice_h_runtime_adopt_design.md` (followed; one honest deviation documented in §2.3).
 Date: 2026-08-05.
 
@@ -8,7 +10,7 @@ Date: 2026-08-05.
 
 ### 1.1 The failure reproduced exactly
 
-Real home `D:\rawle\Coding\Agentic-Evo\.agentic-evo\runtime-home` contains ONLY:
+Real home `<AGENTIC_EVO_REPO>\.agentic-evo\runtime-home` contains ONLY:
 
 ```
 state.sqlite3   24576 bytes
@@ -18,7 +20,7 @@ witness.key        32 bytes
 (1) `serve` on the real home fails as the brief predicted (the CLI flag is `--dev-home`, not `--home`; with the real flag):
 
 ```powershell
-$env:PYTHONPATH='src'; python -m agentic_evo.cli serve --dev-home D:\rawle\Coding\Agentic-Evo\.agentic-evo\runtime-home
+$env:PYTHONPATH='src'; python -m agentic_evo.cli serve --dev-home <AGENTIC_EVO_REPO>\.agentic-evo\runtime-home
 ```
 
 ```json
@@ -92,16 +94,16 @@ Full-suite regression: `python -m unittest discover -s tests` → **299 tests; 4
 
 ### 2.3 Real-home verification — verbatim evidence
 
-Backup (kept until parent accepts): `D:\rawle\Coding\Agentic-Evo\.agentic-evo\runtime-home-backup-20260805` — `STATE_MATCH=True`, `KEY_MATCH=True` (byte-identical copy).
+Backup (kept until parent accepts): `<AGENTIC_EVO_REPO>\.agentic-evo\runtime-home-backup-20260805` — `STATE_MATCH=True`, `KEY_MATCH=True` (byte-identical copy).
 
 Adoption (real home):
 
 ```powershell
-$env:PYTHONPATH='src'; python -m agentic_evo.cli runtime-adopt --home D:\rawle\Coding\Agentic-Evo\.agentic-evo\runtime-home
+$env:PYTHONPATH='src'; python -m agentic_evo.cli runtime-adopt --home <AGENTIC_EVO_REPO>\.agentic-evo\runtime-home
 ```
 
 ```json
-{"ok":true,"result":{"evidence":{"adoption":{"event_id":"d714cf5c3fea411699a9aa9a05f84237","event_kind":"head_advanced","integrity_hash":"2cb02c959a6826a00f6da5626f17dff5f53c8056f56bd9398aa1be21c1ae0b14","sequence":2},"genesis":{"event_id":"e4a099344d3841cfb6fbd18b76089414","integrity_hash":"9c74390ca2f25bf65fd0538a7fb55230e4c1eb219b8fd01bce203346ef9403b9","sequence":1},"records":2},"genesis_head":"ee79ae49b8941344e1f314e1f9183deacf8c089d","head":"1628ca500af68509084609a47a692efdad903c47fa612e1fdd070f8e796a5884","home":"D:\\rawle\\Coding\\Agentic-Evo\\.agentic-evo\\runtime-home","identity":{"authority":"on","root":"agentic-evo-root-v1","who":"9c3510701bfa091976668a3c18dc8079ff469d3c56a24f3cea5e84222b83dbe6","why":"0f8674a12058c3720a121400b837e801ef65628d982977d3770f508664cf521a"},"initial_body":{"activation_artifact":"entrypoint.md","activation_kind":"surface-context-utf8-v1","author_kind":"research_instrument","commitment":"1628ca500af68509084609a47a692efdad903c47fa612e1fdd070f8e796a5884","files":["entrypoint.md","identity.md"],"generation":1,"parent_head":"ee79ae49b8941344e1f314e1f9183deacf8c089d"},"trusted_layout":{"state":"trusted/state.sqlite3","witness_key":"trusted/witness.key","witness_key_preserved":true}}}
+{"ok":true,"result":{"evidence":{"adoption":{"event_id":"d714cf5c3fea411699a9aa9a05f84237","event_kind":"head_advanced","integrity_hash":"2cb02c959a6826a00f6da5626f17dff5f53c8056f56bd9398aa1be21c1ae0b14","sequence":2},"genesis":{"event_id":"e4a099344d3841cfb6fbd18b76089414","integrity_hash":"9c74390ca2f25bf65fd0538a7fb55230e4c1eb219b8fd01bce203346ef9403b9","sequence":1},"records":2},"genesis_head":"ee79ae49b8941344e1f314e1f9183deacf8c089d","head":"1628ca500af68509084609a47a692efdad903c47fa612e1fdd070f8e796a5884","home":"<AGENTIC_EVO_REPO>\\.agentic-evo\\runtime-home","identity":{"authority":"on","root":"agentic-evo-root-v1","who":"9c3510701bfa091976668a3c18dc8079ff469d3c56a24f3cea5e84222b83dbe6","why":"0f8674a12058c3720a121400b837e801ef65628d982977d3770f508664cf521a"},"initial_body":{"activation_artifact":"entrypoint.md","activation_kind":"surface-context-utf8-v1","author_kind":"research_instrument","commitment":"1628ca500af68509084609a47a692efdad903c47fa612e1fdd070f8e796a5884","files":["entrypoint.md","identity.md"],"generation":1,"parent_head":"ee79ae49b8941344e1f314e1f9183deacf8c089d"},"trusted_layout":{"state":"trusted/state.sqlite3","witness_key":"trusted/witness.key","witness_key_preserved":true}}}
 ```
 → exit code **0**.
 

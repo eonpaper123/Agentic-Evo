@@ -44,7 +44,7 @@ BORN_ROOT_COMMITMENT = sha256_hex(BORN_ROOT)
 # commitment; there is no manifest for it).
 GENESIS_PINNED_HEAD = "ee79ae49b8941344e1f314e1f9183deacf8c089d"
 EXECUTION_SURFACE = "opencode"
-PROJECT_ENVIRONMENT = r"D:\rawle\Coding\Agentic-Evo"
+PROJECT_ENVIRONMENT = r"D:\sample-user\Coding\Agentic-Evo"
 
 
 class BornHomeExperimentPackTests(unittest.TestCase):

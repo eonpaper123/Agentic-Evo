@@ -7,7 +7,7 @@ Scope: adapter mapping slice only (per design brief `slice_f_opencode_design.md`
 
 Verified against the installed package and the pinned v1.18.13 source:
 
-- `opencode --version` → `1.18.13` (npm global `opencode-ai@1.18.13` at `D:\rawle\Apps\npm-global\node_modules\opencode-ai`).
+- `opencode --version` → `1.18.13` (npm global `opencode-ai@1.18.13` at `<former local workspace>\Apps\npm-global\node_modules\opencode-ai`).
 - **There is NO `hook` JSON config key in opencode 1.18.13.** `opencode.ai/config.json` (fetched 2026-08-05) has no `hook` property, and `packages/opencode/src/config/config.ts`@v1.18.13 contains no "hook" reference.
 - The real hook surface is the **plugin event system** (`https://opencode.ai/docs/plugins/`): local JS/TS plugin files in `.opencode/plugins/` or `~/.config/opencode/plugins/` (or npm plugins via the `plugin` array) export functions keyed by event name; each receives the event payload as an in-process JSON object (camelCase fields).
 - Confirmed event names + payload fields (from `packages/schema/src/v1/session.ts`, `packages/schema/src/session-status-event.ts` @v1.18.13):

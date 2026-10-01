@@ -820,9 +820,9 @@ class BodyProcessTests(unittest.TestCase):
             close=MagicMock(),
         )
         fake_stage = SimpleNamespace(
-            python_executable=Path("D:/rawle/test-lpac/python.exe"),
-            payload_root=Path("D:/rawle/test-lpac/payload"),
-            scratch_path=Path("D:/rawle/test-lpac/scratch"),
+            python_executable=Path("D:/sample-user/test-lpac/python.exe"),
+            payload_root=Path("D:/sample-user/test-lpac/payload"),
+            scratch_path=Path("D:/sample-user/test-lpac/scratch"),
             close=MagicMock(),
         )
         fake_process = MagicMock()

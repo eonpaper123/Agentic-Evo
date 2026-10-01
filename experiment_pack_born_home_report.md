@@ -1,8 +1,8 @@
 # Slice I report — experiment_pack validation against the born home
 
-Worktree: `D:\rawle\Coding\Agentic-Evo\.lingtai\agentic-evo-total\work\dev-integrate` (branch `agent/v1.0-integration`, base d7854e6)
+Worktree: `<AGENTIC_EVO_REPO>\.lingtai\agentic-evo-total\work\dev-integrate` (branch `agent/v1.0-integration`, base d7854e6)
 Date: 2026-08-05
-Scope: only this worktree; nothing staged/committed; shared checkout untouched; real home `D:\rawle\Coding\Agentic-Evo\.agentic-evo\runtime-home` opened read-only (verified byte-identical before/after). stdlib only, no network, no lifecycle/service/UAC/restart.
+Scope: only this worktree; nothing staged/committed; shared checkout untouched; real home `<AGENTIC_EVO_REPO>\.agentic-evo\runtime-home` opened read-only (verified byte-identical before/after). stdlib only, no network, no lifecycle/service/UAC/restart.
 
 ## 1. Canonical semantics decided
 
